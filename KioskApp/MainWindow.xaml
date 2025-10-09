@@ -1,0 +1,25 @@
+<Window
+    x:Class="KioskApp.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid>
+        <!-- WebView2 Control -->
+        <WebView2 x:Name="KioskWebView" 
+                  Source="https://orh-frontend-container-prod.purplewave-6482a85c.westus2.azurecontainerapps.io/login"
+                  DefaultBackgroundColor="Transparent" />
+
+        <!-- Transparent Exit Overlay (Upper-Right Corner) -->
+        <Border x:Name="ExitOverlay"
+                Width="100"
+                Height="100"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Background="Transparent"
+                Tapped="ExitOverlay_Tapped" />
+    </Grid>
+</Window>
+

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller
+    Uri="https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/KioskApp.appinstaller"
+    Version="1.0.0.0"
+    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018">
+
+  <MainBundle
+      Name="KioskApp"
+      Publisher="CN=YourOrganization"
+      Version="1.0.0.0"
+      Uri="https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/KioskApp_1.0.0.0_x64.msixbundle" />
+
+  <UpdateSettings>
+    <OnLaunch 
+        HoursBetweenUpdateChecks="0"
+        ShowPrompt="false"
+        UpdateBlocksActivation="true" />
+    <AutomaticBackgroundTask />
+  </UpdateSettings>
+
+  <!-- Optional: Add dependencies if needed -->
+  <!--
+  <Dependencies>
+    <Package Name="Microsoft.VCLibs.140.00.UWPDesktop" 
+             Publisher="CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US"
+             Version="14.0.30704.0"
+             ProcessorArchitecture="x64"
+             Uri="https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx" />
+  </Dependencies>
+  -->
+
+</AppInstaller>
+

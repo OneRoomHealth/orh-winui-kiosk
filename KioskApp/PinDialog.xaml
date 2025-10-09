@@ -1,0 +1,30 @@
+<ContentDialog
+    x:Class="KioskApp.PinDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Exit Kiosk Mode"
+    PrimaryButtonText="Exit"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    PrimaryButtonClick="ContentDialog_PrimaryButtonClick">
+
+    <StackPanel Spacing="16" Padding="24">
+        <TextBlock Text="Enter PIN to exit kiosk mode:" 
+                   FontSize="16"
+                   TextWrapping="Wrap"/>
+        
+        <PasswordBox x:Name="PinInput"
+                     PlaceholderText="Enter PIN"
+                     MaxLength="10"
+                     FontSize="18"
+                     HorizontalAlignment="Stretch"
+                     MinWidth="200"/>
+        
+        <TextBlock x:Name="ErrorMessage"
+                   Text="Incorrect PIN. Please try again."
+                   Foreground="Red"
+                   FontSize="14"
+                   Visibility="Collapsed"/>
+    </StackPanel>
+</ContentDialog>
+
