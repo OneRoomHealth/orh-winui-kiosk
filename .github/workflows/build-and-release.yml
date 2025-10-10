@@ -87,28 +87,13 @@ jobs:
         echo "APP_VERSION=$version" >> $env:GITHUB_ENV
       shell: pwsh
 
-    - name: Build MSIX Bundle
+    - name: Build and Package MSIX
       run: |
-        Write-Host "Starting MSIX bundle build..."
+        Write-Host "Starting MSIX package build..."
         
-        # First build the project normally
+        # Build the project with package creation
+        # The project file already has AppxBundle=Always configured
         msbuild ${{ env.PROJECT_PATH }} `
-          /p:Configuration=${{ env.CONFIGURATION }} `
-          /p:Platform=${{ env.PLATFORM }} `
-          /p:AppxPackageSigningEnabled=true `
-          /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
-          /p:PackageCertificatePassword='${{ secrets.CERTIFICATE_PASSWORD }}' `
-          /verbosity:normal `
-          /restore
-        
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "Initial build failed with exit code $LASTEXITCODE"
-          exit $LASTEXITCODE
-        }
-        
-        # Now create the app package with bundle
-        msbuild ${{ env.PROJECT_PATH }} `
-          /t:CreateAppxPackage `
           /p:Configuration=${{ env.CONFIGURATION }} `
           /p:Platform=${{ env.PLATFORM }} `
           /p:AppxBundle=Always `
@@ -119,22 +104,38 @@ jobs:
           /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
           /p:PackageCertificatePassword='${{ secrets.CERTIFICATE_PASSWORD }}' `
           /p:GenerateAppInstallerFile=false `
-          /verbosity:normal
+          /p:PublishProfile="" `
+          /verbosity:normal `
+          /restore
         
         if ($LASTEXITCODE -ne 0) {
           Write-Error "MSBuild failed with exit code $LASTEXITCODE"
           exit $LASTEXITCODE
         }
         
+        Write-Host "`n========================================" 
         Write-Host "Build completed successfully"
+        Write-Host "========================================`n"
         
-        # List what was created in AppPackages directory
+        # List what was created in all possible locations
+        Write-Host "Searching for generated MSIX files...`n"
+        
         $appPackagesDir = "${{ github.workspace }}\AppPackages"
         if (Test-Path $appPackagesDir) {
-          Write-Host "`nContents of AppPackages directory:"
+          Write-Host "Contents of AppPackages directory:"
           Get-ChildItem -Path $appPackagesDir -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
-        } else {
-          Write-Host "AppPackages directory was not created"
+        }
+        
+        $binDir = "${{ github.workspace }}\KioskApp\bin"
+        if (Test-Path $binDir) {
+          Write-Host "`nMSIX files in bin directory:"
+          Get-ChildItem -Path $binDir -Recurse -Filter "*.msix*" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+        }
+        
+        $objDir = "${{ github.workspace }}\KioskApp\obj"
+        if (Test-Path $objDir) {
+          Write-Host "`nMSIX files in obj directory:"
+          Get-ChildItem -Path $objDir -Recurse -Filter "*.msix*" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
         }
       shell: pwsh
 
