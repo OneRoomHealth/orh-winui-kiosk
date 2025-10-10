@@ -13,7 +13,7 @@ on:
 
 env:
   PROJECT_PATH: KioskApp/KioskApp.csproj
-  SOLUTION_NAME: KioskApp
+  SOLUTION_NAME: OneRoomHealthKioskApp
   CONFIGURATION: Release
   PLATFORM: x64
 
@@ -169,9 +169,9 @@ jobs:
         if ($null -eq $bundlePath) {
           Write-Host "MSIX bundle not found. Searching for individual MSIX files as fallback..."
           
-          # Try to find Main.msix as fallback
-          $msixFiles = Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
-          $mainMsix = $msixFiles | Where-Object { $_.Name -eq "Main.msix" } | Select-Object -First 1
+        # Try to find Main.msix or any .msix file as fallback
+        $msixFiles = Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
+        $mainMsix = $msixFiles | Where-Object { $_.Name -match "(Main|OneRoomHealthKioskApp)\.msix" } | Select-Object -First 1
           
           if ($mainMsix) {
             Write-Host "Found Main.msix file at: $($mainMsix.FullName)"
