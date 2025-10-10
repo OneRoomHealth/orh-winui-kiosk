@@ -130,33 +130,32 @@ jobs:
         $version = "${{ env.APP_VERSION }}"
         $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
         $bundleName = "${{ env.BUNDLE_NAME }}"
+        $solutionName = "${{ env.SOLUTION_NAME }}"
         
-        # Read the template
-        $appInstallerContent = @"
-<?xml version="1.0" encoding="utf-8"?>
-<AppInstaller
-    Uri="$repoUrl/releases/latest/download/${{ env.SOLUTION_NAME }}.appinstaller"
-    Version="$version"
-    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018">
-
-  <MainBundle
-      Name="${{ env.SOLUTION_NAME }}"
-      Publisher="CN=YourOrganization"
-      Version="$version"
-      Uri="$repoUrl/releases/latest/download/$bundleName" />
-
-  <UpdateSettings>
-    <OnLaunch 
-        HoursBetweenUpdateChecks="0"
-        ShowPrompt="false"
-        UpdateBlocksActivation="true" />
-    <AutomaticBackgroundTask />
-  </UpdateSettings>
-</AppInstaller>
-"@
+        # Create AppInstaller content using string concatenation to avoid YAML conflicts
+        $appInstallerContent = '<?xml version="1.0" encoding="utf-8"?>' + "`n"
+        $appInstallerContent += '<AppInstaller' + "`n"
+        $appInstallerContent += '    Uri="' + $repoUrl + '/releases/latest/download/' + $solutionName + '.appinstaller"' + "`n"
+        $appInstallerContent += '    Version="' + $version + '"' + "`n"
+        $appInstallerContent += '    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018">' + "`n"
+        $appInstallerContent += "`n"
+        $appInstallerContent += '  <MainBundle' + "`n"
+        $appInstallerContent += '      Name="' + $solutionName + '"' + "`n"
+        $appInstallerContent += '      Publisher="CN=OneRoomHealth"' + "`n"
+        $appInstallerContent += '      Version="' + $version + '"' + "`n"
+        $appInstallerContent += '      Uri="' + $repoUrl + '/releases/latest/download/' + $bundleName + '" />' + "`n"
+        $appInstallerContent += "`n"
+        $appInstallerContent += '  <UpdateSettings>' + "`n"
+        $appInstallerContent += '    <OnLaunch' + "`n"
+        $appInstallerContent += '        HoursBetweenUpdateChecks="0"' + "`n"
+        $appInstallerContent += '        ShowPrompt="false"' + "`n"
+        $appInstallerContent += '        UpdateBlocksActivation="true" />' + "`n"
+        $appInstallerContent += '    <AutomaticBackgroundTask />' + "`n"
+        $appInstallerContent += '  </UpdateSettings>' + "`n"
+        $appInstallerContent += '</AppInstaller>'
         
         $appInstallerPath = "${{ github.workspace }}\${{ env.SOLUTION_NAME }}.appinstaller"
-        Set-Content -Path $appInstallerPath -Value $appInstallerContent
+        Set-Content -Path $appInstallerPath -Value $appInstallerContent -Encoding UTF8
         
         echo "APPINSTALLER_PATH=$appInstallerPath" >> $env:GITHUB_ENV
       shell: pwsh
