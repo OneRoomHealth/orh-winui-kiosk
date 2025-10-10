@@ -210,13 +210,11 @@ jobs:
         $pfxPath = "${{ github.workspace }}\GitHubActionsWorkflow.pfx"
         $cerPath = "${{ github.workspace }}\${{ env.SOLUTION_NAME }}_${{ env.APP_VERSION }}.cer"
         
-        # Use X509Certificate2 class to load PFX with password
+        # Use X509Certificate2 constructor to load PFX with password
         $passwordString = '${{ secrets.CERTIFICATE_PASSWORD }}'
-        $certPassword = ConvertTo-SecureString $passwordString -AsPlainText -Force
         
-        # Load the certificate from PFX
-        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
-        $cert.Import($pfxPath, $passwordString, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet)
+        # Load the certificate from PFX using constructor
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfxPath, $passwordString, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::DefaultKeySet)
         
         # Export as .cer (public certificate only)
         $bytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
