@@ -10,8 +10,8 @@ param(
 
 # Generate a secure password if not provided
 if ([string]::IsNullOrEmpty($Password)) {
-    Add-Type -AssemblyName 'System.Web'
-    $Password = [System.Web.Security.Membership]::GeneratePassword(16, 4)
+    # Generate a simpler password without special characters that can cause issues in CI/CD
+    $Password = -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 16 | % {[char]$_})
     Write-Host "Generated password: $Password" -ForegroundColor Green
     Write-Host "IMPORTANT: Save this password securely!" -ForegroundColor Yellow
 }
