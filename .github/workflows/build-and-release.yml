@@ -91,7 +91,24 @@ jobs:
       run: |
         Write-Host "Starting MSIX bundle build..."
         
-        $buildResult = msbuild ${{ env.PROJECT_PATH }} `
+        # First build the project normally
+        msbuild ${{ env.PROJECT_PATH }} `
+          /p:Configuration=${{ env.CONFIGURATION }} `
+          /p:Platform=${{ env.PLATFORM }} `
+          /p:AppxPackageSigningEnabled=true `
+          /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
+          /p:PackageCertificatePassword='${{ secrets.CERTIFICATE_PASSWORD }}' `
+          /verbosity:normal `
+          /restore
+        
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Initial build failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
+        
+        # Now create the app package with bundle
+        msbuild ${{ env.PROJECT_PATH }} `
+          /t:CreateAppxPackage `
           /p:Configuration=${{ env.CONFIGURATION }} `
           /p:Platform=${{ env.PLATFORM }} `
           /p:AppxBundle=Always `
@@ -102,8 +119,7 @@ jobs:
           /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
           /p:PackageCertificatePassword='${{ secrets.CERTIFICATE_PASSWORD }}' `
           /p:GenerateAppInstallerFile=false `
-          /verbosity:normal `
-          /restore
+          /verbosity:normal
         
         if ($LASTEXITCODE -ne 0) {
           Write-Error "MSBuild failed with exit code $LASTEXITCODE"
@@ -132,7 +148,8 @@ jobs:
           "${{ github.workspace }}\AppPackages",
           "${{ github.workspace }}\KioskApp\AppPackages",
           "${{ github.workspace }}\KioskApp\bin",
-          "${{ github.workspace }}\bin"
+          "${{ github.workspace }}\bin",
+          "${{ github.workspace }}\KioskApp\obj\x64\Release\net8.0-windows10.0.19041.0\MsixContent"
         )
         
         $bundlePath = $null
@@ -149,19 +166,31 @@ jobs:
         }
         
         if ($null -eq $bundlePath) {
-          Write-Host "MSIX bundle not found in expected locations. Listing all files in AppPackages directory:"
-          foreach ($searchPath in $searchPaths) {
-            if (Test-Path $searchPath) {
-              Write-Host "`nContents of $searchPath :"
-              Get-ChildItem -Path $searchPath -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+          Write-Host "MSIX bundle not found. Searching for individual MSIX files as fallback..."
+          
+          # Try to find Main.msix as fallback
+          $msixFiles = Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
+          $mainMsix = $msixFiles | Where-Object { $_.Name -eq "Main.msix" } | Select-Object -First 1
+          
+          if ($mainMsix) {
+            Write-Host "Found Main.msix file at: $($mainMsix.FullName)"
+            Write-Host "Using Main.msix as the package (renaming to .msixbundle for compatibility)"
+            $bundlePath = $mainMsix
+          } else {
+            Write-Host "No MSIX bundle or Main.msix found. Listing all files in search paths:"
+            foreach ($searchPath in $searchPaths) {
+              if (Test-Path $searchPath) {
+                Write-Host "`nContents of $searchPath :"
+                Get-ChildItem -Path $searchPath -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+              }
             }
+            
+            Write-Host "`nAll .msix* files found:"
+            $msixFiles | ForEach-Object { Write-Host "  $($_.FullName)" }
+            
+            Write-Error "No usable MSIX package found!"
+            exit 1
           }
-          
-          Write-Host "`nSearching entire workspace for any .msix* files:"
-          Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.msix*" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
-          
-          Write-Error "MSIX bundle not found in any expected location!"
-          exit 1
         }
         
         $newBundleName = "${{ env.SOLUTION_NAME }}_${{ env.APP_VERSION }}_${{ env.PLATFORM }}.msixbundle"
