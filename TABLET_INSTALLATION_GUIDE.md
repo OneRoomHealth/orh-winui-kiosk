@@ -282,3 +282,29 @@ Add-AppxPackage -AppInstallerFile "https://github.com/USER/REPO/releases/latest/
 
 **Ready to deploy? Choose Method 1 for easiest installation with auto-updates!**
 
+# Complete installation script
+Write-Host "Installing OneRoom Health Kiosk App..." -ForegroundColor Cyan
+
+# 1. Install Certificate
+Write-Host "`n1. Installing certificate..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri "https://github.com/OneRoomHealth/orh-winui-kiosk/releases/download/v1.0.1/KioskApp_1.0.1.0.cer" -OutFile "$env:TEMP\KioskApp.cer"
+Import-Certificate -FilePath "$env:TEMP\KioskApp.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+Write-Host "Certificate installed!" -ForegroundColor Green
+
+# 2. Install App
+Write-Host "`n2. Installing app..." -ForegroundColor Yellow
+Add-AppxPackage -AppInstallerFile "https://github.com/OneRoomHealth/orh-winui-kiosk/releases/download/v1.0.1/KioskApp.appinstaller"
+Write-Host "App installed!" -ForegroundColor Green
+
+# 3. Verify
+Write-Host "`n3. Verifying installation..." -ForegroundColor Yellow
+$app = Get-AppxPackage | Where-Object {$_.Name -like "*KioskApp*"}
+if ($app) {
+    Write-Host "SUCCESS! App is installed:" -ForegroundColor Green
+    Write-Host "  Name: $($app.Name)" -ForegroundColor White
+    Write-Host "  Version: $($app.Version)" -ForegroundColor White
+    Write-Host "  Publisher: $($app.Publisher)" -ForegroundColor White
+    Write-Host "`nYou can now launch 'OneRoom Health Kiosk' from the Start menu!" -ForegroundColor Cyan
+} else {
+    Write-Host "ERROR: App was not installed. Check for error messages above." -ForegroundColor Red
+}
