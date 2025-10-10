@@ -1,6 +1,9 @@
-# Windows 11 Kiosk Application with WinUI 3 and WebView2
+# OneRoom Health Kiosk App
 
 A secure, full-screen kiosk application built with WinUI 3 and WebView2 for Windows 11 Pro. This application is designed for deployment on Surface tablets and other Windows devices in kiosk mode with Assigned Access.
+
+**Publisher**: OneRoom Health  
+**App Name**: OneRoom Health Kiosk App
 
 ## Features
 
@@ -72,20 +75,23 @@ cd YOUR_REPO
 3. Ensure the **Solution Configuration** is set to **Release**
 4. Select **x64** as the platform (or ARM64 for ARM-based tablets)
 
-### Step 3: Add App Assets (Optional)
+### Step 3: Add App Icons
 
-Generate or add the following image files to `KioskApp/Assets/`:
+**IMPORTANT**: Add your custom icons to `KioskApp/Assets/` before building.
 
-- `Square150x150Logo.png` (150x150 px)
-- `Square44x44Logo.png` (44x44 px)
-- `Wide310x150Logo.png` (310x150 px)
-- `StoreLogo.png` (50x50 px)
-- `SplashScreen.png` (620x300 px)
+Required image files (PNG format):
+- `Square150x150Logo.png` (150x150 px) - Start menu tile
+- `Square44x44Logo.png` (44x44 px) - App list icon
+- `Wide310x150Logo.png` (310x150 px) - Wide tile
+- `StoreLogo.png` (50x50 px) - Store logo
+- `SplashScreen.png` (620x300 px) - Splash screen
 
-You can use Visual Studio's built-in **Manifest Designer** to generate placeholder assets:
+**📖 See [ICON_SETUP_GUIDE.md](ICON_SETUP_GUIDE.md) for detailed instructions and design guidelines.**
+
+Quick option using Visual Studio:
 1. Double-click `Package.appxmanifest`
 2. Go to **Visual Assets** tab
-3. Generate all assets from a single source image
+3. Select a source image and click **Generate**
 
 ### Step 4: Build the Project
 
@@ -110,11 +116,26 @@ If you didn't sign during the build:
 signtool sign /fd SHA256 /a /f YourCertificate.pfx /p YourPassword KioskApp_1.0.0.0_x64.msixbundle
 ```
 
-## Installing the Application Locally
+## Installing on Tablets/Devices
+
+**📱 For complete tablet installation instructions, see [TABLET_INSTALLATION_GUIDE.md](TABLET_INSTALLATION_GUIDE.md)**
+
+### Quick Install (Recommended)
+
+Run this command in PowerShell as Administrator:
+```powershell
+Add-AppxPackage -AppInstallerFile "https://github.com/YOUR_USERNAME/orh-winui-kiosk/releases/latest/download/KioskApp.appinstaller"
+```
+
+This will install the app and enable automatic updates!
+
+---
+
+## Installing the Application Locally (Development)
 
 ### Install the Test Certificate
 
-Before installing the MSIX, you must trust the signing certificate:
+Before installing the MSIX locally, you must trust the signing certificate:
 
 1. **Option A: Using PowerShell (Admin)**
    ```powershell

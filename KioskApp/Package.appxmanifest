@@ -15,8 +15,8 @@
   <mp:PhoneIdentity PhoneProductId="12345678-1234-1234-1234-123456789abc" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 
   <Properties>
-    <DisplayName>Kiosk Application</DisplayName>
-    <PublisherDisplayName>Your Organization</PublisherDisplayName>
+    <DisplayName>OneRoom Health Kiosk App</DisplayName>
+    <PublisherDisplayName>OneRoom Health</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
 
@@ -34,8 +34,8 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="Kiosk App"
-        Description="Secure Kiosk Application with WebView2"
+        DisplayName="OneRoom Health Kiosk"
+        Description="OneRoom Health Kiosk Application with WebView2"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
