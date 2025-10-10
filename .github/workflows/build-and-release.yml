@@ -67,11 +67,21 @@ jobs:
         
         Write-Host "Setting version to: $version"
         
-        # Update Package.appxmanifest
+        # Update Package.appxmanifest using XML manipulation to preserve encoding
         $manifestPath = "KioskApp/Package.appxmanifest"
-        $manifest = Get-Content $manifestPath -Raw
-        $manifest = $manifest -replace 'Version="[\d\.]+"', "Version=`"$version`""
-        Set-Content -Path $manifestPath -Value $manifest
+        [xml]$manifest = Get-Content $manifestPath -Encoding UTF8
+        $manifest.Package.Identity.Version = $version
+        
+        # Save with proper XML formatting and UTF-8 encoding
+        $xmlSettings = New-Object System.Xml.XmlWriterSettings
+        $xmlSettings.Indent = $true
+        $xmlSettings.IndentChars = "  "
+        $xmlSettings.Encoding = [System.Text.Encoding]::UTF8
+        $xmlSettings.OmitXmlDeclaration = $false
+        
+        $xmlWriter = [System.Xml.XmlWriter]::Create($manifestPath, $xmlSettings)
+        $manifest.Save($xmlWriter)
+        $xmlWriter.Close()
         
         # Store version for later steps
         echo "APP_VERSION=$version" >> $env:GITHUB_ENV
