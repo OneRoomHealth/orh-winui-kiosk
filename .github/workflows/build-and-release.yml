@@ -89,7 +89,9 @@ jobs:
 
     - name: Build MSIX Bundle
       run: |
-        msbuild ${{ env.PROJECT_PATH }} `
+        Write-Host "Starting MSIX bundle build..."
+        
+        $buildResult = msbuild ${{ env.PROJECT_PATH }} `
           /p:Configuration=${{ env.CONFIGURATION }} `
           /p:Platform=${{ env.PLATFORM }} `
           /p:AppxBundle=Always `
@@ -100,15 +102,65 @@ jobs:
           /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
           /p:PackageCertificatePassword='${{ secrets.CERTIFICATE_PASSWORD }}' `
           /p:GenerateAppInstallerFile=false `
+          /verbosity:normal `
           /restore
+        
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "MSBuild failed with exit code $LASTEXITCODE"
+          exit $LASTEXITCODE
+        }
+        
+        Write-Host "Build completed successfully"
+        
+        # List what was created in AppPackages directory
+        $appPackagesDir = "${{ github.workspace }}\AppPackages"
+        if (Test-Path $appPackagesDir) {
+          Write-Host "`nContents of AppPackages directory:"
+          Get-ChildItem -Path $appPackagesDir -Recurse | ForEach-Object { Write-Host "  $($_.FullName)" }
+        } else {
+          Write-Host "AppPackages directory was not created"
+        }
       shell: pwsh
 
     - name: Find and rename MSIX bundle
       id: find_bundle
       run: |
-        $bundlePath = Get-ChildItem -Path "${{ github.workspace }}\AppPackages" -Filter "*.msixbundle" -Recurse | Select-Object -First 1
+        # Search for MSIX bundle in multiple possible locations
+        Write-Host "Searching for MSIX bundle..."
+        
+        $searchPaths = @(
+          "${{ github.workspace }}\AppPackages",
+          "${{ github.workspace }}\KioskApp\AppPackages",
+          "${{ github.workspace }}\KioskApp\bin",
+          "${{ github.workspace }}\bin"
+        )
+        
+        $bundlePath = $null
+        foreach ($searchPath in $searchPaths) {
+          Write-Host "Checking: $searchPath"
+          if (Test-Path $searchPath) {
+            $found = Get-ChildItem -Path $searchPath -Filter "*.msixbundle" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($found) {
+              $bundlePath = $found
+              Write-Host "Found bundle at: $($bundlePath.FullName)"
+              break
+            }
+          }
+        }
+        
         if ($null -eq $bundlePath) {
-          Write-Error "MSIX bundle not found!"
+          Write-Host "MSIX bundle not found in expected locations. Listing all files in AppPackages directory:"
+          foreach ($searchPath in $searchPaths) {
+            if (Test-Path $searchPath) {
+              Write-Host "`nContents of $searchPath :"
+              Get-ChildItem -Path $searchPath -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+            }
+          }
+          
+          Write-Host "`nSearching entire workspace for any .msix* files:"
+          Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.msix*" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $($_.FullName)" }
+          
+          Write-Error "MSIX bundle not found in any expected location!"
           exit 1
         }
         
