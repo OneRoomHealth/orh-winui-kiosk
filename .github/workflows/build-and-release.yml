@@ -91,9 +91,22 @@ jobs:
       run: |
         Write-Host "Starting MSIX package build..."
         
-        # Build the project with package creation
-        # The project file already has AppxBundle=Always configured
+        # Build the project first
         msbuild ${{ env.PROJECT_PATH }} `
+          /p:Configuration=${{ env.CONFIGURATION }} `
+          /p:Platform=${{ env.PLATFORM }} `
+          /p:PublishProfile="" `
+          /verbosity:normal `
+          /restore
+        
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Build failed"
+          exit $LASTEXITCODE
+        }
+        
+        # Now create the MSIX package
+        msbuild ${{ env.PROJECT_PATH }} `
+          /t:_GenerateAppxPackage `
           /p:Configuration=${{ env.CONFIGURATION }} `
           /p:Platform=${{ env.PLATFORM }} `
           /p:AppxBundle=Always `
@@ -104,9 +117,7 @@ jobs:
           /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
           /p:PackageCertificatePassword='${{ secrets.CERTIFICATE_PASSWORD }}' `
           /p:GenerateAppInstallerFile=false `
-          /p:PublishProfile="" `
-          /verbosity:normal `
-          /restore
+          /verbosity:detailed
         
         if ($LASTEXITCODE -ne 0) {
           Write-Error "MSBuild failed with exit code $LASTEXITCODE"
@@ -170,12 +181,13 @@ jobs:
           Write-Host "MSIX bundle not found. Searching for individual MSIX files as fallback..."
           
         # Try to find Main.msix or any .msix file as fallback
+        # But only if it's a reasonable size (> 1MB) - Main.msix is usually tiny and invalid
         $msixFiles = Get-ChildItem -Path "${{ github.workspace }}" -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
-        $mainMsix = $msixFiles | Where-Object { $_.Name -match "(Main|OneRoomHealthKioskApp)\.msix" } | Select-Object -First 1
+        $mainMsix = $msixFiles | Where-Object { $_.Name -match "(Main|OneRoomHealthKioskApp)\.msix" -and $_.Length -gt 1MB } | Select-Object -First 1
           
           if ($mainMsix) {
-            Write-Host "Found Main.msix file at: $($mainMsix.FullName)"
-            Write-Host "Using Main.msix as the package (renaming to .msixbundle for compatibility)"
+            Write-Host "Found valid MSIX file at: $($mainMsix.FullName) (Size: $($mainMsix.Length / 1MB)MB)"
+            Write-Host "Using this as the package (renaming to .msixbundle for compatibility)"
             $bundlePath = $mainMsix
           } else {
             Write-Host "No MSIX bundle or Main.msix found. Listing all files in search paths:"
