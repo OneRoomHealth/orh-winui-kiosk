@@ -137,54 +137,152 @@ Add-AppxPackage -Path ".\KioskApp_1.0.0.0_x64.msixbundle"
 
 Or double-click the `.msixbundle` file and click **Install**.
 
-## Hosting on GitHub Releases for Auto-Updates
+## Automated GitHub Actions Build and Release
 
-### Step 1: Create a GitHub Release
+This project includes a GitHub Actions workflow that automatically builds and publishes your app to GitHub Releases whenever you push a version tag.
 
-1. Go to your GitHub repository → **Releases** → **Create a new release**
-2. Tag version: `v1.0.0`
-3. Upload the following files:
-   - `KioskApp_1.0.0.0_x64.msixbundle`
-   - `KioskApp.appinstaller`
-   - `KioskApp_1.0.0.0_x64.cer` (optional, for documentation)
+### Step 1: Generate Signing Certificate
 
-### Step 2: Update the .appinstaller File
-
-Edit `KioskApp.appinstaller` with your repository details:
-
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<AppInstaller
-    Uri="https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/KioskApp.appinstaller"
-    Version="1.0.0.0"
-    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018">
-
-  <MainBundle
-      Name="KioskApp"
-      Publisher="CN=YourOrganization"
-      Version="1.0.0.0"
-      Uri="https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/KioskApp_1.0.0.0_x64.msixbundle" />
-
-  <UpdateSettings>
-    <OnLaunch 
-        HoursBetweenUpdateChecks="0"
-        ShowPrompt="false"
-        UpdateBlocksActivation="true" />
-    <AutomaticBackgroundTask />
-  </UpdateSettings>
-</AppInstaller>
-```
-
-### Step 3: Deploy with Auto-Update
-
-On target devices, install via the `.appinstaller` link:
+Run the provided PowerShell script to create a self-signed certificate:
 
 ```powershell
-# Install and enable auto-updates
+# Run from the project root directory
+.\.github\scripts\generate-certificate.ps1 -Publisher "CN=YourOrganization"
+```
+
+This will:
+- Create a self-signed certificate valid for 3 years
+- Export it as a PFX file with a secure password
+- Generate a Base64-encoded string for GitHub Secrets
+- Save instructions to `github-secrets.txt`
+
+**Important**: Save the password securely! You'll need it in the next step.
+
+### Step 2: Create GitHub Personal Access Token (PAT)
+
+1. Go to GitHub → **Settings** (your account, not repository)
+2. Navigate to **Developer settings** → **Personal access tokens** → **Tokens (classic)**
+3. Click **Generate new token (classic)**
+4. Configure the token:
+   - **Note**: `KioskApp Release Token` (or any descriptive name)
+   - **Expiration**: Choose an appropriate duration (e.g., 90 days, 1 year, or no expiration)
+   - **Scopes**: Check `repo` (Full control of private repositories)
+5. Click **Generate token**
+6. **Copy the token immediately** - you won't be able to see it again!
+
+### Step 3: Configure GitHub Repository Secrets
+
+1. Go to your GitHub repository → **Settings** → **Secrets and variables** → **Actions**
+2. Click **New repository secret** and add the following three secrets:
+
+#### Secret 1: SIGNING_CERTIFICATE
+- **Name**: `SIGNING_CERTIFICATE`
+- **Value**: The Base64-encoded certificate string from Step 1 (found in `github-secrets.txt`)
+
+#### Secret 2: CERTIFICATE_PASSWORD
+- **Name**: `CERTIFICATE_PASSWORD`
+- **Value**: The certificate password generated in Step 1 (found in `github-secrets.txt`)
+
+#### Secret 3: RELEASE_TOKEN
+- **Name**: `RELEASE_TOKEN`
+- **Value**: The Personal Access Token you created in Step 2
+
+### Step 4: Update Package.appxmanifest Publisher
+
+Ensure the `Publisher` in your `KioskApp/Package.appxmanifest` matches the certificate:
+
+```xml
+<Identity
+  Name="KioskApp"
+  Publisher="CN=YourOrganization"
+  Version="1.0.0.0" />
+```
+
+Replace `CN=YourOrganization` with the same value you used when generating the certificate.
+
+### Step 5: Trigger a Release
+
+#### Option A: Push a Version Tag (Recommended)
+
+```bash
+# Commit your changes
+git add .
+git commit -m "Ready for release v1.0.0"
+
+# Create and push a version tag
+git tag v1.0.0
+git push origin main
+git push origin v1.0.0
+```
+
+#### Option B: Manual Workflow Dispatch
+
+1. Go to your repository → **Actions** → **Build and Release MSIX**
+2. Click **Run workflow**
+3. Enter the version number (e.g., `1.0.0`)
+4. Click **Run workflow**
+
+### Step 6: Monitor the Build
+
+1. Go to **Actions** tab in your repository
+2. Click on the running workflow
+3. Watch the build progress (usually takes 5-10 minutes)
+
+### Step 7: Verify the Release
+
+Once complete, check **Releases** in your repository:
+- You'll see a new release with version tag (e.g., `v1.0.0`)
+- Three files will be attached:
+  - `KioskApp_1.0.0.0_x64.msixbundle` - The application bundle
+  - `KioskApp.appinstaller` - Auto-update installer
+  - `KioskApp_1.0.0.0.cer` - Signing certificate for end users
+
+### Deployment to End Users
+
+#### Option A: Manual Installation (First Time)
+
+```powershell
+# 1. Download and install the certificate
+$certUrl = "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/KioskApp_1.0.0.0.cer"
+Invoke-WebRequest -Uri $certUrl -OutFile "KioskApp.cer"
+Import-Certificate -FilePath "KioskApp.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+
+# 2. Download and install the app
+$bundleUrl = "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/KioskApp_1.0.0.0_x64.msixbundle"
+Invoke-WebRequest -Uri $bundleUrl -OutFile "KioskApp.msixbundle"
+Add-AppxPackage -Path "KioskApp.msixbundle"
+```
+
+#### Option B: AppInstaller with Auto-Updates (Recommended)
+
+```powershell
+# Install once with auto-updates enabled
 Add-AppxPackage -AppInstallerFile "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/KioskApp.appinstaller"
 ```
 
 The app will automatically check for updates on every launch.
+
+### Updating to New Versions
+
+Simply create a new tag with the updated version:
+
+```bash
+# Update your code
+git add .
+git commit -m "New features for v1.1.0"
+
+# Create new version tag
+git tag v1.1.0
+git push origin main
+git push origin v1.1.0
+```
+
+GitHub Actions will automatically:
+1. Build the new version
+2. Create a new release
+3. Update the `.appinstaller` file to point to the latest version
+
+Devices with auto-updates will automatically receive the update on next launch.
 
 ## Configuring Windows 11 Kiosk Mode
 
@@ -350,6 +448,47 @@ Edit `MainWindow.xaml`, lines 16-21:
 ```
 
 ## Troubleshooting
+
+### GitHub Actions Issues
+
+#### Workflow Fails: "Certificate not found"
+
+**Error**: Build fails at certificate decoding step
+
+**Solution**: 
+1. Verify `SIGNING_CERTIFICATE` secret is properly set in GitHub
+2. Ensure the Base64 string has no line breaks or extra spaces
+3. Re-run the certificate generation script if needed
+
+#### Workflow Fails: "Invalid publisher"
+
+**Error**: Package build fails with publisher mismatch
+
+**Solution**: 
+1. Ensure `Package.appxmanifest` Publisher matches certificate CN
+2. Both should be identical (e.g., `CN=YourOrganization`)
+3. Re-generate certificate with correct publisher name if needed
+
+#### Release Not Created
+
+**Error**: Build succeeds but no release appears
+
+**Solution**: 
+1. Verify `RELEASE_TOKEN` has `repo` scope
+2. Check token hasn't expired
+3. Ensure you pushed both the commit and the tag:
+   ```bash
+   git push origin main
+   git push origin v1.0.0
+   ```
+
+#### "Permission denied" when creating release
+
+**Solution**: 
+1. Go to repository **Settings** → **Actions** → **General**
+2. Under "Workflow permissions", select "Read and write permissions"
+3. Check "Allow GitHub Actions to create and approve pull requests"
+4. Or use the `RELEASE_TOKEN` secret instead of default `GITHUB_TOKEN`
 
 ### App Won't Install
 

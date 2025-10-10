@@ -1,0 +1,219 @@
+name: Build and Release MSIX
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags like v1.0.0
+  workflow_dispatch:  # Allow manual triggering
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        default: '1.0.0'
+
+env:
+  PROJECT_PATH: KioskApp/KioskApp.csproj
+  SOLUTION_NAME: KioskApp
+  CONFIGURATION: Release
+  PLATFORM: x64
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Restore NuGet packages
+      run: dotnet restore ${{ env.PROJECT_PATH }}
+
+    - name: Decode and install signing certificate
+      run: |
+        # Decode the base64 certificate from secrets
+        $pfxBytes = [System.Convert]::FromBase64String("${{ secrets.SIGNING_CERTIFICATE }}")
+        $pfxPath = "${{ github.workspace }}\GitHubActionsWorkflow.pfx"
+        [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+        
+        # Import certificate to the local machine store
+        $certPassword = ConvertTo-SecureString "${{ secrets.CERTIFICATE_PASSWORD }}" -AsPlainText -Force
+        Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $certPassword
+      shell: pwsh
+
+    - name: Update version in Package.appxmanifest
+      run: |
+        # Extract version from tag or input
+        $version = "${{ github.ref_name }}"
+        if ($version -match '^v(.*)$') {
+          $version = $matches[1]
+        } elseif ("${{ github.event.inputs.version }}" -ne "") {
+          $version = "${{ github.event.inputs.version }}"
+        }
+        
+        # Ensure version is in X.Y.Z.W format
+        if ($version -match '^\d+\.\d+\.\d+$') {
+          $version = "$version.0"
+        }
+        
+        Write-Host "Setting version to: $version"
+        
+        # Update Package.appxmanifest
+        $manifestPath = "KioskApp/Package.appxmanifest"
+        $manifest = Get-Content $manifestPath -Raw
+        $manifest = $manifest -replace 'Version="[\d\.]+"', "Version=`"$version`""
+        Set-Content -Path $manifestPath -Value $manifest
+        
+        # Store version for later steps
+        echo "APP_VERSION=$version" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Build MSIX Bundle
+      run: |
+        msbuild ${{ env.PROJECT_PATH }} `
+          /p:Configuration=${{ env.CONFIGURATION }} `
+          /p:Platform=${{ env.PLATFORM }} `
+          /p:AppxBundle=Always `
+          /p:AppxBundlePlatforms="${{ env.PLATFORM }}" `
+          /p:AppxPackageDir="${{ github.workspace }}\AppPackages\" `
+          /p:UapAppxPackageBuildMode=SideloadOnly `
+          /p:AppxPackageSigningEnabled=true `
+          /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
+          /p:PackageCertificatePassword="${{ secrets.CERTIFICATE_PASSWORD }}" `
+          /p:GenerateAppInstallerFile=false `
+          /restore
+      shell: pwsh
+
+    - name: Find and rename MSIX bundle
+      id: find_bundle
+      run: |
+        $bundlePath = Get-ChildItem -Path "${{ github.workspace }}\AppPackages" -Filter "*.msixbundle" -Recurse | Select-Object -First 1
+        if ($null -eq $bundlePath) {
+          Write-Error "MSIX bundle not found!"
+          exit 1
+        }
+        
+        $newBundleName = "${{ env.SOLUTION_NAME }}_${{ env.APP_VERSION }}_${{ env.PLATFORM }}.msixbundle"
+        $newBundlePath = "${{ github.workspace }}\$newBundleName"
+        
+        Copy-Item -Path $bundlePath.FullName -Destination $newBundlePath
+        Write-Host "Bundle created at: $newBundlePath"
+        
+        echo "BUNDLE_PATH=$newBundlePath" >> $env:GITHUB_ENV
+        echo "BUNDLE_NAME=$newBundleName" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Export certificate to .cer
+      run: |
+        # Export the certificate as .cer for distribution
+        $pfxPath = "${{ github.workspace }}\GitHubActionsWorkflow.pfx"
+        $cerPath = "${{ github.workspace }}\${{ env.SOLUTION_NAME }}_${{ env.APP_VERSION }}.cer"
+        
+        $certPassword = ConvertTo-SecureString "${{ secrets.CERTIFICATE_PASSWORD }}" -AsPlainText -Force
+        $cert = Get-PfxCertificate -FilePath $pfxPath -Password $certPassword
+        
+        $bytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+        [System.IO.File]::WriteAllBytes($cerPath, $bytes)
+        
+        echo "CER_PATH=$cerPath" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Update AppInstaller file
+      run: |
+        $version = "${{ env.APP_VERSION }}"
+        $repoUrl = "${{ github.server_url }}/${{ github.repository }}"
+        $bundleName = "${{ env.BUNDLE_NAME }}"
+        
+        # Read the template
+        $appInstallerContent = @"
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller
+    Uri="$repoUrl/releases/latest/download/${{ env.SOLUTION_NAME }}.appinstaller"
+    Version="$version"
+    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018">
+
+  <MainBundle
+      Name="${{ env.SOLUTION_NAME }}"
+      Publisher="CN=YourOrganization"
+      Version="$version"
+      Uri="$repoUrl/releases/latest/download/$bundleName" />
+
+  <UpdateSettings>
+    <OnLaunch 
+        HoursBetweenUpdateChecks="0"
+        ShowPrompt="false"
+        UpdateBlocksActivation="true" />
+    <AutomaticBackgroundTask />
+  </UpdateSettings>
+</AppInstaller>
+"@
+        
+        $appInstallerPath = "${{ github.workspace }}\${{ env.SOLUTION_NAME }}.appinstaller"
+        Set-Content -Path $appInstallerPath -Value $appInstallerContent
+        
+        echo "APPINSTALLER_PATH=$appInstallerPath" >> $env:GITHUB_ENV
+      shell: pwsh
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ env.APP_VERSION }}
+        body: |
+          ## Kiosk App v${{ env.APP_VERSION }}
+          
+          ### Installation Instructions
+          
+          #### First-time Installation:
+          1. Download and install the certificate: `${{ env.SOLUTION_NAME }}_${{ env.APP_VERSION }}.cer`
+             - Right-click → Install Certificate
+             - Choose "Local Machine"
+             - Place in "Trusted People" store
+          
+          2. Install the app:
+             ```powershell
+             Add-AppxPackage -Path "${{ env.BUNDLE_NAME }}"
+             ```
+          
+          #### Auto-Update Installation:
+          ```powershell
+          Add-AppxPackage -AppInstallerFile "${{ github.server_url }}/${{ github.repository }}/releases/latest/download/${{ env.SOLUTION_NAME }}.appinstaller"
+          ```
+          
+          ### Files
+          - **${{ env.BUNDLE_NAME }}** - The application bundle
+          - **${{ env.SOLUTION_NAME }}.appinstaller** - Auto-update installer
+          - **${{ env.SOLUTION_NAME }}_${{ env.APP_VERSION }}.cer** - Signing certificate
+          
+          Built on: ${{ github.event.head_commit.timestamp }}
+        files: |
+          ${{ env.BUNDLE_PATH }}
+          ${{ env.APPINSTALLER_PATH }}
+          ${{ env.CER_PATH }}
+        draft: false
+        prerelease: false
+        token: ${{ secrets.RELEASE_TOKEN }}
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: MSIX-Package-${{ env.APP_VERSION }}
+        path: |
+          ${{ env.BUNDLE_PATH }}
+          ${{ env.APPINSTALLER_PATH }}
+          ${{ env.CER_PATH }}
+        retention-days: 90
+
+    - name: Cleanup certificates
+      if: always()
+      run: |
+        Remove-Item -Path "${{ github.workspace }}\GitHubActionsWorkflow.pfx" -Force -ErrorAction SilentlyContinue
+      shell: pwsh
+

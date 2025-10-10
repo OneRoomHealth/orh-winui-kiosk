@@ -1,0 +1,50 @@
+# GitHub Actions certificate files - NEVER commit these!
+*.pfx
+*.cer
+github-secrets.txt
+certificate.pfx
+.github/scripts/certificate.pfx
+.github/scripts/github-secrets.txt
+
+# Build outputs
+AppPackages/
+BundleArtifacts/
+*.msixbundle
+*.msixupload
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+ARM64/
+[Bb]in/
+[Oo]bj/
+
+# NuGet Packages
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+
+# Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
