@@ -23,6 +23,7 @@
     <GenerateTestCertificate>True</GenerateTestCertificate>
     <AppxBundle>Always</AppxBundle>
     <AppxBundlePlatforms>x64</AppxBundlePlatforms>
+    <GenerateAppxPackageOnBuild>True</GenerateAppxPackageOnBuild>
     <HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
   </PropertyGroup>
 

@@ -117,21 +117,40 @@ jobs:
       run: |
         Write-Host "Searching for unsigned MSIX files..."
         
-        # Find all MSIX/MSIXBUNDLE files
-        $msixFiles = Get-ChildItem -Path "${{ github.workspace }}\AppPackages" -Include "*.msix","*.msixbundle" -Recurse -ErrorAction SilentlyContinue
+        # Find SignTool
+        $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue | 
+                    Where-Object { $_.Directory.Name -eq "x64" } | 
+                    Select-Object -First 1
+        
+        if (-not $signtool) {
+          Write-Error "SignTool.exe not found!"
+          exit 1
+        }
+        
+        Write-Host "Using SignTool: $($signtool.FullName)"
+        
+        # Find all MSIX/MSIXBUNDLE files (but only ones > 1MB to avoid tiny metadata files)
+        $msixFiles = Get-ChildItem -Path "${{ github.workspace }}\AppPackages" -Include "*.msix","*.msixbundle" -Recurse -ErrorAction SilentlyContinue |
+                     Where-Object { $_.Length -gt 1MB }
         
         if ($msixFiles.Count -eq 0) {
           # Try other locations
-          $msixFiles = Get-ChildItem -Path "${{ github.workspace }}\KioskApp" -Include "*.msix","*.msixbundle" -Recurse -ErrorAction SilentlyContinue
+          $msixFiles = Get-ChildItem -Path "${{ github.workspace }}\KioskApp" -Include "*.msix","*.msixbundle" -Recurse -ErrorAction SilentlyContinue |
+                       Where-Object { $_.Length -gt 1MB }
         }
         
-        Write-Host "Found $($msixFiles.Count) MSIX file(s)"
+        Write-Host "Found $($msixFiles.Count) MSIX file(s) to sign (>1MB each)"
+        
+        if ($msixFiles.Count -eq 0) {
+          Write-Error "No valid MSIX files found! Bundle was not created properly."
+          exit 1
+        }
         
         foreach ($file in $msixFiles) {
           Write-Host "Signing: $($file.FullName) (Size: $([math]::Round($file.Length/1MB, 2)) MB)"
           
           # Sign with SignTool
-          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign `
+          & $signtool.FullName sign `
             /fd SHA256 `
             /f "${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
             /p "${{ secrets.CERTIFICATE_PASSWORD }}" `
