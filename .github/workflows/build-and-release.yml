@@ -87,30 +87,62 @@ jobs:
         echo "APP_VERSION=$version" >> $env:GITHUB_ENV
       shell: pwsh
 
-    - name: Build and Package MSIX
+    - name: Build MSIX Package
       run: |
         Write-Host "Starting MSIX package build..."
         
-        # Build and package in one step with all parameters
+        # Build without signing first
         msbuild ${{ env.PROJECT_PATH }} `
-          "/t:Build;_GenerateAppxPackage" `
           /p:Configuration=${{ env.CONFIGURATION }} `
           /p:Platform=${{ env.PLATFORM }} `
           /p:AppxBundle=Always `
           /p:AppxBundlePlatforms="${{ env.PLATFORM }}" `
           /p:AppxPackageDir="${{ github.workspace }}\AppPackages\" `
           /p:UapAppxPackageBuildMode=SideloadOnly `
-          /p:AppxPackageSigningEnabled=true `
-          /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
-          /p:PackageCertificatePassword='${{ secrets.CERTIFICATE_PASSWORD }}' `
+          /p:AppxPackageSigningEnabled=false `
           /p:GenerateAppInstallerFile=false `
           /p:PublishProfile="" `
-          /verbosity:detailed `
+          /verbosity:normal `
           /restore
         
         if ($LASTEXITCODE -ne 0) {
           Write-Error "MSBuild failed with exit code $LASTEXITCODE"
           exit $LASTEXITCODE
+        }
+        
+        Write-Host "`nBuild completed successfully!"
+      shell: pwsh
+    
+    - name: Sign MSIX Bundle
+      run: |
+        Write-Host "Searching for unsigned MSIX files..."
+        
+        # Find all MSIX/MSIXBUNDLE files
+        $msixFiles = Get-ChildItem -Path "${{ github.workspace }}\AppPackages" -Include "*.msix","*.msixbundle" -Recurse -ErrorAction SilentlyContinue
+        
+        if ($msixFiles.Count -eq 0) {
+          # Try other locations
+          $msixFiles = Get-ChildItem -Path "${{ github.workspace }}\KioskApp" -Include "*.msix","*.msixbundle" -Recurse -ErrorAction SilentlyContinue
+        }
+        
+        Write-Host "Found $($msixFiles.Count) MSIX file(s)"
+        
+        foreach ($file in $msixFiles) {
+          Write-Host "Signing: $($file.FullName) (Size: $([math]::Round($file.Length/1MB, 2)) MB)"
+          
+          # Sign with SignTool
+          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe" sign `
+            /fd SHA256 `
+            /f "${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
+            /p "${{ secrets.CERTIFICATE_PASSWORD }}" `
+            "$($file.FullName)"
+          
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Successfully signed: $($file.Name)" -ForegroundColor Green
+          } else {
+            Write-Error "Failed to sign: $($file.Name)"
+            exit 1
+          }
         }
         
         Write-Host "`n========================================" 
