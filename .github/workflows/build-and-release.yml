@@ -91,22 +91,9 @@ jobs:
       run: |
         Write-Host "Starting MSIX package build..."
         
-        # Build the project first
+        # Build and package in one step with all parameters
         msbuild ${{ env.PROJECT_PATH }} `
-          /p:Configuration=${{ env.CONFIGURATION }} `
-          /p:Platform=${{ env.PLATFORM }} `
-          /p:PublishProfile="" `
-          /verbosity:normal `
-          /restore
-        
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "Build failed"
-          exit $LASTEXITCODE
-        }
-        
-        # Now create the MSIX package
-        msbuild ${{ env.PROJECT_PATH }} `
-          /t:_GenerateAppxPackage `
+          /t:Build;_GenerateAppxPackage `
           /p:Configuration=${{ env.CONFIGURATION }} `
           /p:Platform=${{ env.PLATFORM }} `
           /p:AppxBundle=Always `
@@ -117,7 +104,9 @@ jobs:
           /p:PackageCertificateKeyFile="${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
           /p:PackageCertificatePassword='${{ secrets.CERTIFICATE_PASSWORD }}' `
           /p:GenerateAppInstallerFile=false `
-          /verbosity:detailed
+          /p:PublishProfile="" `
+          /verbosity:detailed `
+          /restore
         
         if ($LASTEXITCODE -ne 0) {
           Write-Error "MSBuild failed with exit code $LASTEXITCODE"
