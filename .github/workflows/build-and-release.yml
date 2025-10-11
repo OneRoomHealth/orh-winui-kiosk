@@ -149,11 +149,12 @@ jobs:
         foreach ($file in $msixFiles) {
           Write-Host "Signing: $($file.FullName) (Size: $([math]::Round($file.Length/1MB, 2)) MB)"
           
-          # Sign with SignTool
+          # Sign with SignTool (password in quotes to handle special characters)
+          $password = '${{ secrets.CERTIFICATE_PASSWORD }}'
           & $signtool.FullName sign `
             /fd SHA256 `
             /f "${{ github.workspace }}\GitHubActionsWorkflow.pfx" `
-            /p "${{ secrets.CERTIFICATE_PASSWORD }}" `
+            /p $password `
             "$($file.FullName)"
           
           if ($LASTEXITCODE -eq 0) {
