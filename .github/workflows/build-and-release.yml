@@ -93,7 +93,7 @@ jobs:
         
         # Build and package in one step with all parameters
         msbuild ${{ env.PROJECT_PATH }} `
-          /t:Build;_GenerateAppxPackage `
+          "/t:Build;_GenerateAppxPackage" `
           /p:Configuration=${{ env.CONFIGURATION }} `
           /p:Platform=${{ env.PLATFORM }} `
           /p:AppxBundle=Always `
