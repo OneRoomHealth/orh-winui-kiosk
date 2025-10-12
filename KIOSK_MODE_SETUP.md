@@ -15,7 +15,7 @@ Open PowerShell (Admin) and run:
 
 ```powershell
 # Create a local kiosk user
-$Password = ConvertTo-SecureString "KioskPass123!" -AsPlainText -Force
+$Password = ConvertTo-SecureString "pass123" -AsPlainText -Force
 New-LocalUser -Name "KioskUser" -Password $Password -FullName "Kiosk User" -Description "OneRoom Health Kiosk User" -PasswordNeverExpires
 
 # Make sure the user is in the Users group
