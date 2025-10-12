@@ -10,9 +10,7 @@
   <Identity
     Name="OneRoomHealthKioskApp"
     Publisher="CN=OneRoomHealth"
-    Version="1.0.3.0" />
-
-  <mp:PhoneIdentity PhoneProductId="12345678-1234-1234-1234-123456789abc" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+    Version="1.0.4.0" />
 
   <Properties>
     <DisplayName>OneRoom Health Kiosk App</DisplayName>
@@ -42,11 +40,6 @@
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
-
-      <Extensions>
-        <!-- Allow for Kiosk mode and assigned access -->
-        <uap:Extension Category="windows.lockScreenCall" />
-      </Extensions>
     </Application>
   </Applications>
 
