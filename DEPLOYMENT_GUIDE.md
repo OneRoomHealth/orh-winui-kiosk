@@ -23,20 +23,19 @@ Invoke-WebRequest -Uri "https://github.com/OneRoomHealth/orh-winui-kiosk/release
 Import-Certificate -FilePath "$env:TEMP\cert.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
 ```
 
-**3. Install App for ALL Users**
+**3. Install App**
 ```powershell
-Add-AppxPackage -Path "$env:USERPROFILE\Downloads\OneRoomHealthKioskApp_1.0.5.0_x64.msix" -AllUsers -Verbose
-```
+# First install normally
+Add-AppxPackage -Path "$env:USERPROFILE\Downloads\OneRoomHealthKioskApp_1.0.5.0_x64.msix" -Verbose
 
-**OR install directly from GitHub:**
-```powershell
-Invoke-WebRequest -Uri "https://github.com/OneRoomHealth/orh-winui-kiosk/releases/latest/download/OneRoomHealthKioskApp_1.0.5.0_x64.msix" -OutFile "$env:TEMP\app.msix"
-Add-AppxPackage -Path "$env:TEMP\app.msix" -AllUsers -Verbose
+# Then register for all users (makes it available to kiosk user)
+$app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
+Add-AppxPackage -Register "$($app.InstallLocation)\AppxManifest.xml" -DisableDevelopmentMode
 ```
 
 **4. Verify Installation**
 ```powershell
-Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*OneRoomHealth*"}
+Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
 ```
 
 You should see the app listed!
@@ -59,12 +58,16 @@ New-LocalUser -Name "KioskUser" -Password $Password -FullName "Kiosk User" -Pass
 Add-LocalGroupMember -Group "Users" -Member "KioskUser" -ErrorAction SilentlyContinue
 Write-Host "✓ Kiosk user created" -ForegroundColor Green
 
-# 2. Get app ID
-$app = Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*OneRoomHealth*"} | Select-Object -First 1
+# 2. Get app ID and ensure it's registered for all users
+$app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"} | Select-Object -First 1
 if (-not $app) {
-    Write-Error "App not found! Install with -AllUsers flag first."
+    Write-Error "App not found! Install the app first."
     exit 1
 }
+
+# Register for all users to make it available in kiosk mode
+Add-AppxPackage -Register "$($app.InstallLocation)\AppxManifest.xml" -DisableDevelopmentMode -ErrorAction SilentlyContinue
+
 $aumid = $app.PackageFamilyName + "!App"
 Write-Host "✓ Found app: $($app.Name)" -ForegroundColor Green
 
@@ -153,10 +156,14 @@ Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlo
 3. Run:
    ```powershell
    # Remove old version
-   Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*OneRoomHealth*"} | Remove-AppxPackage -AllUsers
+   Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"} | Remove-AppxPackage
    
    # Install new version
-   Add-AppxPackage -Path "$env:USERPROFILE\Downloads\OneRoomHealthKioskApp_X.X.X.X_x64.msix" -AllUsers
+   Add-AppxPackage -Path "$env:USERPROFILE\Downloads\OneRoomHealthKioskApp_X.X.X.X_x64.msix"
+   
+   # Register for all users
+   $app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
+   Add-AppxPackage -Register "$($app.InstallLocation)\AppxManifest.xml" -DisableDevelopmentMode
    ```
 4. Restart tablet
 
@@ -182,7 +189,11 @@ Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlo
    Import-Certificate -FilePath ".\OneRoomHealthKioskApp_1.0.5.0.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
    
    # Install app
-   Add-AppxPackage -Path ".\OneRoomHealthKioskApp_1.0.5.0_x64.msix" -AllUsers
+   Add-AppxPackage -Path ".\OneRoomHealthKioskApp_1.0.5.0_x64.msix"
+   
+   # Register for all users
+   $app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
+   Add-AppxPackage -Register "$($app.InstallLocation)\AppxManifest.xml" -DisableDevelopmentMode
    
    # Run setup script
    .\Setup-Kiosk.ps1
@@ -193,11 +204,15 @@ Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlo
 ## Quick Command Reference
 
 ```powershell
-# Check if app installed for all users
-Get-AppxPackage -AllUsers | Where-Object {$_.Name -like "*OneRoomHealth*"}
+# Check if app is installed
+Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
 
-# Install app for all users
-Add-AppxPackage -Path "path\to\app.msix" -AllUsers
+# Install app
+Add-AppxPackage -Path "path\to\app.msix"
+
+# Register for all users (required for kiosk mode)
+$app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
+Add-AppxPackage -Register "$($app.InstallLocation)\AppxManifest.xml" -DisableDevelopmentMode
 
 # Check kiosk configuration
 Get-AssignedAccess
