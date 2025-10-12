@@ -49,66 +49,61 @@ You should see the app listed!
 Run this **complete script** in PowerShell (Admin):
 
 ```powershell
-# OneRoom Health Kiosk - Automated Setup
-Write-Host "=== Kiosk Setup Starting ===" -ForegroundColor Cyan
+# OneRoom Health Kiosk - Automated Setup (Compatible with all Windows 11 versions)
+Write-Host "=== OneRoom Health Kiosk Setup ===" -ForegroundColor Cyan
 
-# 1. Create kiosk user
+# 1. Ensure KioskUser exists
+Write-Host "`n[1/4] Setting up kiosk user..." -ForegroundColor Yellow
 $Password = ConvertTo-SecureString "pass123" -AsPlainText -Force
-New-LocalUser -Name "KioskUser" -Password $Password -FullName "Kiosk User" -PasswordNeverExpires -ErrorAction SilentlyContinue
-Add-LocalGroupMember -Group "Users" -Member "KioskUser" -ErrorAction SilentlyContinue
-Write-Host "✓ Kiosk user created" -ForegroundColor Green
+$user = Get-LocalUser -Name "KioskUser" -ErrorAction SilentlyContinue
+if (-not $user) {
+    New-LocalUser -Name "KioskUser" -Password $Password -FullName "Kiosk User" -PasswordNeverExpires
+    Add-LocalGroupMember -Group "Users" -Member "KioskUser"
+    Write-Host "✓ Created KioskUser" -ForegroundColor Green
+} else {
+    Write-Host "✓ KioskUser already exists" -ForegroundColor Green
+}
 
-# 2. Get app ID and ensure it's registered for all users
-$app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"} | Select-Object -First 1
+# 2. Get app AUMID
+Write-Host "`n[2/4] Getting app details..." -ForegroundColor Yellow
+$app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
 if (-not $app) {
-    Write-Error "App not found! Install the app first."
+    Write-Error "App not installed! Install it first (see Part 1)."
     exit 1
 }
 
-# Register for all users to make it available in kiosk mode
+# Re-register to ensure availability to all users
 Add-AppxPackage -Register "$($app.InstallLocation)\AppxManifest.xml" -DisableDevelopmentMode -ErrorAction SilentlyContinue
 
 $aumid = $app.PackageFamilyName + "!App"
-Write-Host "✓ Found app: $($app.Name)" -ForegroundColor Green
+Write-Host "App Name: $($app.Name)" -ForegroundColor Cyan
+Write-Host "AUMID: $aumid" -ForegroundColor Gray
 
 # 3. Configure kiosk mode
-Write-Host "`nConfiguring kiosk mode..." -ForegroundColor Yellow
-$config = @"
-<?xml version="1.0" encoding="utf-8" ?>
-<AssignedAccessConfiguration xmlns="http://schemas.microsoft.com/AssignedAccess/2017/config">
-  <Profiles>
-    <Profile Id="{9A2A490F-10F6-4764-974A-43B19E722C23}">
-      <AllAppsList>
-        <AllowedApps>
-          <App AppUserModelId="$aumid" />
-        </AllowedApps>
-      </AllAppsList>
-      <StartLayout><![CDATA[<LayoutModificationTemplate xmlns="http://schemas.microsoft.com/Start/2014/LayoutModification"><LayoutOptions StartTileGroupCellWidth="6" /><DefaultLayoutOverride><StartLayoutCollection><defaultlayout:StartLayout GroupCellWidth="6" xmlns:defaultlayout="http://schemas.microsoft.com/Start/2014/FullDefaultLayout" /></StartLayoutCollection></DefaultLayoutOverride></LayoutModificationTemplate>]]></StartLayout>
-      <Taskbar ShowTaskbar="false"/>
-    </Profile>
-  </Profiles>
-  <Configs>
-    <Config>
-      <Account>KioskUser</Account>
-      <DefaultProfile Id="{9A2A490F-10F6-4764-974A-43B19E722C23}"/>
-    </Config>
-  </Configs>
-</AssignedAccessConfiguration>
-"@
+Write-Host "`n[3/4] Configuring kiosk mode..." -ForegroundColor Yellow
 
-$config | Out-File "$env:TEMP\kiosk.xml" -Encoding UTF8
-Set-AssignedAccess -ConfigFile "$env:TEMP\kiosk.xml"
-Write-Host "✓ Kiosk mode configured" -ForegroundColor Green
+# Clear any existing kiosk config
+Clear-AssignedAccess -ErrorAction SilentlyContinue
+
+# Set kiosk mode (compatible method - works on all Windows 11 versions)
+Set-AssignedAccess -UserName "KioskUser" -AppUserModelId $aumid
+
+Write-Host "✓ Kiosk configured" -ForegroundColor Green
 
 # 4. Enable auto-login
+Write-Host "`n[4/4] Enabling auto-login..." -ForegroundColor Yellow
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoAdminLogon" -Value "1"
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultUserName" -Value "KioskUser"
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultPassword" -Value "pass123"
 Write-Host "✓ Auto-login enabled" -ForegroundColor Green
 
-Write-Host "`n=== SETUP COMPLETE ===" -ForegroundColor Green
-Write-Host "`nRESTART THE TABLET NOW" -ForegroundColor Yellow
-Write-Host "`nTo exit kiosk: 5 taps upper-right corner → PIN: 1234" -ForegroundColor Cyan
+Write-Host "`n========================================" -ForegroundColor Green
+Write-Host "KIOSK MODE READY!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "`nRESTART NOW - Tablet will auto-login and launch app" -ForegroundColor Yellow
+Write-Host "`nTo exit kiosk:" -ForegroundColor Cyan
+Write-Host "  1. Tap upper-right corner 5 times quickly" -ForegroundColor Cyan
+Write-Host "  2. Enter PIN: 1234" -ForegroundColor Cyan
 ```
 
 **After restart:**
