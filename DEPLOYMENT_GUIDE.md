@@ -113,6 +113,51 @@ Write-Host "  2. Enter PIN: 1234" -ForegroundColor Cyan
 
 ---
 
+## Undo/Remove Kiosk Mode
+
+If you need to **completely remove** kiosk mode and restore normal tablet operation:
+
+```powershell
+# Remove Kiosk Configuration - Complete Cleanup
+Write-Host "=== Removing Kiosk Mode ===" -ForegroundColor Cyan
+
+# 1. Disable auto-login
+Write-Host "`n[1/3] Disabling auto-login..." -ForegroundColor Yellow
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoAdminLogon" -Value "0"
+Remove-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "DefaultPassword" -ErrorAction SilentlyContinue
+Write-Host "✓ Auto-login disabled" -ForegroundColor Green
+
+# 2. Clear kiosk mode configuration
+Write-Host "`n[2/3] Clearing kiosk configuration..." -ForegroundColor Yellow
+Clear-AssignedAccess -ErrorAction SilentlyContinue
+Write-Host "✓ Kiosk mode removed" -ForegroundColor Green
+
+# 3. Remove kiosk user (optional)
+Write-Host "`n[3/3] Removing KioskUser account..." -ForegroundColor Yellow
+$user = Get-LocalUser -Name "KioskUser" -ErrorAction SilentlyContinue
+if ($user) {
+    Remove-LocalUser -Name "KioskUser"
+    Write-Host "✓ KioskUser removed" -ForegroundColor Green
+} else {
+    Write-Host "✓ KioskUser doesn't exist" -ForegroundColor Gray
+}
+
+Write-Host "`n========================================" -ForegroundColor Green
+Write-Host "KIOSK MODE REMOVED!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Green
+Write-Host "`nTablet will now boot normally to login screen" -ForegroundColor Yellow
+Write-Host "App remains installed if you want to use it normally" -ForegroundColor Cyan
+```
+
+**Optional: Uninstall the App Completely**
+```powershell
+# Only run this if you want to remove the app too
+Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"} | Remove-AppxPackage
+Write-Host "App uninstalled" -ForegroundColor Green
+```
+
+---
+
 ## Troubleshooting
 
 ### App Installed But Not Working After Restart
