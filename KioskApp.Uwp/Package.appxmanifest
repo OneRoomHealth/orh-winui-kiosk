@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+  IgnorableNamespaces="uap mp uap5">
+
+  <Identity
+    Name="com.oneroomhealth.kioskapp.uwp"
+    Publisher="CN=OneRoomHealth"
+    Version="1.0.0.0" />
+
+  <mp:PhoneIdentity PhoneProductId="a5d9b8f3-4c2e-4d8a-9f1b-2e3c4d5f6a7b" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
+
+  <Properties>
+    <DisplayName>OneRoom Health Kiosk (UWP)</DisplayName>
+    <PublisherDisplayName>OneRoom Health</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.19041.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="x-generate"/>
+  </Resources>
+
+  <Applications>
+    <Application Id="App"
+      Executable="$targetnametoken$.exe"
+      EntryPoint="KioskApp.Uwp.App">
+      <uap:VisualElements
+        DisplayName="OneRoom Health Kiosk (UWP)"
+        Square150x150Logo="Assets\Square150x150Logo.scale-200.png"
+        Square44x44Logo="Assets\Square44x44Logo.scale-200.png"
+        Description="OneRoom Health Kiosk Application - UWP for Windows 11 Assigned Access"
+        BackgroundColor="transparent">
+        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.scale-200.png" />
+        <uap:SplashScreen Image="Assets\SplashScreen.scale-200.png" />
+        <uap:InitialRotationPreference>
+          <uap:Rotation Preference="landscape"/>
+          <uap:Rotation Preference="landscapeFlipped"/>
+          <uap:Rotation Preference="portrait"/>
+          <uap:Rotation Preference="portraitFlipped"/>
+        </uap:InitialRotationPreference>
+        <uap:LockScreen Notification="badge" BadgeLogo="Assets\Square44x44Logo.scale-200.png"/>
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <Capability Name="internetClient" />
+    <Capability Name="privateNetworkClientServer" />
+    <uap:Capability Name="enterpriseAuthentication" />
+  </Capabilities>
+</Package>

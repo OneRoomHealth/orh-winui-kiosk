@@ -9,8 +9,12 @@ certificate.pfx
 # Build outputs
 AppPackages/
 BundleArtifacts/
+artifacts/
 *.msixbundle
 *.msixupload
+*.msix
+*.appxbundle
+*.appx
 
 # Visual Studio
 .vs/
