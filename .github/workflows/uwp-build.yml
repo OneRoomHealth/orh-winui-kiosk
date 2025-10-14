@@ -34,7 +34,10 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
     
-    # Windows SDK is preinstalled on windows-latest images; avoid failing choco step
+    - name: Install Windows 10 SDK (10.0.19041)
+      run: |
+        choco install windows-sdk-10-version-19041-all -y --no-progress
+      shell: pwsh
 
     - name: Setup NuGet
       uses: NuGet/setup-nuget@v2
