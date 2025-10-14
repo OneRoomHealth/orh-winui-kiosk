@@ -33,6 +33,14 @@ jobs:
     
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
+    
+    - name: Setup NuGet
+      uses: NuGet/setup-nuget@v2
+      
+    - name: Restore NuGet packages
+      run: |
+        nuget restore ${{ env.PROJECT_PATH }}
+      shell: pwsh
       
     - name: Decode signing certificate
       if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
@@ -54,10 +62,6 @@ jobs:
           Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" -FilePath $pfxPath -Password $pwd
         }
       shell: pwsh
-    
-    - name: Restore NuGet packages
-      run: |
-        msbuild ${{ env.PROJECT_PATH }} /t:Restore /p:Configuration=${{ env.CONFIGURATION }} /p:Platform=${{ matrix.platform }}
     
     - name: Build UWP project
       run: |
