@@ -27,9 +27,9 @@ namespace KioskApp.Uwp
         {
             if (e.Key == VirtualKey.Enter)
             {
-                // Trigger primary button click on Enter
-                EnteredPin = PinPasswordBox.Password;
-                this.Hide();
+                // Don't call Hide() - let the DefaultButton="Primary" handle it
+                // This ensures ContentDialogResult.Primary is returned for validation
+                e.Handled = false; // Allow the event to bubble up to trigger Primary button
             }
         }
     }

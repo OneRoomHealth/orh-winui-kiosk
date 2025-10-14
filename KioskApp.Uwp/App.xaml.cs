@@ -1,6 +1,7 @@
 using System;
 using Windows.ApplicationModel;
 using Windows.ApplicationModel.Activation;
+using Windows.Data.Json;
 using Windows.Storage;
 using Windows.UI.Xaml;
 using Windows.UI.Xaml.Controls;
@@ -81,21 +82,31 @@ namespace KioskApp.Uwp
                 var jsonFile = await Windows.ApplicationModel.Package.Current.InstalledLocation.GetFileAsync(@"Assets\kiosk.json");
                 var jsonText = await FileIO.ReadTextAsync(jsonFile);
                 
-                // Parse JSON (simple manual parsing to avoid dependencies)
+                // Parse JSON using proper JSON parser
                 if (!string.IsNullOrWhiteSpace(jsonText))
                 {
-                    // Extract KioskUrl
-                    var urlMatch = System.Text.RegularExpressions.Regex.Match(jsonText, @"""KioskUrl""\s*:\s*""([^""]+)""");
-                    if (urlMatch.Success && !string.IsNullOrWhiteSpace(urlMatch.Groups[1].Value))
+                    JsonObject jsonObject;
+                    if (JsonObject.TryParse(jsonText, out jsonObject))
                     {
-                        KioskUrl = urlMatch.Groups[1].Value;
-                    }
+                        // Extract KioskUrl
+                        if (jsonObject.ContainsKey("KioskUrl"))
+                        {
+                            var urlValue = jsonObject.GetNamedString("KioskUrl", null);
+                            if (!string.IsNullOrWhiteSpace(urlValue))
+                            {
+                                KioskUrl = urlValue;
+                            }
+                        }
 
-                    // Extract ExitPin
-                    var pinMatch = System.Text.RegularExpressions.Regex.Match(jsonText, @"""ExitPin""\s*:\s*""([^""]+)""");
-                    if (pinMatch.Success && !string.IsNullOrWhiteSpace(pinMatch.Groups[1].Value))
-                    {
-                        ExitPin = pinMatch.Groups[1].Value;
+                        // Extract ExitPin
+                        if (jsonObject.ContainsKey("ExitPin"))
+                        {
+                            var pinValue = jsonObject.GetNamedString("ExitPin", null);
+                            if (!string.IsNullOrWhiteSpace(pinValue))
+                            {
+                                ExitPin = pinValue;
+                            }
+                        }
                     }
                 }
             }
