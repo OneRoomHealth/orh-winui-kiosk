@@ -3,8 +3,7 @@ name: Build UWP Kiosk App
 on:
   push:
     branches: [ main, feature/uwp-kiosk-wrapper ]
-    tags:
-      - 'v*'
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -12,169 +11,161 @@ on:
 env:
   PROJECT_PATH: KioskApp.Uwp/KioskApp.Uwp.csproj
   CONFIGURATION: Release
-  DOTNET_VERSION: '8.0.x'
+  DOTNET_VERSION: '8.0.x' # harmless, not used by UWP but okay
+  CERT_PASSWORD_FALLBACK: dev123
 
 jobs:
   build:
-    runs-on: windows-latest
-    
+    runs-on: windows-2022   # explicit & stable
     strategy:
       matrix:
         platform: [x86, x64, ARM64]
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: ${{ env.DOTNET_VERSION }}
-    
-    - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v2
-    
-    - name: Install Windows 10 SDK (10.0.19041)
-      run: |
-        choco install windows-sdk-10-version-19041-all -y --no-progress
-      shell: pwsh
 
-    - name: Setup NuGet
-      uses: NuGet/setup-nuget@v2
-      
-    - name: Restore NuGet packages
-      run: |
-        nuget restore ${{ env.PROJECT_PATH }}
-      shell: pwsh
-      
-    - name: Decode signing certificate
-      if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-      run: |
-        if ("${{ secrets.UWP_CERTIFICATE_BASE64 }}" -ne "") {
-          $pfxBytes = [System.Convert]::FromBase64String("${{ secrets.UWP_CERTIFICATE_BASE64 }}")
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET (optional for UWP; safe to leave)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      # 🔧 Install a real Windows 10 SDK that provides Windows.winmd
+      - name: Install Windows 10 SDK 10.0.19041
+        uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
+        with:
+          sdk-version: 19041
+
+      - name: Setup NuGet
+        uses: nuget/setup-nuget@v2
+
+      # Use MSBuild restore for UWP projects (better than nuget restore on csproj)
+      - name: Restore (MSBuild)
+        shell: pwsh
+        run: |
+          msbuild ${{ env.PROJECT_PATH }} /t:Restore `
+            /p:Configuration=${{ env.CONFIGURATION }} `
+            /p:Platform=${{ matrix.platform }}
+
+      # 🔐 Create or decode signing cert; also export a .cer for release
+      - name: Prepare signing certificate (PFX + CER)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\build\certs" | Out-Null
           $pfxPath = "${{ github.workspace }}\build\certs\DEV_KIOSK.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
-          Write-Host "Certificate decoded to: $pfxPath"
-        } else {
-          Write-Host "No certificate secret found - using test certificate"
-          # Generate a temporary test certificate
-          $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=OneRoomHealth" `
-            -KeyUsage DigitalSignature -FriendlyName "UWP Kiosk Test Cert" `
-            -CertStoreLocation "Cert:\CurrentUser\My" `
-            -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3", "2.5.29.19={text}")
-          $pfxPath = "${{ github.workspace }}\build\certs\DEV_KIOSK.pfx"
-          $pwd = ConvertTo-SecureString -String "dev123" -Force -AsPlainText
-          Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" -FilePath $pfxPath -Password $pwd
-        }
-      shell: pwsh
-    
-    - name: Build UWP project
-      run: |
-        msbuild ${{ env.PROJECT_PATH }} `
-          /p:Configuration=${{ env.CONFIGURATION }} `
-          /p:Platform=${{ matrix.platform }} `
-          /p:AppxBundle=Always `
-          /p:AppxBundlePlatforms="${{ matrix.platform }}" `
-          /p:UapAppxPackageBuildMode=SideloadOnly `
-          /p:AppxPackageSigningEnabled=true `
-          /p:PackageCertificateKeyFile="${{ github.workspace }}\build\certs\DEV_KIOSK.pfx" `
-          /p:PackageCertificatePassword="${{ secrets.UWP_CERTIFICATE_PASSWORD || 'dev123' }}" `
-          /p:AppxPackageDir="${{ github.workspace }}\artifacts\${{ matrix.platform }}\"
-      shell: pwsh
-    
-    - name: Upload build artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: uwp-kiosk-${{ matrix.platform }}
-        path: |
-          artifacts/${{ matrix.platform }}/**/*.msix
-          artifacts/${{ matrix.platform }}/**/*.msixbundle
-          artifacts/${{ matrix.platform }}/**/*.cer
-        retention-days: 90
-  
+          $cerPath = "${{ github.workspace }}\build\certs\DEV_KIOSK.cer"
+
+          if ("${{ secrets.UWP_CERTIFICATE_BASE64 }}" -ne "") {
+            $pfxBytes = [Convert]::FromBase64String("${{ secrets.UWP_CERTIFICATE_BASE64 }}")
+            [IO.File]::WriteAllBytes($pfxPath, $pfxBytes)
+            $pwd = "${{ secrets.UWP_CERTIFICATE_PASSWORD }}"
+            if ([string]::IsNullOrWhiteSpace($pwd)) { $pwd = "${{ env.CERT_PASSWORD_FALLBACK }}" }
+            $secure = ConvertTo-SecureString -String $pwd -AsPlainText -Force
+            # Import + export CER for release users to trust
+            $cert = Import-PfxCertificate -FilePath $pfxPath -Password $secure -CertStoreLocation Cert:\CurrentUser\My
+            Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
+          } else {
+            Write-Host "No certificate secret found - generating a temporary dev cert"
+            $cert = New-SelfSignedCertificate -Type Custom -Subject "CN=OneRoomHealth" `
+              -KeyUsage DigitalSignature -FriendlyName "UWP Kiosk Test Cert" `
+              -CertStoreLocation "Cert:\CurrentUser\My" `
+              -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.3","2.5.29.19={text}")
+            $secure = ConvertTo-SecureString -String "${{ env.CERT_PASSWORD_FALLBACK }}" -AsPlainText -Force
+            Export-PfxCertificate -Cert "Cert:\CurrentUser\My\$($cert.Thumbprint)" -FilePath $pfxPath -Password $secure | Out-Null
+            Export-Certificate -Cert $cert -FilePath $cerPath | Out-Null
+          }
+
+      - name: Build UWP project
+        shell: pwsh
+        run: |
+          $pwd = "${{ secrets.UWP_CERTIFICATE_PASSWORD }}"
+          if ([string]::IsNullOrWhiteSpace($pwd)) { $pwd = "${{ env.CERT_PASSWORD_FALLBACK }}" }
+          msbuild ${{ env.PROJECT_PATH }} `
+            /t:Rebuild `
+            /p:Configuration=${{ env.CONFIGURATION }} `
+            /p:Platform=${{ matrix.platform }} `
+            /p:AppxBundle=Always `
+            /p:AppxBundlePlatforms="${{ matrix.platform }}" `
+            /p:UapAppxPackageBuildMode=SideloadOnly `
+            /p:AppxPackageSigningEnabled=true `
+            /p:PackageCertificateKeyFile="${{ github.workspace }}\build\certs\DEV_KIOSK.pfx" `
+            /p:PackageCertificatePassword="$pwd" `
+            /p:AppxPackageDir="${{ github.workspace }}\artifacts\${{ matrix.platform }}\"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: uwp-kiosk-${{ matrix.platform }}
+          path: |
+            artifacts/${{ matrix.platform }}/**/*.msix
+            artifacts/${{ matrix.platform }}/**/*.msixbundle
+            build/certs/DEV_KIOSK.cer
+          retention-days: 90
+
   bundle:
     needs: build
-    runs-on: windows-latest
+    runs-on: windows-2022
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    
+
     steps:
-    - name: Download all artifacts
-      uses: actions/download-artifact@v4
-      with:
-        path: artifacts-download
-    
-    - name: Create unified bundle
-      run: |
-        New-Item -ItemType Directory -Force -Path unified-bundle
-        
-        # Copy all msixbundles and certificates
-        Get-ChildItem -Path artifacts-download -Recurse -Include *.msixbundle,*.cer | Copy-Item -Destination unified-bundle
-        
-        # List contents
-        Get-ChildItem unified-bundle
-      shell: pwsh
-    
-    - name: Upload unified bundle
-      uses: actions/upload-artifact@v4
-      with:
-        name: uwp-kiosk-bundle-all-platforms
-        path: unified-bundle/**/*
-        retention-days: 90
-  
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts-download
+
+      - name: Create unified bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path unified-bundle | Out-Null
+          Get-ChildItem -Path artifacts-download -Recurse -Include *.msixbundle,*.cer | Copy-Item -Destination unified-bundle
+          Get-ChildItem unified-bundle
+
+      - name: Upload unified bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: uwp-kiosk-bundle-all-platforms
+          path: unified-bundle/**/*
+          retention-days: 90
+
   release:
     needs: bundle
-    runs-on: windows-latest
+    runs-on: windows-2022
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Download unified bundle
-      uses: actions/download-artifact@v4
-      with:
-        name: uwp-kiosk-bundle-all-platforms
-        path: release-files
-    
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          release-files/**/*.msixbundle
-          release-files/**/*.cer
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-        body: |
-          ## OneRoom Health UWP Kiosk App
-          
-          ### Installation
-          
-          **For Windows 11 Pro Assigned Access:**
-          
-          1. Download `KioskApp.Uwp.msixbundle` and `DEV_KIOSK.cer`
-          2. Install certificate:
-             ```powershell
-             Import-Certificate -FilePath .\DEV_KIOSK.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-             ```
-          3. Install app:
-             ```powershell
-             Add-AppxPackage -Path .\KioskApp.Uwp.msixbundle -AllUsers
-             ```
-          
-          See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for complete instructions.
-          
-          ### Features
-          - ✅ Full-screen WebView2 kiosk
-          - ✅ Windows 11 Pro Assigned Access support
-          - ✅ 5-tap exit gesture with PIN (default: 7355608)
-          - ✅ Offline error handling with auto-recovery
-          - ✅ Keyboard shortcut blocking
-          - ✅ Multi-architecture support (x86/x64/ARM64)
-          
-          ### Configuration
-          - Default URL: `https://orh-frontend-container-prod.purplewave-6482a85c.westus2.azurecontainerapps.io/login`
-          - Default PIN: `7355608`
-          - Customize via `kiosk.json` or LocalSettings
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download unified bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: uwp-kiosk-bundle-all-platforms
+          path: release-files
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-files/**/*.msixbundle
+            release-files/**/*.cer
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          body: |
+            ## OneRoom Health UWP Kiosk App
+
+            ### Installation
+            1) Install certificate:
+               ```powershell
+               Import-Certificate -FilePath .\DEV_KIOSK.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+               ```
+            2) Install app:
+               ```powershell
+               Add-AppxPackage -Path .\KioskApp.Uwp.msixbundle -AllUsers
+               ```
+            See DEPLOYMENT_GUIDE.md for details.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
