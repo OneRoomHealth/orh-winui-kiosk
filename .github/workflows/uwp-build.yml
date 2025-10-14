@@ -34,6 +34,11 @@ jobs:
     - name: Setup MSBuild
       uses: microsoft/setup-msbuild@v2
     
+    - name: Install Windows 11 SDK (10.0.22621)
+      run: |
+        choco install windows-sdk-10-version-22621-all -y --no-progress
+      shell: pwsh
+
     - name: Setup NuGet
       uses: NuGet/setup-nuget@v2
       
