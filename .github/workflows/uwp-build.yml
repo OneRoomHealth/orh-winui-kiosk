@@ -34,10 +34,10 @@ jobs:
         uses: microsoft/setup-msbuild@v2
 
       # 🔧 Install a real Windows 10 SDK that provides Windows.winmd
-      - name: Install Windows 10 SDK 10.0.19041
-        uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
-        with:
-          sdk-version: 19041
+      # - name: Install Windows 10 SDK 10.0.19041
+      #   uses: GuillaumeFalourd/setup-windows10-sdk-action@v2
+      #   with:
+      #     sdk-version: 19041
 
       - name: Setup NuGet
         uses: nuget/setup-nuget@v2
