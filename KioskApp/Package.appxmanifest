@@ -32,8 +32,8 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="OneRoom Health Kiosk"
-        Description="OneRoom Health Kiosk Application with WebView2"
+        DisplayName="OneRoom Health Kiosk (Desktop)"
+        Description="OneRoom Health Kiosk Desktop App - For Enterprise Shell Launcher (Not for Win11 Pro Assigned Access)"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png">
