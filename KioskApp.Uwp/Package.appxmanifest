@@ -30,7 +30,8 @@
   <Applications>
     <Application Id="App"
       Executable="$targetnametoken$.exe"
-      EntryPoint="KioskApp.Uwp.App">
+      EntryPoint="KioskApp.Uwp.App"
+      uap5:AppListEntry="default">  
       <uap:VisualElements
         DisplayName="OneRoom Health Kiosk (UWP)"
         Square150x150Logo="Assets\Square150x150Logo.png"
