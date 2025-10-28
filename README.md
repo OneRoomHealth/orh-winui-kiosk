@@ -1,180 +1,242 @@
 # OneRoom Health Kiosk App (WinUI 3)
 
-Full-screen Windows 11 Enterprise kiosk shell built with WinUI 3 + WebView2. On launch it navigates to the default wall/screensaver URL, and exposes a local HTTP endpoint for runtime navigation commands.
+Full-screen Windows 11 Enterprise kiosk application built with **WinUI 3** and **WebView2**. Designed to run as a locked-down kiosk shell using Windows Shell Launcher v2.
 
 ---
 
-## Features
+## 🎯 Overview
 
-- ✅ Full-screen, borderless, always-on-top window with no system chrome
-- ✅ Single WebView2 surface filling the screen
-- ✅ Default navigation to the wall/screensaver URL on startup
-- ✅ Local command server on `http://127.0.0.1:8787` with `POST /navigate`
-- ✅ Windows App SDK (WinUI 3) desktop app; UWP project removed
+This application provides a secure, full-screen browser experience for Windows 11 Enterprise kiosk deployments:
 
----
-
-## Quick Links
-
-| For | Guide | Description |
-|-----|-------|-------------|
-| **IT/Deployment** | **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** | General deployment guidance |
-| **Developers** | [GITHUB_SETUP_QUICKSTART.md](GITHUB_SETUP_QUICKSTART.md) | CI/CD setup |
+- ✅ **Full-screen, borderless, always-on-top window** with no system chrome
+- ✅ **WebView2 browser** filling the entire screen
+- ✅ **Automatic navigation** to default URL on startup
+- ✅ **Local HTTP API** on `http://127.0.0.1:8787` for runtime navigation control
+- ✅ **Shell Launcher v2 integration** for Windows 11 Enterprise kiosk mode
+- ✅ **Security hardened** - disables dev tools, context menus, and browser shortcuts
 
 ---
 
-## Kiosk Mode Setup (Windows 11 Enterprise)
+## 📋 Requirements
 
-1) Build and install the WinUI 3 app (MSIX or unpackaged EXE).
-
-2) Run the provisioning script as Administrator:
-
-```powershell
-Set-ExecutionPolicy Bypass -Scope Process -Force
-cd <repo-root>
-.\u005cprovision_kiosk_user.ps1 -KioskUser "orhKiosk" -KioskPassword "OrhKiosk!2025" -KioskExePath "C:\\Program Files\\OneRoomHealth\\OneRoomHealthKioskApp\\OneRoomHealthKioskApp.exe"
-```
-
-3) Reboot.
-
-Expected behavior after reboot:
-
-- Auto-logon as `orhKiosk`.
-- No Explorer/Start/taskbar. The kiosk app launches full screen as the shell.
-- The WebView2 surface loads:
-  `https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default`
-
-4) Test navigation command from the same machine:
-
-```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/navigate -Body '{ "url": "https://politebeach.someurl.app/ma" }' -ContentType "application/json"
-```
-
-The kiosk should immediately navigate the visible browser view to that URL.
+- **Windows 11 Enterprise** (Shell Launcher v2 feature)
+- **Administrator access** for deployment
+- **.NET 8.0** runtime
+- **WebView2 Runtime** (included with Windows 11)
 
 ---
 
-## For Developers: Setting Up GitHub Actions
+## 🚀 Quick Start
 
-See **[GITHUB_SETUP_QUICKSTART.md](GITHUB_SETUP_QUICKSTART.md)** for:
-- Certificate generation
-- GitHub secrets configuration
-- Automated build and release workflow
-- Creating releases with version tags
-
-**Quick start:**
-```bash
-# Generate certificate
-.\.github\scripts\generate-certificate.ps1 -Publisher "CN=OneRoomHealth"
-
-# Add secrets to GitHub (see guide for details)
-# Then create a release:
-git tag v1.0.0
-git push origin v1.0.0
-```
-
----
-
-## For IT: Deploying to Tablets
-
-See **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** for:
-- **Which app to use** (UWP vs WinUI 3 decision table)
-- Step-by-step installation instructions
-- Windows 11 Pro Assigned Access configuration
-- Kiosk mode setup and troubleshooting
-- URL and PIN customization
-
-**Quick install - UWP Kiosk (Recommended for Windows 11 Pro):**
-```powershell
-# Install certificate
-Import-Certificate -FilePath ".\DEV_KIOSK.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-
-# Install app for ALL users
-Add-AppxPackage -Path ".\KioskApp.Uwp.msixbundle" -AllUsers
-
-# Or use the automated script
-.\scripts\install-uwp.ps1
-```
-
-**Quick install - WinUI 3 Desktop (Legacy):**
-```powershell
-# Install certificate (first time only)
-Invoke-WebRequest -Uri "https://github.com/OneRoomHealth/orh-winui-kiosk/releases/latest/download/OneRoomHealthKioskApp_1.0.5.0.cer" -OutFile "$env:TEMP\cert.cer"
-Import-Certificate -FilePath "$env:TEMP\cert.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-
-# Install app for ALL users
-Add-AppxPackage -Path "$env:USERPROFILE\Downloads\OneRoomHealthKioskApp_1.0.5.0_x64.msix" -AllUsers
-```
-
-Then see the [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for complete setup instructions.
-
----
-
-## Project Structure
-
-```
-orh-winui-kiosk/
-├── KioskApp/               # WinUI 3 Desktop kiosk app
-│   ├── KioskApp.csproj
-│   ├── Package.appxmanifest
-│   ├── App.xaml / App.xaml.cs
-│   ├── MainWindow.xaml / MainWindow.xaml.cs
-│   └── Assets/
-│
-├── provision_kiosk_user.ps1  # Shell Launcher provisioning script
-│
-├── scripts/
-│   └── install-uwp.ps1     # (legacy) UWP installation script
-│
-├── build/certs/
-│   ├── generate-dev-cert.ps1
-│   └── README.md
-│
-├── .github/workflows/
-│   ├── uwp-build.yml       # UWP CI/CD
-│   └── build-and-release.yml  # WinUI 3 CI/CD
-│
-└── DEPLOYMENT_GUIDE.md     # Complete installation guide
-```
-
----
-
-## Customization
-
-### WinUI 3
-
-- Default screensaver URL is set in `MainWindow.xaml.cs` during WebView2 initialization.
-- To navigate at runtime, use the local HTTP endpoint as shown above.
-
-### Both Apps
-
-**Change App Icons:**
-Replace PNG files in respective `Assets/` folder:
-- Square150x150Logo.png (150x150)
-- Square44x44Logo.png (44x44)
-- Wide310x150Logo.png (310x150)
-- StoreLogo.png (50x50)
-- SplashScreen.png (620x300)
-
----
-
-## Development Requirements
-
-- Windows 11
-- Visual Studio 2022 with:
-  - .NET Desktop Development workload
-  - Universal Windows Platform development
-  - Windows App SDK C# Templates
-- .NET 8 SDK
-- Windows App SDK 1.6
-
----
-
-## Building Locally
+### 1. Build the Application
 
 ```bash
 # Clone repository
 git clone https://github.com/OneRoomHealth/orh-winui-kiosk.git
+cd orh-winui-kiosk
+
+# Open in Visual Studio 2022
+# Build → Publish → Create App Packages (Release, x64)
+```
+
+### 2. Install on Kiosk Device
+
+```powershell
+# Install certificate (first time only)
+Import-Certificate -FilePath "OneRoomHealthKioskApp.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+
+# Install MSIX package
+Add-AppxPackage -Path "OneRoomHealthKioskApp_x64.msix"
+```
+
+### 3. Configure Kiosk Mode
+
+Run the provisioning script as Administrator:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+.\provision_kiosk_user.ps1 -KioskUser "orhKiosk" -KioskPassword "OrhKiosk!2025" -KioskExePath "C:\Program Files\WindowsApps\[PackageFolder]\OneRoomHealthKioskApp.exe"
+```
+
+**Note:** Update `-KioskExePath` to match the actual MSIX installation path. Find it with:
+```powershell
+$app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
+Write-Host "$($app.InstallLocation)\OneRoomHealthKioskApp.exe"
+```
+
+### 4. Reboot
+
+After reboot:
+- Auto-logon as `orhKiosk`
+- Kiosk app launches as the shell (no Explorer/taskbar)
+- WebView2 loads the default URL
+
+---
+
+## 🌐 Runtime Navigation Control
+
+The app exposes a local HTTP endpoint for remote navigation:
+
+**Endpoint:** `http://127.0.0.1:8787/navigate`  
+**Method:** POST  
+**Content-Type:** application/json
+
+**Example:**
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/navigate `
+  -Body '{"url": "https://example.com"}' `
+  -ContentType "application/json"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Navigating to https://example.com"
+}
+```
+
+---
+
+## ⚙️ Configuration
+
+### Change Default URL
+
+Edit `MainWindow.xaml.cs` line 103:
+
+```csharp
+KioskWebView.CoreWebView2.Navigate("https://your-url-here.com");
+```
+
+Rebuild and redeploy the MSIX package.
+
+### Update Kiosk User Password
+
+```powershell
+$Password = ConvertTo-SecureString "NewPassword123!" -AsPlainText -Force
+Set-LocalUser -Name "orhKiosk" -Password $Password
+
+# Update auto-login password
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" `
+  -Name "DefaultPassword" -Value "NewPassword123!"
+```
+
+---
+
+## 🎨 Customization
+
+### Change App Icons
+
+Replace PNG files in `KioskApp/Assets/` folder:
+- **Square150x150Logo.png** (150x150px)
+- **Square44x44Logo.png** (44x44px)
+- **Wide310x150Logo.png** (310x150px)
+- **StoreLogo.png** (50x50px)
+- **SplashScreen.png** (620x300px)
+
+Rebuild the package after updating assets.
+
+---
+
+## 🔧 Troubleshooting
+
+### Kiosk Not Launching After Reboot
+
+**Check Shell Launcher configuration:**
+```powershell
+Get-AssignedAccess
+```
+
+**Verify kiosk user auto-login:**
+```powershell
+Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" | Select-Object AutoAdminLogon, DefaultUserName
+```
+
+### WebView2 Not Loading
+
+**Verify WebView2 Runtime is installed:**
+```powershell
+Get-AppxPackage -Name Microsoft.WebView2Runtime
+```
+
+If missing, download from: https://developer.microsoft.com/microsoft-edge/webview2/
+
+### Exit Kiosk Mode
+
+**As an administrator:**
+1. Press `Ctrl+Alt+Del`
+2. Sign out
+3. Log in with admin account
+
+**To disable kiosk mode:**
+```powershell
+Clear-AssignedAccess
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" -Name "AutoAdminLogon" -Value "0"
+```
+
+### Revert to Normal Shell
+
+```powershell
+# Get kiosk user SID
+$user = Get-LocalUser -Name "orhKiosk"
+$sid = ([System.Security.Principal.NTAccount]"$env:COMPUTERNAME\orhKiosk").Translate([System.Security.Principal.SecurityIdentifier]).Value
+
+# Set shell back to Explorer
+$namespace = "root\cimv2\mdm\dmmap"
+$className = "MDM_Policy_Config01_ShellLauncher01"
+$session = New-CimSession -Namespace $namespace
+$propsUserShell = @{
+    InstanceID = "ShellLauncher/User/$sid"
+    ParentID  = "./Vendor/MSFT/Policy/Config/ShellLauncher"
+    UserSID   = $sid
+    Shell     = "explorer.exe"
+}
+New-CimInstance -CimSession $session -Namespace $namespace -ClassName $className -Property $propsUserShell -Force
+Remove-CimSession $session
+```
+
+---
+
+## 📁 Project Structure
+
+```
+orh-winui-kiosk/
+├── KioskApp/                          # WinUI 3 Desktop kiosk app
+│   ├── KioskApp.csproj                # Project file (.NET 8 + Windows App SDK 1.6)
+│   ├── Package.appxmanifest           # MSIX package manifest
+│   ├── App.xaml / App.xaml.cs         # Application initialization
+│   ├── MainWindow.xaml.cs             # Main window with full-screen WebView2
+│   ├── LocalCommandServer.cs          # HTTP API for navigation control
+│   └── Assets/                        # App icons and splash screen
+│
+├── provision_kiosk_user.ps1           # Shell Launcher provisioning script
+│
+├── build/certs/
+│   ├── generate-dev-cert.ps1          # Development certificate generator
+│   └── README.md                      # Certificate documentation
+│
+└── DEPLOYMENT_GUIDE.md                # Detailed deployment instructions
+```
+
+---
+
+## 🛠️ Development
+
+### Prerequisites
+
+- **Windows 11**
+- **Visual Studio 2022** with:
+  - .NET Desktop Development workload
+  - Windows App SDK C# Templates
+- **.NET 8 SDK**
+- **Windows App SDK 1.6**
+
+### Build from Source
+
+```bash
+# Clone repository
+git clone https://github.com/OneRoomHealth/orh-winui-kiosk.git
+cd orh-winui-kiosk
 
 # Open in Visual Studio 2022
 # Open KioskApp/KioskApp.csproj
@@ -182,22 +244,67 @@ git clone https://github.com/OneRoomHealth/orh-winui-kiosk.git
 # Build → Publish → Create App Packages
 ```
 
-For automated builds via GitHub Actions, see [GITHUB_SETUP_QUICKSTART.md](GITHUB_SETUP_QUICKSTART.md)
+### Local Testing (Without Kiosk Mode)
+
+```powershell
+# Register app for development
+$app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
+if (-not $app) {
+    Add-AppxPackage -Register "KioskApp\bin\x64\Release\win-x64\AppxManifest.xml" -DevelopmentMode
+}
+
+# Launch app
+Start-Process "shell:AppsFolder\[PackageFamilyName]!App"
+```
 
 ---
 
-## Support
+## 🔐 Security Features
+
+The kiosk app implements multiple security layers:
+
+1. **Window Security**
+   - Full-screen mode with no system chrome
+   - Always-on-top (cannot be minimized or switched away from)
+   - Window close button disabled
+
+2. **WebView2 Hardening**
+   - Context menus disabled
+   - Developer tools disabled
+   - Browser accelerator keys disabled
+   - Zoom controls disabled
+   - Status bar disabled
+
+3. **Shell Launcher Integration**
+   - Replaces Explorer.exe entirely
+   - No access to Start menu, taskbar, or desktop
+   - Only exit via Ctrl+Alt+Del
+
+4. **Network Restrictions**
+   - Consider using Windows Firewall to restrict outbound connections
+   - Limit to specific URLs via proxy or DNS filtering
+
+---
+
+## 📖 Additional Documentation
+
+- **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - Detailed deployment instructions for IT administrators
+- **[build/certs/README.md](build/certs/README.md)** - Certificate generation and management
+
+---
+
+## 🆘 Support
 
 - **Repository**: https://github.com/OneRoomHealth/orh-winui-kiosk
-- **Releases**: https://github.com/OneRoomHealth/orh-winui-kiosk/releases
 - **Issues**: https://github.com/OneRoomHealth/orh-winui-kiosk/issues
+- **Releases**: https://github.com/OneRoomHealth/orh-winui-kiosk/releases
 
 ---
 
-## License
+## 📄 License
 
 [Your License Here]
 
 ---
 
-**Built for Windows 11 Kiosk Deployments**
+**Built for Windows 11 Enterprise Kiosk Deployments**

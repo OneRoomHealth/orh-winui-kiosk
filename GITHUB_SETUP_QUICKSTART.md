@@ -1,168 +1,337 @@
-# GitHub Actions Setup - Quick Start Guide
+# GitHub Actions CI/CD Setup Guide
 
-This guide will help you set up automated builds and releases for your WinUI Kiosk App using GitHub Actions.
+This guide helps you set up automated builds and releases for the WinUI 3 Kiosk App using GitHub Actions.
 
-## Prerequisites
+---
 
+## 📋 Prerequisites
+
+- GitHub repository for this project
 - Windows machine with PowerShell
-- GitHub account with repository access
 - Git installed locally
+- Visual Studio 2022 (for local testing)
 
-## Setup Steps (5 minutes)
+---
 
-### 1. Generate Signing Certificate ⚡
+## 🚀 Quick Setup (5 Minutes)
 
-Open PowerShell and run:
+### Step 1: Generate Signing Certificate
+
+Open PowerShell in the project root:
 
 ```powershell
-cd C:\Users\JeremySteinhafel\Code\orh-winui-kiosk
-.\.github\scripts\generate-certificate.ps1 -Publisher "CN=YourOrganization"
+cd build\certs
+.\generate-dev-cert.ps1
 ```
 
-**Expected Output:**
-- `certificate.pfx` file created
-- `github-secrets.txt` file with instructions
-- Certificate password displayed (SAVE THIS!)
+**Output:**
+- `DEV_KIOSK.pfx` - Private certificate (don't commit!)
+- `DEV_KIOSK.cer` - Public certificate (include in releases)
+- Certificate password displayed in console (save this!)
 
-### 2. Create GitHub Personal Access Token 🔑
+### Step 2: Create GitHub Personal Access Token
 
-1. Visit: https://github.com/settings/tokens
+1. Go to: https://github.com/settings/tokens
 2. Click **"Generate new token (classic)"**
 3. Configure:
-   - Name: `KioskApp Release Token`
-   - Expiration: `No expiration` (or your preference)
-   - Scope: ✅ **repo** (check this box)
+   - **Name**: `Kiosk App CI/CD`
+   - **Expiration**: No expiration (or your preference)
+   - **Scopes**: Check `repo` (full control of private repositories)
 4. Click **"Generate token"**
-5. **COPY THE TOKEN** (you won't see it again!)
+5. **Copy the token** (you won't see it again!)
 
-### 3. Add Secrets to GitHub Repository 🔐
+### Step 3: Add Secrets to GitHub Repository
 
-Visit: `https://github.com/YOUR_USERNAME/YOUR_REPO/settings/secrets/actions`
+1. Go to your repository: `https://github.com/YOUR_USERNAME/orh-winui-kiosk`
+2. Click **Settings** → **Secrets and variables** → **Actions**
+3. Click **"New repository secret"** for each:
 
-Click **"New repository secret"** three times to add:
+| Secret Name | How to Get Value |
+|-------------|------------------|
+| `SIGNING_CERTIFICATE` | Convert PFX to Base64 (see below) |
+| `CERTIFICATE_PASSWORD` | Password from Step 1 |
+| `RELEASE_TOKEN` | GitHub PAT from Step 2 |
 
-| Secret Name | Value Source |
-|------------|--------------|
-| `SIGNING_CERTIFICATE` | Copy from `github-secrets.txt` (long Base64 string) |
-| `CERTIFICATE_PASSWORD` | Copy from `github-secrets.txt` |
-| `RELEASE_TOKEN` | Paste the GitHub PAT from Step 2 |
-
-### 4. Update Package.appxmanifest 📝
-
-Edit `KioskApp/Package.appxmanifest` line 12:
-
-```xml
-Publisher="CN=YourOrganization"
+**Convert PFX to Base64:**
+```powershell
+# In PowerShell
+$pfxPath = "build\certs\DEV_KIOSK.pfx"
+$bytes = [System.IO.File]::ReadAllBytes($pfxPath)
+$base64 = [System.Convert]::ToBase64String($bytes)
+$base64 | Set-Clipboard
+Write-Host "Base64 certificate copied to clipboard!"
 ```
 
-Replace `YourOrganization` with your actual organization name (must match certificate).
+Paste the clipboard contents into the `SIGNING_CERTIFICATE` secret.
 
-### 5. Commit and Push Changes 🚀
+### Step 4: Create GitHub Actions Workflow
+
+Create `.github/workflows/build-and-release.yml`:
+
+```yaml
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: Setup MSBuild
+      uses: microsoft/setup-msbuild@v2
+      
+    - name: Restore NuGet packages
+      run: msbuild KioskApp\KioskApp.csproj /t:Restore /p:Configuration=Release /p:Platform=x64
+      
+    - name: Decode certificate
+      run: |
+        $bytes = [Convert]::FromBase64String("${{ secrets.SIGNING_CERTIFICATE }}")
+        [IO.File]::WriteAllBytes("$env:GITHUB_WORKSPACE\certificate.pfx", $bytes)
+      
+    - name: Build MSIX
+      run: |
+        msbuild KioskApp\KioskApp.csproj `
+          /p:Configuration=Release `
+          /p:Platform=x64 `
+          /p:AppxBundle=Always `
+          /p:GenerateAppInstallerFile=False `
+          /p:PackageCertificateKeyFile="$env:GITHUB_WORKSPACE\certificate.pfx" `
+          /p:PackageCertificatePassword="${{ secrets.CERTIFICATE_PASSWORD }}"
+      
+    - name: Export public certificate
+      run: |
+        $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2("certificate.pfx", "${{ secrets.CERTIFICATE_PASSWORD }}")
+        $bytes = $cert.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert)
+        [System.IO.File]::WriteAllBytes("$env:GITHUB_WORKSPACE\OneRoomHealthKioskApp.cer", $bytes)
+      
+    - name: Find build artifacts
+      id: find_artifacts
+      run: |
+        $msixFiles = Get-ChildItem -Path "KioskApp\bin\x64\Release" -Filter "*.msix" -Recurse | Select-Object -First 1
+        echo "msix_path=$($msixFiles.FullName)" >> $env:GITHUB_OUTPUT
+      
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ${{ steps.find_artifacts.outputs.msix_path }}
+          OneRoomHealthKioskApp.cer
+        body: |
+          # OneRoom Health Kiosk App ${{ github.ref_name }}
+          
+          ## Installation
+          
+          1. Download both files
+          2. Install certificate:
+             ```powershell
+             Import-Certificate -FilePath ".\OneRoomHealthKioskApp.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+             ```
+          3. Install app:
+             ```powershell
+             Add-AppxPackage -Path ".\OneRoomHealthKioskApp_*.msix"
+             ```
+          
+          ## Configuration
+          
+          See [DEPLOYMENT_GUIDE.md](https://github.com/${{ github.repository }}/blob/main/DEPLOYMENT_GUIDE.md) for complete setup instructions.
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: kiosk-app-release
+        path: |
+          KioskApp\bin\x64\Release\**\*.msix
+          OneRoomHealthKioskApp.cer
+```
+
+### Step 5: Commit and Push
 
 ```bash
-git add .
-git commit -m "Add GitHub Actions workflow"
+git add .github/workflows/build-and-release.yml
+git commit -m "Add CI/CD workflow"
 git push origin main
 ```
 
-### 6. Create First Release 🎉
+### Step 6: Create First Release
 
 ```bash
-# Create a version tag
+# Create version tag
 git tag v1.0.0
 
-# Push the tag to trigger the workflow
+# Push tag to trigger workflow
 git push origin v1.0.0
 ```
 
-### 7. Monitor Build Progress 👀
+### Step 7: Monitor Build
 
-1. Go to your GitHub repository
-2. Click **"Actions"** tab
+1. Go to your repository
+2. Click **Actions** tab
 3. Watch the workflow run (5-10 minutes)
-4. Once complete, check **"Releases"** tab
+4. Once complete, check **Releases** tab
 
-## Verification Checklist ✅
+**Expected artifacts:**
+- `OneRoomHealthKioskApp_1.0.0.0_x64.msix`
+- `OneRoomHealthKioskApp.cer`
 
-- [ ] Certificate generated successfully
-- [ ] Three secrets added to GitHub repository
-- [ ] Package.appxmanifest Publisher matches certificate
+---
+
+## ✅ Verification Checklist
+
+- [ ] Certificate generated (`DEV_KIOSK.pfx` and `DEV_KIOSK.cer` exist)
+- [ ] Three GitHub secrets added (SIGNING_CERTIFICATE, CERTIFICATE_PASSWORD, RELEASE_TOKEN)
+- [ ] Workflow file created in `.github/workflows/`
 - [ ] Changes committed and pushed
 - [ ] Version tag created and pushed
-- [ ] GitHub Actions workflow running
-- [ ] Release created with 3 files:
-  - `KioskApp_1.0.0.0_x64.msixbundle`
-  - `KioskApp.appinstaller`
-  - `KioskApp_1.0.0.0.cer`
+- [ ] GitHub Actions workflow completed successfully
+- [ ] Release created with MSIX and certificate files
 
-## Testing Installation from Release 🧪
+---
 
-On a test device:
+## 🔄 Creating Future Releases
 
-```powershell
-# Option 1: Quick install (with auto-updates)
-Add-AppxPackage -AppInstallerFile "https://github.com/YOUR_USERNAME/YOUR_REPO/releases/latest/download/KioskApp.appinstaller"
-
-# Option 2: Manual install
-# Download the .cer and .msixbundle files, then:
-Import-Certificate -FilePath "KioskApp_1.0.0.0.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
-Add-AppxPackage -Path "KioskApp_1.0.0.0_x64.msixbundle"
-```
-
-## Future Releases 🔄
-
-For subsequent releases, just create a new tag:
+For subsequent releases:
 
 ```bash
 # Make your code changes
 git add .
-git commit -m "New features"
+git commit -m "Add new features"
+git push origin main
 
 # Create new version tag
 git tag v1.1.0
-git push origin main
 git push origin v1.1.0
 ```
 
-GitHub Actions will automatically build and release!
-
-## Troubleshooting 🔧
-
-### Build Fails Immediately
-
-**Check:**
-- All three secrets are set correctly in GitHub
-- No extra spaces in Base64 certificate string
-- Certificate password is correct
-
-### No Release Created
-
-**Check:**
-- `RELEASE_TOKEN` has `repo` scope
-- Token hasn't expired
-- You pushed both commit AND tag
-
-### Publisher Mismatch Error
-
-**Fix:**
-- Ensure `Package.appxmanifest` Publisher exactly matches certificate CN
-- Re-generate certificate if needed
-
-## Getting Help 💬
-
-- Check the main [README.md](README.md) for detailed documentation
-- Review [GitHub Actions logs](../../actions) for specific errors
-- Check the [Troubleshooting section](README.md#troubleshooting) in README
+GitHub Actions will automatically:
+1. Build the MSIX package
+2. Sign with your certificate
+3. Create a GitHub Release
+4. Upload artifacts
 
 ---
 
-**Quick Reference**
+## 🧪 Testing Installation from Release
 
-| Task | Command |
-|------|---------|
-| Generate cert | `.\.github\scripts\generate-certificate.ps1` |
-| Add secrets | Go to: Settings → Secrets and variables → Actions |
-| Create release | `git tag v1.0.0 && git push origin v1.0.0` |
-| View builds | Repository → Actions tab |
-| View releases | Repository → Releases tab |
+On a test Windows 11 Enterprise device:
 
+```powershell
+# Download files from GitHub Release
+$version = "v1.0.0"
+$repo = "OneRoomHealth/orh-winui-kiosk"
+
+# Download certificate
+Invoke-WebRequest -Uri "https://github.com/$repo/releases/download/$version/OneRoomHealthKioskApp.cer" -OutFile "$env:TEMP\cert.cer"
+
+# Download MSIX
+Invoke-WebRequest -Uri "https://github.com/$repo/releases/download/$version/OneRoomHealthKioskApp_1.0.0.0_x64.msix" -OutFile "$env:TEMP\app.msix"
+
+# Install certificate
+Import-Certificate -FilePath "$env:TEMP\cert.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+
+# Install app
+Add-AppxPackage -Path "$env:TEMP\app.msix"
+
+# Verify
+Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
+```
+
+---
+
+## 🔧 Troubleshooting
+
+### Build Fails: "Certificate Invalid"
+
+**Problem:** Certificate doesn't match Package.appxmanifest Publisher
+
+**Solution:** Update `KioskApp/Package.appxmanifest` line ~12:
+```xml
+<Identity Name="com.oneroomhealth.kioskapp" Publisher="CN=YourOrganization" Version="1.0.0.0" />
+```
+
+Ensure Publisher matches the certificate Subject. Check with:
+```powershell
+$cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2("build\certs\DEV_KIOSK.pfx", "your-password")
+$cert.Subject
+```
+
+### Build Fails: "Access Denied"
+
+**Problem:** GitHub doesn't have permission to create releases
+
+**Solution:** Verify `RELEASE_TOKEN` has `repo` scope:
+1. Go to https://github.com/settings/tokens
+2. Click on your token
+3. Ensure **repo** checkbox is checked
+4. If not, create a new token with correct permissions
+
+### No Release Created
+
+**Problem:** Workflow runs but no release appears
+
+**Solution:** 
+1. Check that you pushed a **tag** (not just a commit)
+2. Verify tag name starts with `v` (e.g., `v1.0.0`)
+3. Check Actions logs for errors
+
+### Certificate Not Trusted on Target Device
+
+**Problem:** Installation fails with certificate error
+
+**Solution:**
+1. Verify certificate was installed to `Cert:\LocalMachine\TrustedPeople` (not CurrentUser)
+2. Run PowerShell as Administrator
+3. Check certificate store:
+   ```powershell
+   Get-ChildItem Cert:\LocalMachine\TrustedPeople | Where-Object {$_.Subject -like "*OneRoomHealth*"}
+   ```
+
+---
+
+## 🔐 Security Best Practices
+
+1. **Never commit PFX files** - Keep them local and in GitHub Secrets only
+2. **Use strong certificate passwords** - At least 12 characters
+3. **Rotate certificates annually** - Generate new ones before expiration
+4. **Limit GitHub token permissions** - Only grant `repo` scope
+5. **Use organization secrets** - For shared deployments across multiple repos
+6. **Enable 2FA** - On your GitHub account
+
+---
+
+## 📚 Additional Resources
+
+- **Main Documentation**: [README.md](README.md)
+- **Deployment Guide**: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+- **Certificate Management**: [build/certs/README.md](build/certs/README.md)
+- **GitHub Actions Documentation**: https://docs.github.com/en/actions
+- **Code Signing in CI/CD**: https://docs.microsoft.com/en-us/windows/msix/package/sign-package-with-signtool
+
+---
+
+## 🆘 Getting Help
+
+- **Issues**: https://github.com/OneRoomHealth/orh-winui-kiosk/issues
+- **Discussions**: https://github.com/OneRoomHealth/orh-winui-kiosk/discussions
+- **Email**: support@oneroomhealth.com
+
+---
+
+**Happy Building! 🚀**
