@@ -81,7 +81,10 @@ public sealed partial class MainWindow : Window
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER);
 
         // Optional: prevent user close; kiosk is closed via Ctrl+Alt+Del
-        this.Closing += (_, e) => { e.Cancel = true; };
+        if (_appWindow != null)
+        {
+            _appWindow.Closing += (_, e) => { e.Cancel = true; };
+        }
     }
 
     private async void InitializeWebView()
