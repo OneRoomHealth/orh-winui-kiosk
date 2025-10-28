@@ -1,14 +1,10 @@
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.Web.WebView2.Core;
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Runtime.InteropServices;
-using Windows.System;
 using WinRT.Interop;
 
 namespace KioskApp;
@@ -16,94 +12,76 @@ namespace KioskApp;
 public sealed partial class MainWindow : Window
 {
     private AppWindow? _appWindow;
-    private readonly List<DateTime> _tapTimestamps = new();
-    private const int REQUIRED_TAPS = 5;
-    private const int TAP_WINDOW_SECONDS = 3;
 
-    // P/Invoke for blocking keyboard shortcuts
+    // Win32 styles for borderless + topmost
+    private const int GWL_STYLE = -16;
+    private const int GWL_EXSTYLE = -20;
+    private const int WS_CAPTION = 0x00C00000;
+    private const int WS_THICKFRAME = 0x00040000;
+    private const int WS_MINIMIZEBOX = 0x00020000;
+    private const int WS_MAXIMIZEBOX = 0x00010000;
+    private const int WS_SYSMENU = 0x00080000;
+    private const int WS_EX_TOPMOST = 0x00000008;
+
     [DllImport("user32.dll")]
-    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
     [DllImport("user32.dll")]
-    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
-    private const uint MOD_CONTROL = 0x0002;
-    private const uint MOD_ALT = 0x0001;
-    private const uint MOD_SHIFT = 0x0004;
-    private const uint MOD_WIN = 0x0008;
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private const uint SWP_SHOWWINDOW = 0x0040;
+    private const uint SWP_FRAMECHANGED = 0x0020;
+    private const uint SWP_NOZORDER = 0x0004;
 
     public MainWindow()
     {
-        this.InitializeComponent();
-        InitializeWindow();
+        InitializeComponent();
+        ConfigureAsKioskWindow();
         InitializeWebView();
     }
 
-    private void InitializeWindow()
+    /// <summary>
+    /// Removes system chrome, forces fullscreen, and sets always-on-top.
+    /// Uses Win32 APIs via HWND obtained from WinUI 3 window.
+    /// </summary>
+    private void ConfigureAsKioskWindow()
     {
         var hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(hwnd);
         _appWindow = AppWindow.GetFromWindowId(windowId);
 
+        // Remove caption/system menu/min/max/resize
+        var style = GetWindowLong(hwnd, GWL_STYLE);
+        style &= ~WS_CAPTION;
+        style &= ~WS_THICKFRAME;
+        style &= ~WS_MINIMIZEBOX;
+        style &= ~WS_MAXIMIZEBOX;
+        style &= ~WS_SYSMENU;
+        SetWindowLong(hwnd, GWL_STYLE, style);
+
+        // Make topmost
+        var exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
+        exStyle |= WS_EX_TOPMOST;
+        SetWindowLong(hwnd, GWL_EXSTYLE, exStyle);
+
+        // Size to full monitor bounds
         if (_appWindow != null)
         {
-            // Hide title bar
-            _appWindow.TitleBar.ExtendsContentIntoTitleBar = true;
-            _appWindow.TitleBar.ButtonBackgroundColor = Colors.Transparent;
-            _appWindow.TitleBar.ButtonInactiveBackgroundColor = Colors.Transparent;
-
-            // Get display area for full screen
             var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-            if (displayArea != null)
-            {
-                var workArea = displayArea.WorkArea;
-                _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(
-                    workArea.X, workArea.Y, workArea.Width, workArea.Height));
-            }
-
-            // Set to fullscreen presenter (kiosk mode)
+            var bounds = displayArea.WorkArea;
+            _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
             _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
         }
 
-        // Block common keyboard shortcuts
-        BlockKeyboardShortcuts(hwnd);
+        // Ensure window style changes are applied and shown
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER);
 
-        // Prevent window closing via keyboard
-        this.Closed += MainWindow_Closed;
-    }
-
-    private void BlockKeyboardShortcuts(IntPtr hwnd)
-    {
-        // Block Ctrl+N (New Window)
-        RegisterHotKey(hwnd, 1, MOD_CONTROL, 0x4E);
-        // Block Ctrl+T (New Tab)
-        RegisterHotKey(hwnd, 2, MOD_CONTROL, 0x54);
-        // Block Ctrl+W (Close Tab/Window)
-        RegisterHotKey(hwnd, 3, MOD_CONTROL, 0x57);
-        // Block Alt+F4 (Close Window)
-        RegisterHotKey(hwnd, 4, MOD_ALT, 0x73);
-        // Block Ctrl+Shift+N (Incognito)
-        RegisterHotKey(hwnd, 5, MOD_CONTROL | MOD_SHIFT, 0x4E);
-        // Block F11 (Fullscreen toggle)
-        RegisterHotKey(hwnd, 6, 0, 0x7A);
-        // Block Windows Key
-        RegisterHotKey(hwnd, 7, MOD_WIN, 0x00);
-        // Block Alt+Tab (disabled in kiosk mode typically)
-        RegisterHotKey(hwnd, 8, MOD_ALT, 0x09);
-        // Block Ctrl+Alt+Delete (system handles this, but we try)
-        RegisterHotKey(hwnd, 9, MOD_CONTROL | MOD_ALT, 0x2E);
-        // Block F12 (DevTools)
-        RegisterHotKey(hwnd, 10, 0, 0x7B);
-        // Block Ctrl+Shift+I (DevTools)
-        RegisterHotKey(hwnd, 11, MOD_CONTROL | MOD_SHIFT, 0x49);
-        // Block Ctrl+L (Address bar)
-        RegisterHotKey(hwnd, 12, MOD_CONTROL, 0x4C);
-        // Block Ctrl+O (Open file)
-        RegisterHotKey(hwnd, 13, MOD_CONTROL, 0x4F);
-        // Block Ctrl+P (Print)
-        RegisterHotKey(hwnd, 14, MOD_CONTROL, 0x50);
-        // Block Ctrl+S (Save)
-        RegisterHotKey(hwnd, 15, MOD_CONTROL, 0x53);
+        // Optional: prevent user close; kiosk is closed via Ctrl+Alt+Del
+        this.Closing += (_, e) => { e.Cancel = true; };
     }
 
     private async void InitializeWebView()
@@ -111,35 +89,18 @@ public sealed partial class MainWindow : Window
         try
         {
             await KioskWebView.EnsureCoreWebView2Async();
-
             if (KioskWebView.CoreWebView2 != null)
             {
-                // Disable context menu (right-click)
-                KioskWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-                
-                // Disable DevTools
-                KioskWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-                
-                // Disable default script dialogs (alert, confirm, etc.)
-                KioskWebView.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = true;
-                
-                // Disable browser accelerator keys
-                KioskWebView.CoreWebView2.Settings.AreBrowserAcceleratorKeysEnabled = false;
-                
-                // Disable zoom
-                KioskWebView.CoreWebView2.Settings.IsZoomControlEnabled = false;
-                
-                // Disable status bar
-                KioskWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                var settings = KioskWebView.CoreWebView2.Settings;
+                settings.AreDefaultContextMenusEnabled = false;
+                settings.AreDevToolsEnabled = false;
+                settings.AreDefaultScriptDialogsEnabled = true;
+                settings.AreBrowserAcceleratorKeysEnabled = false;
+                settings.IsZoomControlEnabled = false;
+                settings.IsStatusBarEnabled = false;
 
-                // Prevent navigation away from the kiosk URL
-                KioskWebView.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
-
-                // Disable all keyboard input that might open new windows
-                KioskWebView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
-
-                // Handle script dialogs if needed
-                KioskWebView.CoreWebView2.ScriptDialogOpening += CoreWebView2_ScriptDialogOpening;
+                // Navigate to default screensaver URL at startup
+                KioskWebView.CoreWebView2.Navigate("https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default");
             }
         }
         catch (Exception ex)
@@ -148,97 +109,18 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    private void CoreWebView2_NavigationStarting(CoreWebView2 sender, CoreWebView2NavigationStartingEventArgs args)
+    /// <summary>
+    /// Navigates the visible WebView2 to the specified URL on the UI thread.
+    /// </summary>
+    public void NavigateToUrl(string url)
     {
-        // Allow navigation within the same domain, block everything else
-        var kioskDomain = "orh-frontend-container-prod.purplewave-6482a85c.westus2.azurecontainerapps.io";
-        if (!args.Uri.Contains(kioskDomain))
+        DispatcherQueue.TryEnqueue(() =>
         {
-            args.Cancel = true;
-        }
-    }
-
-    private void CoreWebView2_NewWindowRequested(CoreWebView2 sender, CoreWebView2NewWindowRequestedEventArgs args)
-    {
-        // Block all new window requests
-        args.Handled = true;
-    }
-
-    private void CoreWebView2_ScriptDialogOpening(CoreWebView2 sender, CoreWebView2ScriptDialogOpeningEventArgs args)
-    {
-        // Allow script dialogs (alerts, confirms) if needed by the web app
-        // You can customize this behavior
-    }
-
-    private void ExitOverlay_Tapped(object sender, TappedRoutedEventArgs e)
-    {
-        var now = DateTime.Now;
-        
-        // Remove taps older than the window
-        _tapTimestamps.RemoveAll(t => (now - t).TotalSeconds > TAP_WINDOW_SECONDS);
-        
-        // Add current tap
-        _tapTimestamps.Add(now);
-        
-        // Check if we have enough taps
-        if (_tapTimestamps.Count >= REQUIRED_TAPS)
-        {
-            _tapTimestamps.Clear();
-            ShowPinDialog();
-        }
-    }
-
-    private async void ShowPinDialog()
-    {
-        var pinDialog = new PinDialog
-        {
-            XamlRoot = this.Content.XamlRoot
-        };
-
-        var result = await pinDialog.ShowAsync();
-
-        if (result == Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
-        {
-            // PIN was correct, exit the application or logoff
-            await ExitKioskMode();
-        }
-    }
-
-    private async System.Threading.Tasks.Task ExitKioskMode()
-    {
-        // Option 1: Close the application
-        // Application.Current.Exit();
-
-        // Option 2: Log off Windows user (recommended for kiosk)
-        try
-        {
-            var processInfo = new ProcessStartInfo
+            if (KioskWebView?.CoreWebView2 != null && !string.IsNullOrWhiteSpace(url))
             {
-                FileName = "shutdown",
-                Arguments = "/l",  // Logoff current user
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            Process.Start(processInfo);
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Logoff error: {ex.Message}");
-            // Fallback: just close the app
-            Application.Current.Exit();
-        }
-
-        await System.Threading.Tasks.Task.CompletedTask;
-    }
-
-    private void MainWindow_Closed(object sender, WindowEventArgs args)
-    {
-        // Unregister hotkeys
-        var hwnd = WindowNative.GetWindowHandle(this);
-        for (int i = 1; i <= 15; i++)
-        {
-            UnregisterHotKey(hwnd, i);
-        }
+                KioskWebView.CoreWebView2.Navigate(url);
+            }
+        });
     }
 }
 

@@ -1,20 +1,16 @@
-# OneRoom Health Kiosk App
+# OneRoom Health Kiosk App (WinUI 3)
 
-Secure, full-screen kiosk application for Windows 11 Surface tablets built with WinUI 3 and WebView2.
-
-**Publisher**: OneRoom Health  
-**Display Name**: OneRoom Health Kiosk App
+Full-screen Windows 11 Enterprise kiosk shell built with WinUI 3 + WebView2. On launch it navigates to the default wall/screensaver URL, and exposes a local HTTP endpoint for runtime navigation commands.
 
 ---
 
 ## Features
 
-- ✅ Full-screen kiosk mode with no window chrome
-- ✅ WebView2 displays specific URL with browser controls disabled
-- ✅ Blocks all keyboard shortcuts and swipe gestures (when in kiosk mode)
-- ✅ PIN-protected exit (5-tap gesture + PIN: 1234)
-- ✅ Auto-updates via GitHub Releases
-- ✅ MSIX packaging for Windows 11 Assigned Access
+- ✅ Full-screen, borderless, always-on-top window with no system chrome
+- ✅ Single WebView2 surface filling the screen
+- ✅ Default navigation to the wall/screensaver URL on startup
+- ✅ Local command server on `http://127.0.0.1:8787` with `POST /navigate`
+- ✅ Windows App SDK (WinUI 3) desktop app; UWP project removed
 
 ---
 
@@ -22,26 +18,39 @@ Secure, full-screen kiosk application for Windows 11 Surface tablets built with 
 
 | For | Guide | Description |
 |-----|-------|-------------|
-| **IT/Deployment** | **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** ⭐ | **Which app to use + installation instructions** |
-| **Developers** | [GITHUB_SETUP_QUICKSTART.md](GITHUB_SETUP_QUICKSTART.md) | Set up GitHub Actions to auto-build and release |
+| **IT/Deployment** | **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** | General deployment guidance |
+| **Developers** | [GITHUB_SETUP_QUICKSTART.md](GITHUB_SETUP_QUICKSTART.md) | CI/CD setup |
 
 ---
 
-## Default Configuration
+## Kiosk Mode Setup (Windows 11 Enterprise)
 
-### UWP Kiosk (Recommended)
-- **Display Name**: OneRoom Health Kiosk (UWP)
-- **Package Name**: `com.oneroomhealth.kioskapp.uwp`
-- **Kiosk URL**: `https://orh-frontend-container-prod.purplewave-6482a85c.westus2.azurecontainerapps.io/login`
-- **Exit PIN**: `7355608`
-- **Exit Gesture**: 5 taps in upper-right corner within 7 seconds
-- **Customization**: Edit `Assets/kiosk.json` or use LocalSettings
+1) Build and install the WinUI 3 app (MSIX or unpackaged EXE).
 
-### WinUI 3 Desktop (Legacy)
-- **Display Name**: OneRoom Health Kiosk App
-- **Kiosk URL**: Hardcoded in `MainWindow.xaml`
-- **Exit PIN**: `1234`
-- **Exit Gesture**: 5 taps in upper-right corner within 3 seconds
+2) Run the provisioning script as Administrator:
+
+```powershell
+Set-ExecutionPolicy Bypass -Scope Process -Force
+cd <repo-root>
+.\u005cprovision_kiosk_user.ps1 -KioskUser "orhKiosk" -KioskPassword "OrhKiosk!2025" -KioskExePath "C:\\Program Files\\OneRoomHealth\\OneRoomHealthKioskApp\\OneRoomHealthKioskApp.exe"
+```
+
+3) Reboot.
+
+Expected behavior after reboot:
+
+- Auto-logon as `orhKiosk`.
+- No Explorer/Start/taskbar. The kiosk app launches full screen as the shell.
+- The WebView2 surface loads:
+  `https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default`
+
+4) Test navigation command from the same machine:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/navigate -Body '{ "url": "https://politebeach.someurl.app/ma" }' -ContentType "application/json"
+```
+
+The kiosk should immediately navigate the visible browser view to that URL.
 
 ---
 
@@ -105,26 +114,17 @@ Then see the [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) for complete setup instr
 
 ```
 orh-winui-kiosk/
-├── KioskApp.Uwp/           # ⭐ UWP Kiosk (Recommended for Win11 Pro)
-│   ├── KioskApp.Uwp.csproj
-│   ├── Package.appxmanifest
-│   ├── App.xaml / App.xaml.cs
-│   ├── MainPage.xaml / MainPage.xaml.cs  # Full-screen WebView2
-│   ├── PinDialog.xaml / PinDialog.xaml.cs
-│   ├── OfflinePage.xaml / OfflinePage.xaml.cs
-│   └── Assets/
-│       └── kiosk.json      # Configuration file
-│
-├── KioskApp/               # WinUI 3 Desktop (Legacy)
+├── KioskApp/               # WinUI 3 Desktop kiosk app
 │   ├── KioskApp.csproj
 │   ├── Package.appxmanifest
 │   ├── App.xaml / App.xaml.cs
 │   ├── MainWindow.xaml / MainWindow.xaml.cs
-│   ├── PinDialog.xaml / PinDialog.xaml.cs
 │   └── Assets/
 │
+├── provision_kiosk_user.ps1  # Shell Launcher provisioning script
+│
 ├── scripts/
-│   └── install-uwp.ps1     # UWP installation script
+│   └── install-uwp.ps1     # (legacy) UWP installation script
 │
 ├── build/certs/
 │   ├── generate-dev-cert.ps1
@@ -141,37 +141,10 @@ orh-winui-kiosk/
 
 ## Customization
 
-### UWP Kiosk (Recommended)
+### WinUI 3
 
-**Change Kiosk URL and PIN:**
-
-Edit `KioskApp.Uwp/Assets/kiosk.json`:
-```json
-{
-  "KioskUrl": "https://your-custom-url.com/login",
-  "ExitPin": "1234"
-}
-```
-
-**Or use LocalSettings at runtime:**
-```powershell
-[Windows.Storage.ApplicationData]::Current.LocalSettings.Values["KioskUrl"] = "https://your-url.com"
-[Windows.Storage.ApplicationData]::Current.LocalSettings.Values["ExitPin"] = "1234"
-```
-
-### WinUI 3 Desktop (Legacy)
-
-**Change Kiosk URL:**
-Edit `KioskApp/MainWindow.xaml` line 12:
-```xml
-<WebView2 x:Name="KioskWebView" Source="YOUR-URL-HERE" />
-```
-
-**Change Exit PIN:**
-Edit `KioskApp/PinDialog.xaml.cs` line 8:
-```csharp
-private const string DEFAULT_PIN = "YourNewPIN";
-```
+- Default screensaver URL is set in `MainWindow.xaml.cs` during WebView2 initialization.
+- To navigate at runtime, use the local HTTP endpoint as shown above.
 
 ### Both Apps
 
