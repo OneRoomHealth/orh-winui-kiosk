@@ -15,13 +15,11 @@ public partial class App : Application
 	public App()
 	{
 		Debug.WriteLine("App constructor called");
-		MessageBoxW(IntPtr.Zero, "App constructor called", "Debug", 0);
 		
 		try
 		{
 			this.InitializeComponent();
 			Debug.WriteLine("InitializeComponent completed");
-			MessageBoxW(IntPtr.Zero, "InitializeComponent completed", "Debug", 0);
 		}
 		catch (Exception ex)
 		{
@@ -33,7 +31,6 @@ public partial class App : Application
 		// Catch unhandled exceptions to prevent silent crashes
 		this.UnhandledException += App_UnhandledException;
 		Debug.WriteLine("App constructor completed");
-		MessageBoxW(IntPtr.Zero, "App constructor completed", "Debug", 0);
 	}
 
 	private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
@@ -55,21 +52,17 @@ public partial class App : Application
 	protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
 	{
 		Debug.WriteLine("OnLaunched reached");
-		MessageBoxW(IntPtr.Zero, "OnLaunched reached", "Debug", 0);
 		
 		try
 		{
 			Logger.Log("=== OneRoom Health Kiosk App Starting ===");
 			Debug.WriteLine("Creating MainWindow...");
-			MessageBoxW(IntPtr.Zero, "Creating MainWindow", "Debug", 0);
 			
 			m_window = new MainWindow();
 			Debug.WriteLine("MainWindow created, calling Activate()...");
-			MessageBoxW(IntPtr.Zero, "MainWindow created, calling Activate", "Debug", 0);
 			
 			m_window.Activate();
 			Debug.WriteLine("Window activated");
-			MessageBoxW(IntPtr.Zero, "Window activated", "Debug", 0);
 			Logger.Log("MainWindow created and activated");
 
 			// Start in-process localhost command server without blocking UI thread
