@@ -24,8 +24,7 @@ public static class LocalCommandServer
         {
             _listener.Prefixes.Add("http://127.0.0.1:8787/");
             _listener.Start();
-            
-            System.Diagnostics.Debug.WriteLine("HTTP Command Server started on http://127.0.0.1:8787");
+            Logger.Log("HTTP Command Server started on http://127.0.0.1:8787");
             
             await Task.Run(async () =>
             {
@@ -43,24 +42,24 @@ public static class LocalCommandServer
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Error handling request: {ex.Message}");
+                        Logger.Log($"HTTP server error: {ex.Message}");
                     }
                 }
             });
         }
         catch (HttpListenerException ex) when (ex.ErrorCode == 5) // Access Denied
         {
-            System.Diagnostics.Debug.WriteLine("HTTP server failed: Access denied. Run as Administrator or configure URL ACL.");
+            Logger.Log("HTTP server failed: Access denied. Run as Administrator or configure URL ACL.");
             // Continue without HTTP server - app will still work, just no remote navigation
         }
         catch (HttpListenerException ex) when (ex.ErrorCode == 183) // Port already in use
         {
-            System.Diagnostics.Debug.WriteLine("HTTP server failed: Port 8787 already in use by another application.");
+            Logger.Log("HTTP server failed: Port 8787 already in use by another application.");
             // Continue without HTTP server - app will still work, just no remote navigation
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"Failed to start command server: {ex.Message}");
+            Logger.Log($"Failed to start command server: {ex.Message}");
             // Continue without HTTP server - app will still work, just no remote navigation
         }
     }
@@ -77,6 +76,7 @@ public static class LocalCommandServer
             {
                 using var reader = new StreamReader(request.InputStream, request.ContentEncoding);
                 var body = await reader.ReadToEndAsync();
+                Logger.Log($"HTTP /navigate called with body: {body}");
                 
                 var command = JsonSerializer.Deserialize<NavigateCommand>(body, new JsonSerializerOptions 
                 { 
@@ -86,6 +86,7 @@ public static class LocalCommandServer
                 if (command?.Url != null && Uri.TryCreate(command.Url, UriKind.Absolute, out _))
                 {
                     _mainWindow?.NavigateToUrl(command.Url);
+                    Logger.Log($"Navigating to: {command.Url}");
                     
                     response.StatusCode = 200;
                     await WriteResponse(response, new { success = true, message = $"Navigating to {command.Url}" });
@@ -104,6 +105,7 @@ public static class LocalCommandServer
         }
         catch (Exception ex)
         {
+            Logger.Log($"HTTP handler error: {ex.Message}");
             response.StatusCode = 500;
             await WriteResponse(response, new { success = false, message = ex.Message });
         }
@@ -129,6 +131,7 @@ public static class LocalCommandServer
             _listener.Stop();
             _listener.Close();
             _listener = null;
+            Logger.Log("HTTP Command Server stopped");
         }
     }
 
