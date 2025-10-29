@@ -38,12 +38,18 @@ public sealed partial class MainWindow : Window
     private const uint SWP_FRAMECHANGED = 0x0020;
     private const uint SWP_NOZORDER = 0x0004;
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBoxW(IntPtr hWnd, string lpText, string lpCaption, int uType);
+
     public MainWindow()
     {
+        MessageBoxW(IntPtr.Zero, "MainWindow constructor START", "Debug", 0);
         InitializeComponent();
+        MessageBoxW(IntPtr.Zero, "InitializeComponent done", "Debug", 0);
         
         // Hook Activated event - do all initialization there when window is fully ready
         this.Activated += MainWindow_Activated;
+        MessageBoxW(IntPtr.Zero, "MainWindow constructor END", "Debug", 0);
     }
 
     private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
@@ -52,12 +58,16 @@ public sealed partial class MainWindow : Window
         if (e.WindowActivationState != WindowActivationState.Deactivated && _appWindow == null)
         {
             Debug.WriteLine("MainWindow_Activated event fired (first activation)");
+            MessageBoxW(IntPtr.Zero, "Activated event fired", "Debug", 0);
             Logger.Log("MainWindow.Activated event fired");
             
             // Configure kiosk window after it's activated
+            MessageBoxW(IntPtr.Zero, "About to call ConfigureAsKioskWindow", "Debug", 0);
             ConfigureAsKioskWindow();
+            MessageBoxW(IntPtr.Zero, "ConfigureAsKioskWindow completed", "Debug", 0);
             
             // Initialize WebView2 asynchronously without blocking the Activated event
+            MessageBoxW(IntPtr.Zero, "About to initialize WebView2", "Debug", 0);
             _ = InitializeWebViewAsync();
         }
     }
@@ -107,7 +117,9 @@ public sealed partial class MainWindow : Window
         try
         {
             Debug.WriteLine("InitializeWebViewAsync started");
+            MessageBoxW(IntPtr.Zero, "InitializeWebViewAsync started", "Debug", 0);
             ShowStatus("Loading kiosk...", "Initializing browser engine (WebView2)");
+            MessageBoxW(IntPtr.Zero, "ShowStatus called", "Debug", 0);
 
             // Log any initialization exception via the control's event (if supported)
             KioskWebView.CoreWebView2Initialized += (s, e) =>
@@ -126,6 +138,7 @@ public sealed partial class MainWindow : Window
             };
 
             Debug.WriteLine("Calling EnsureCoreWebView2Async with 30s timeout...");
+            MessageBoxW(IntPtr.Zero, "About to call EnsureCoreWebView2Async", "Debug", 0);
             
             // Add timeout to prevent hanging forever
             var initTask = KioskWebView.EnsureCoreWebView2Async().AsTask();
@@ -136,12 +149,14 @@ public sealed partial class MainWindow : Window
             {
                 Debug.WriteLine("ERROR: WebView2 initialization TIMED OUT after 30 seconds");
                 Logger.Log("WebView2 initialization timed out after 30 seconds");
+                MessageBoxW(IntPtr.Zero, "WebView2 TIMEOUT after 30s!\nCheck WebView2 Runtime", "ERROR", 0);
                 ShowStatus("Browser initialization timed out", "WebView2 failed to initialize within 30 seconds. Check if WebView2 Runtime is installed.");
                 return;
             }
             
             await initTask; // Will throw if initialization failed
             Debug.WriteLine("EnsureCoreWebView2Async completed");
+            MessageBoxW(IntPtr.Zero, "EnsureCoreWebView2Async completed", "Debug", 0);
 
             if (KioskWebView.CoreWebView2 != null)
             {
