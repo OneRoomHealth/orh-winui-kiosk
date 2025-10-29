@@ -91,13 +91,6 @@ public sealed partial class MainWindow : Window
         {
             ShowStatus("Loading kiosk...", "Initializing browser engine (WebView2)");
 
-            // Ensure a writable user data folder to avoid permission issues
-            var userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OneRoomHealthKiosk", "WebView2");
-            Directory.CreateDirectory(userDataFolder);
-
-            // Use three-parameter overload for compatibility
-            var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
-
             // Log any initialization exception via the control's event (if supported)
             KioskWebView.CoreWebView2Initialized += (s, e) =>
             {
@@ -106,9 +99,14 @@ public sealed partial class MainWindow : Window
                     Logger.Log($"CoreWebView2Initialized exception: {e.Exception.Message}");
                     ShowStatus("Browser failed to initialize", e.Exception.Message);
                 }
+                else
+                {
+                    Logger.Log("CoreWebView2Initialized successfully");
+                }
             };
 
-            await KioskWebView.EnsureCoreWebView2Async(environment);
+            // Use the simplest initialization - no custom environment needed for packaged apps
+            await KioskWebView.EnsureCoreWebView2Async();
 
             if (KioskWebView.CoreWebView2 != null)
             {
