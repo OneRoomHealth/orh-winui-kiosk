@@ -42,20 +42,24 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         
-        // Hook Loaded event - do all initialization there when window is fully ready
-        this.Loaded += MainWindow_Loaded;
+        // Hook Activated event - do all initialization there when window is fully ready
+        this.Activated += MainWindow_Activated;
     }
 
-    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
     {
-        Debug.WriteLine("MainWindow_Loaded event fired");
-        Logger.Log("MainWindow.Loaded event fired");
-        
-        // Configure kiosk window after it's loaded
-        ConfigureAsKioskWindow();
-        
-        // Initialize WebView2 after window is ready
-        InitializeWebView();
+        // Only initialize once on first activation
+        if (e.WindowActivationState != WindowActivationState.Deactivated && _appWindow == null)
+        {
+            Debug.WriteLine("MainWindow_Activated event fired (first activation)");
+            Logger.Log("MainWindow.Activated event fired");
+            
+            // Configure kiosk window after it's activated
+            ConfigureAsKioskWindow();
+            
+            // Initialize WebView2 after window is ready
+            InitializeWebView();
+        }
     }
 
     /// <summary>
