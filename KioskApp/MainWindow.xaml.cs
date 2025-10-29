@@ -37,6 +37,7 @@ public sealed partial class MainWindow : Window
     private const uint SWP_SHOWWINDOW = 0x0040;
     private const uint SWP_FRAMECHANGED = 0x0020;
     private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_NOMOVE = 0x0002;
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBoxW(IntPtr hWnd, string lpText, string lpCaption, int uType);
@@ -112,10 +113,20 @@ public sealed partial class MainWindow : Window
             // Set fullscreen presenter first - it should handle sizing
             _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
             
-            // Also explicitly set size as a backup
+            // Also explicitly set size as a backup using Win32 API
             if (bounds.Width > 0 && bounds.Height > 0)
             {
-                _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+                // Use Win32 SetWindowPos for more reliable sizing
+                int width = bounds.Width;
+                int height = bounds.Height;
+                
+                // Position at origin and set size
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, width, height, SWP_NOZORDER | SWP_SHOWWINDOW);
+                
+                MessageBoxW(IntPtr.Zero, 
+                    $"Called SetWindowPos with:\n" +
+                    $"Width: {width}, Height: {height}", 
+                    "SetWindowPos", 0);
             }
             else
             {
@@ -125,7 +136,7 @@ public sealed partial class MainWindow : Window
                     $"WorkArea was empty, using OuterBounds:\n" +
                     $"Width: {outerBounds.Width}, Height: {outerBounds.Height}", 
                     "Fallback Bounds", 0);
-                _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(outerBounds.X, outerBounds.Y, outerBounds.Width, outerBounds.Height));
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, outerBounds.Width, outerBounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
             }
 
             // Prevent closing via shell close messages
