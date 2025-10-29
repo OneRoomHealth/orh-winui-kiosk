@@ -57,8 +57,8 @@ public sealed partial class MainWindow : Window
             // Configure kiosk window after it's activated
             ConfigureAsKioskWindow();
             
-            // Initialize WebView2 after window is ready
-            InitializeWebView();
+            // Initialize WebView2 asynchronously without blocking the Activated event
+            _ = InitializeWebViewAsync();
         }
     }
 
@@ -102,11 +102,11 @@ public sealed partial class MainWindow : Window
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER);
     }
 
-    private async void InitializeWebView()
+    private async Task InitializeWebViewAsync()
     {
         try
         {
-            Debug.WriteLine("InitializeWebView started");
+            Debug.WriteLine("InitializeWebViewAsync started");
             ShowStatus("Loading kiosk...", "Initializing browser engine (WebView2)");
 
             // Log any initialization exception via the control's event (if supported)
@@ -125,9 +125,22 @@ public sealed partial class MainWindow : Window
                 }
             };
 
-            Debug.WriteLine("Calling EnsureCoreWebView2Async...");
-            // Use the simplest initialization - no custom environment needed for packaged apps
-            await KioskWebView.EnsureCoreWebView2Async();
+            Debug.WriteLine("Calling EnsureCoreWebView2Async with 30s timeout...");
+            
+            // Add timeout to prevent hanging forever
+            var initTask = KioskWebView.EnsureCoreWebView2Async().AsTask();
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
+            var completedTask = await Task.WhenAny(initTask, timeoutTask);
+            
+            if (completedTask == timeoutTask)
+            {
+                Debug.WriteLine("ERROR: WebView2 initialization TIMED OUT after 30 seconds");
+                Logger.Log("WebView2 initialization timed out after 30 seconds");
+                ShowStatus("Browser initialization timed out", "WebView2 failed to initialize within 30 seconds. Check if WebView2 Runtime is installed.");
+                return;
+            }
+            
+            await initTask; // Will throw if initialization failed
             Debug.WriteLine("EnsureCoreWebView2Async completed");
 
             if (KioskWebView.CoreWebView2 != null)
@@ -181,8 +194,11 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            Debug.WriteLine($"EXCEPTION in InitializeWebViewAsync: {ex.GetType().Name}: {ex.Message}");
+            Debug.WriteLine($"Stack trace: {ex.StackTrace}");
             Logger.Log($"WebView2 initialization error: {ex.Message}");
-            ShowStatus("Error initializing browser", ex.Message);
+            Logger.Log($"Stack trace: {ex.StackTrace}");
+            ShowStatus("Error initializing browser", $"{ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -204,14 +220,20 @@ public sealed partial class MainWindow : Window
 
     private void ShowStatus(string title, string? detail = null)
     {
-        StatusTitle.Text = title;
-        StatusDetail.Text = detail ?? string.Empty;
-        StatusOverlay.Visibility = Visibility.Visible;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            StatusTitle.Text = title;
+            StatusDetail.Text = detail ?? string.Empty;
+            StatusOverlay.Visibility = Visibility.Visible;
+        });
     }
 
     private void HideStatus()
     {
-        StatusOverlay.Visibility = Visibility.Collapsed;
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            StatusOverlay.Visibility = Visibility.Collapsed;
+        });
     }
 }
 
