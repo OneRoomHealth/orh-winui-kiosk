@@ -110,10 +110,7 @@ public sealed partial class MainWindow : Window
                 $"Width: {bounds.Width}, Height: {bounds.Height}", 
                 "Display Bounds", 0);
             
-            // Set fullscreen presenter first - it should handle sizing
-            _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-            
-            // Also explicitly set size as a backup using Win32 API
+            // Set size FIRST using Win32 API before setting presenter
             if (bounds.Width > 0 && bounds.Height > 0)
             {
                 // Use Win32 SetWindowPos for more reliable sizing
@@ -123,10 +120,12 @@ public sealed partial class MainWindow : Window
                 // Position at origin and set size
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, width, height, SWP_NOZORDER | SWP_SHOWWINDOW);
                 
+                // Check size immediately after SetWindowPos
+                var sizeAfterSetPos = _appWindow.Size;
                 MessageBoxW(IntPtr.Zero, 
-                    $"Called SetWindowPos with:\n" +
-                    $"Width: {width}, Height: {height}", 
-                    "SetWindowPos", 0);
+                    $"Called SetWindowPos({width}x{height})\n" +
+                    $"AppWindow.Size immediately after: {sizeAfterSetPos.Width}x{sizeAfterSetPos.Height}", 
+                    "After SetWindowPos", 0);
             }
             else
             {
@@ -138,13 +137,18 @@ public sealed partial class MainWindow : Window
                     "Fallback Bounds", 0);
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, outerBounds.Width, outerBounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
             }
+            
+            // DON'T set FullScreen presenter - it's overriding our size!
+            // Instead, just maximize the window
+            // _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
 
             // Prevent closing via shell close messages
             _appWindow.Closing += (_, e) => { e.Cancel = true; };
         }
 
-        // Ensure window style changes are applied and shown
-        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER);
+        // Ensure window style changes are applied and shown (using SWP_NOSIZE to keep current size)
+        const uint SWP_NOSIZE = 0x0001;
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE);
         
         // Verify window configuration
         if (_appWindow != null)
