@@ -101,8 +101,32 @@ public sealed partial class MainWindow : Window
         {
             var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
             var bounds = displayArea.WorkArea;
-            _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+            
+            // Debug: Check what bounds we're getting
+            MessageBoxW(IntPtr.Zero, 
+                $"Display bounds detected:\n" +
+                $"X: {bounds.X}, Y: {bounds.Y}\n" +
+                $"Width: {bounds.Width}, Height: {bounds.Height}", 
+                "Display Bounds", 0);
+            
+            // Set fullscreen presenter first - it should handle sizing
             _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            
+            // Also explicitly set size as a backup
+            if (bounds.Width > 0 && bounds.Height > 0)
+            {
+                _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
+            }
+            else
+            {
+                // Fallback to primary display's full bounds
+                var outerBounds = displayArea.OuterBounds;
+                MessageBoxW(IntPtr.Zero, 
+                    $"WorkArea was empty, using OuterBounds:\n" +
+                    $"Width: {outerBounds.Width}, Height: {outerBounds.Height}", 
+                    "Fallback Bounds", 0);
+                _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(outerBounds.X, outerBounds.Y, outerBounds.Width, outerBounds.Height));
+            }
 
             // Prevent closing via shell close messages
             _appWindow.Closing += (_, e) => { e.Cancel = true; };
