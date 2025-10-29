@@ -17,9 +17,18 @@ public partial class App : Application
 		Debug.WriteLine("App constructor called");
 		MessageBoxW(IntPtr.Zero, "App constructor called", "Debug", 0);
 		
-		this.InitializeComponent();
-		Debug.WriteLine("InitializeComponent completed");
-		MessageBoxW(IntPtr.Zero, "InitializeComponent completed", "Debug", 0);
+		try
+		{
+			this.InitializeComponent();
+			Debug.WriteLine("InitializeComponent completed");
+			MessageBoxW(IntPtr.Zero, "InitializeComponent completed", "Debug", 0);
+		}
+		catch (Exception ex)
+		{
+			string errorMsg = $"FATAL: InitializeComponent failed!\n\n{ex.GetType().Name}\n{ex.Message}\n\nStack:\n{ex.StackTrace}";
+			MessageBoxW(IntPtr.Zero, errorMsg, "App Initialization Error", 0x00000010);
+			throw;
+		}
 		
 		// Catch unhandled exceptions to prevent silent crashes
 		this.UnhandledException += App_UnhandledException;

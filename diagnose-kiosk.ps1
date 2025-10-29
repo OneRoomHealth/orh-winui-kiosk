@@ -48,20 +48,58 @@ if (-not $foundLog) {
     Write-Host "No log files found - app never started logging" -ForegroundColor Red
 }
 
-# 4. Check WebView2 Runtime
+# 4. Check Windows App SDK Runtime
 Write-Host ""
-Write-Host "[4] Checking WebView2 Runtime..." -ForegroundColor Yellow
-$webview2 = Get-AppxPackage -Name Microsoft.WebView2Runtime -AllUsers -ErrorAction SilentlyContinue
-if ($webview2) {
-    Write-Host "WebView2 Runtime installed: v$($webview2.Version)" -ForegroundColor Green
+Write-Host "[4] Checking Windows App SDK Runtime..." -ForegroundColor Yellow
+$windowsAppSdk = Get-AppxPackage -Name "*WindowsAppRuntime*" -AllUsers -ErrorAction SilentlyContinue
+if ($windowsAppSdk) {
+    Write-Host "Windows App SDK Runtime installed:" -ForegroundColor Green
+    $windowsAppSdk | ForEach-Object { Write-Host "  $($_.Name) v$($_.Version)" }
 } else {
-    Write-Host "WebView2 Runtime NOT installed!" -ForegroundColor Red
-    Write-Host "  Download from: https://go.microsoft.com/fwlink/p/?LinkId=2124703"
+    Write-Host "Windows App SDK Runtime NOT found (OK if app is self-contained)" -ForegroundColor Yellow
 }
 
-# 5. Check Event Viewer for recent hangs
+# 5. Check WebView2 Runtime (multiple methods)
 Write-Host ""
-Write-Host "[5] Checking Event Viewer for recent errors..." -ForegroundColor Yellow
+Write-Host "[5] Checking WebView2 Runtime..." -ForegroundColor Yellow
+
+# Method 1: AppX package
+$webview2 = Get-AppxPackage -Name Microsoft.WebView2Runtime -AllUsers -ErrorAction SilentlyContinue
+if ($webview2) {
+    Write-Host "WebView2 Runtime (AppX): v$($webview2.Version)" -ForegroundColor Green
+}
+
+# Method 2: Registry (32-bit path)
+$regPath32 = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+if (Test-Path $regPath32) {
+    $version32 = (Get-ItemProperty $regPath32).pv
+    Write-Host "WebView2 Runtime (Registry 32-bit): v$version32" -ForegroundColor Green
+}
+
+# Method 3: Registry (64-bit path)
+$regPath64 = "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+if (Test-Path $regPath64) {
+    $version64 = (Get-ItemProperty $regPath64).pv
+    Write-Host "WebView2 Runtime (Registry 64-bit): v$version64" -ForegroundColor Green
+}
+
+# Method 4: File system
+$webview2Path = "C:\Program Files (x86)\Microsoft\EdgeWebView\Application"
+if (Test-Path $webview2Path) {
+    $versions = Get-ChildItem $webview2Path -Directory -ErrorAction SilentlyContinue | Where-Object {$_.Name -match '^\d+\.\d+\.\d+\.\d+$'}
+    if ($versions) {
+        Write-Host "WebView2 Runtime (File System): Versions found in $webview2Path" -ForegroundColor Green
+    }
+}
+
+if (-not ($webview2 -or (Test-Path $regPath32) -or (Test-Path $regPath64) -or (Test-Path $webview2Path))) {
+    Write-Host "WebView2 Runtime NOT FOUND by any method!" -ForegroundColor Red
+    Write-Host "  Download from: https://go.microsoft.com/fwlink/p/?LinkId=2124703" -ForegroundColor Yellow
+}
+
+# 6. Check Event Viewer for recent hangs
+Write-Host ""
+Write-Host "[6] Checking Event Viewer for recent errors..." -ForegroundColor Yellow
 try {
     $events = Get-WinEvent -FilterHashtable @{
         LogName = 'Application'
