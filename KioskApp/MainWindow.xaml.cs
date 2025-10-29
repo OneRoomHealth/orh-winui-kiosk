@@ -14,6 +14,10 @@ public sealed partial class MainWindow : Window
 {
     private AppWindow? _appWindow;
 
+    // Configuration: Set target monitor index (0 = first monitor, 1 = second monitor, etc.)
+    // Set to -1 to use primary monitor automatically
+    private const int TARGET_MONITOR_INDEX = 1; // Use second monitor (index 1)
+
     // Win32 styles for borderless + topmost
     private const int GWL_STYLE = -16;
     private const int GWL_EXSTYLE = -20;
@@ -90,28 +94,57 @@ public sealed partial class MainWindow : Window
         // Size to full monitor bounds
         if (_appWindow != null)
         {
-            var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-            var bounds = displayArea.WorkArea;
+            // Get all available displays
+            var allDisplays = DisplayArea.FindAll();
+            Debug.WriteLine($"Found {allDisplays.Count} display(s)");
+            Logger.Log($"Found {allDisplays.Count} display(s)");
             
-            // Set size using Win32 API for reliable fullscreen sizing
-            if (bounds.Width > 0 && bounds.Height > 0)
+            // Log all displays for reference
+            for (int i = 0; i < allDisplays.Count; i++)
             {
-                // Use Win32 SetWindowPos for more reliable sizing
-                int width = bounds.Width;
-                int height = bounds.Height;
-                
-                // Position at origin and set size
-                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, width, height, SWP_NOZORDER | SWP_SHOWWINDOW);
-                Debug.WriteLine($"Window sized to: {width}x{height}");
-                Logger.Log($"Window sized to: {width}x{height}");
+                var display = allDisplays[i];
+                var dispBounds = display.OuterBounds;
+                Debug.WriteLine($"  Display {i}: {dispBounds.Width}x{dispBounds.Height} at ({dispBounds.X}, {dispBounds.Y})");
+                Logger.Log($"  Display {i}: {dispBounds.Width}x{dispBounds.Height} at ({dispBounds.X}, {dispBounds.Y})");
+            }
+            
+            // Select target display
+            DisplayArea? targetDisplay = null;
+            if (TARGET_MONITOR_INDEX >= 0 && TARGET_MONITOR_INDEX < allDisplays.Count)
+            {
+                targetDisplay = allDisplays[TARGET_MONITOR_INDEX];
+                Debug.WriteLine($"Using configured monitor index {TARGET_MONITOR_INDEX}");
+                Logger.Log($"Using configured monitor index {TARGET_MONITOR_INDEX}");
+            }
+            else if (TARGET_MONITOR_INDEX == -1)
+            {
+                // Use primary display
+                targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+                Debug.WriteLine("Using primary monitor");
+                Logger.Log("Using primary monitor");
             }
             else
             {
-                // Fallback to primary display's full bounds
-                var outerBounds = displayArea.OuterBounds;
-                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, outerBounds.Width, outerBounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
-                Debug.WriteLine($"Window sized to OuterBounds: {outerBounds.Width}x{outerBounds.Height}");
-                Logger.Log($"Window sized to OuterBounds: {outerBounds.Width}x{outerBounds.Height}");
+                // Invalid index, fallback to primary
+                targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+                Debug.WriteLine($"WARNING: Monitor index {TARGET_MONITOR_INDEX} is invalid (only {allDisplays.Count} displays found). Using primary.");
+                Logger.Log($"WARNING: Monitor index {TARGET_MONITOR_INDEX} is invalid. Using primary.");
+            }
+            
+            var bounds = targetDisplay.OuterBounds; // Use OuterBounds for true fullscreen
+            
+            // Set size and position using Win32 API for reliable fullscreen sizing
+            if (bounds.Width > 0 && bounds.Height > 0)
+            {
+                // Position window at the display's origin and set its size
+                SetWindowPos(hwnd, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
+                Debug.WriteLine($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
+                Logger.Log($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
+            }
+            else
+            {
+                Debug.WriteLine($"ERROR: Display bounds are invalid: {bounds.Width}x{bounds.Height}");
+                Logger.Log($"ERROR: Display bounds are invalid");
             }
 
             // Prevent closing via shell close messages
