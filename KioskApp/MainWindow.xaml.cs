@@ -158,9 +158,14 @@ public sealed partial class MainWindow : Window
             Debug.WriteLine("EnsureCoreWebView2Async completed");
             MessageBoxW(IntPtr.Zero, "EnsureCoreWebView2Async completed", "Debug", 0);
 
+            MessageBoxW(IntPtr.Zero, "About to check if CoreWebView2 != null", "Debug", 0);
+            Debug.WriteLine("About to check CoreWebView2 != null");
+            
             if (KioskWebView.CoreWebView2 != null)
             {
                 Debug.WriteLine("CoreWebView2 available, configuring settings...");
+                MessageBoxW(IntPtr.Zero, "CoreWebView2 != null, configuring settings", "Debug", 0);
+                
                 var settings = KioskWebView.CoreWebView2.Settings;
                 settings.AreDefaultContextMenusEnabled = false;
                 settings.AreDevToolsEnabled = false;
@@ -169,14 +174,21 @@ public sealed partial class MainWindow : Window
                 settings.IsZoomControlEnabled = false;
                 settings.IsStatusBarEnabled = false;
                 Debug.WriteLine("Settings configured");
+                MessageBoxW(IntPtr.Zero, "Settings configured", "Debug", 0);
 
                 // Navigation event handlers for diagnostics
+                Debug.WriteLine("Adding NavigationStarting handler");
+                MessageBoxW(IntPtr.Zero, "About to add NavigationStarting handler", "Debug", 0);
+                
                 KioskWebView.CoreWebView2.NavigationStarting += (_, args) =>
                 {
                     Debug.WriteLine($"NavigationStarting: {args.Uri}");
                     Logger.Log($"NavigationStarting: {args.Uri}");
                     ShowStatus("Loading...", args.Uri);
                 };
+                
+                MessageBoxW(IntPtr.Zero, "NavigationStarting handler added", "Debug", 0);
+                Debug.WriteLine("Adding NavigationCompleted handler");
 
                 KioskWebView.CoreWebView2.NavigationCompleted += (_, args) =>
                 {
@@ -193,19 +205,30 @@ public sealed partial class MainWindow : Window
                         ShowStatus("Failed to load page", $"HTTP status: {args.HttpStatusCode}");
                     }
                 };
+                
+                MessageBoxW(IntPtr.Zero, "NavigationCompleted handler added", "Debug", 0);
 
                 // Navigate to default screensaver URL at startup
                 var defaultUrl = "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default";
                 Debug.WriteLine($"Navigating to: {defaultUrl}");
                 Logger.Log($"Navigating to default URL: {defaultUrl}");
+                MessageBoxW(IntPtr.Zero, $"About to Navigate to:\n{defaultUrl}", "Debug", 0);
+                
                 KioskWebView.CoreWebView2.Navigate(defaultUrl);
+                
+                MessageBoxW(IntPtr.Zero, "Navigate() call completed", "Debug", 0);
+                Debug.WriteLine("Navigate() call completed");
             }
             else
             {
                 Debug.WriteLine("ERROR: CoreWebView2 is NULL after EnsureCoreWebView2Async!");
                 Logger.Log("CoreWebView2 is null after EnsureCoreWebView2Async");
+                MessageBoxW(IntPtr.Zero, "ERROR: CoreWebView2 is NULL!", "Error", 0);
                 ShowStatus("Browser not available", "WebView2 CoreWebView2 was not created");
             }
+            
+            MessageBoxW(IntPtr.Zero, "InitializeWebViewAsync: End of try block", "Debug", 0);
+            Debug.WriteLine("InitializeWebViewAsync: End of try block");
         }
         catch (Exception ex)
         {
@@ -213,8 +236,15 @@ public sealed partial class MainWindow : Window
             Debug.WriteLine($"Stack trace: {ex.StackTrace}");
             Logger.Log($"WebView2 initialization error: {ex.Message}");
             Logger.Log($"Stack trace: {ex.StackTrace}");
+            
+            string errorMsg = $"EXCEPTION in InitializeWebViewAsync:\n\n{ex.GetType().Name}\n{ex.Message}\n\nStack:\n{ex.StackTrace}";
+            MessageBoxW(IntPtr.Zero, errorMsg, "WebView2 Error", 0x00000010);
+            
             ShowStatus("Error initializing browser", $"{ex.GetType().Name}: {ex.Message}");
         }
+        
+        MessageBoxW(IntPtr.Zero, "InitializeWebViewAsync: METHOD END", "Debug", 0);
+        Debug.WriteLine("InitializeWebViewAsync: METHOD END");
     }
 
     /// <summary>
