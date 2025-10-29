@@ -182,6 +182,7 @@ public sealed partial class MainWindow : Window
                 
                 KioskWebView.CoreWebView2.NavigationStarting += (_, args) =>
                 {
+                    MessageBoxW(IntPtr.Zero, $"NavigationStarting EVENT FIRED!\n{args.Uri}", "Navigation Event", 0);
                     Debug.WriteLine($"NavigationStarting: {args.Uri}");
                     Logger.Log($"NavigationStarting: {args.Uri}");
                     ShowStatus("Loading...", args.Uri);
@@ -194,12 +195,14 @@ public sealed partial class MainWindow : Window
                 {
                     if (args.IsSuccess)
                     {
+                        MessageBoxW(IntPtr.Zero, "NavigationCompleted: SUCCESS!", "Navigation Event", 0);
                         Debug.WriteLine("NavigationCompleted: SUCCESS");
                         Logger.Log("NavigationCompleted: success");
                         HideStatus();
                     }
                     else
                     {
+                        MessageBoxW(IntPtr.Zero, $"NavigationCompleted: FAILED\nHTTP {args.HttpStatusCode}", "Navigation Event", 0x00000010);
                         Debug.WriteLine($"NavigationCompleted: FAILED - HTTP {args.HttpStatusCode}");
                         Logger.Log($"NavigationCompleted: failed - StatusCode={args.HttpStatusCode}");
                         ShowStatus("Failed to load page", $"HTTP status: {args.HttpStatusCode}");
@@ -218,6 +221,11 @@ public sealed partial class MainWindow : Window
                 
                 MessageBoxW(IntPtr.Zero, "Navigate() call completed", "Debug", 0);
                 Debug.WriteLine("Navigate() call completed");
+                
+                // Check visibility
+                var webViewVisibility = KioskWebView.Visibility;
+                var overlayVisibility = StatusOverlay.Visibility;
+                MessageBoxW(IntPtr.Zero, $"WebView2 Visibility: {webViewVisibility}\nStatusOverlay: {overlayVisibility}", "Visibility Check", 0);
             }
             else
             {
