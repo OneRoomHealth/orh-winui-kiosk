@@ -94,14 +94,17 @@ public sealed partial class MainWindow : Window
             // Ensure a writable user data folder to avoid permission issues
             var userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OneRoomHealthKiosk", "WebView2");
             Directory.CreateDirectory(userDataFolder);
-            var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
 
-            KioskWebView.CoreWebView2InitializationCompleted += (s, e) =>
+            // Use three-parameter overload for compatibility
+            var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
+
+            // Log any initialization exception via the control's event (if supported)
+            KioskWebView.CoreWebView2Initialized += (s, e) =>
             {
-                if (!e.IsSuccess)
+                if (e.Exception != null)
                 {
-                    Logger.Log($"CoreWebView2 initialization failed: {e.InitializationException?.Message}");
-                    ShowStatus("Browser failed to initialize", e.InitializationException?.Message ?? "Unknown error");
+                    Logger.Log($"CoreWebView2Initialized exception: {e.Exception.Message}");
+                    ShowStatus("Browser failed to initialize", e.Exception.Message);
                 }
             };
 
