@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<AppInstaller
+  xmlns="http://schemas.microsoft.com/appx/appinstaller/2018"
+  Version="1.0.10.0"
+  Uri="https://github.com/OneRoomHealth/orh-winui-kiosk/releases/latest/download/OneRoomHealthKioskApp.appinstaller">
+  
+  <MainPackage
+    Name="OneRoomHealthKioskApp"
+    Publisher="CN=OneRoomHealth"
+    Version="1.0.10.0"
+    Uri="https://github.com/OneRoomHealth/orh-winui-kiosk/releases/latest/download/OneRoomHealthKioskApp_1.0.10.0_x64.msix"
+    ProcessorArchitecture="x64" />
+  
+  <UpdateSettings>
+    <OnLaunch
+      HoursBetweenUpdateChecks="0"
+      ShowPrompt="false"
+      UpdateBlocksActivation="false" />
+    <AutomaticBackgroundTask />
+  </UpdateSettings>
+  
+</AppInstaller>
+

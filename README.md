@@ -162,6 +162,59 @@ After reboot:
 
 ---
 
+## 🔄 Auto-Update Installation (Recommended)
+
+For automatic updates, use the `.appinstaller` file instead of installing the MSIX directly:
+
+### Initial Installation with Auto-Update
+
+```powershell
+# Install certificate (first time only)
+Import-Certificate -FilePath "OneRoomHealthKioskApp.cer" -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+
+# Install via AppInstaller (enables auto-updates)
+Add-AppxPackage -AppInstallerFile "https://github.com/OneRoomHealth/orh-winui-kiosk/releases/latest/download/OneRoomHealthKioskApp.appinstaller"
+```
+
+### How Auto-Updates Work
+
+- ✅ **Automatic**: App checks for updates on launch
+- ✅ **Silent**: Updates download and install in background
+- ✅ **No disruption**: Next launch uses the updated version
+- ✅ **Always latest**: Downloads from GitHub releases automatically
+
+### Update Behavior
+
+| Setting | Value |
+|---------|-------|
+| **Check Frequency** | On every app launch |
+| **User Prompt** | None (silent updates) |
+| **Blocking** | Non-blocking (app starts immediately) |
+| **Background Task** | Enabled (checks periodically) |
+
+### Manual Update Check
+
+To force an update check:
+
+```powershell
+# Remove and reinstall via AppInstaller
+$app = Get-AppxPackage | Where-Object {$_.Name -like "*OneRoomHealth*"}
+if ($app) { Remove-AppxPackage -Package $app.PackageFullName }
+
+Add-AppxPackage -AppInstallerFile "https://github.com/OneRoomHealth/orh-winui-kiosk/releases/latest/download/OneRoomHealthKioskApp.appinstaller"
+```
+
+### Disable Auto-Updates
+
+If you need to pin to a specific version:
+
+```powershell
+# Install specific MSIX version instead of using AppInstaller
+Add-AppxPackage -Path "OneRoomHealthKioskApp_1.0.10.0_x64.msix"
+```
+
+---
+
 ## 🌐 Runtime Navigation Control
 
 The app exposes a local HTTP endpoint for remote navigation:

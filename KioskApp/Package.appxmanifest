@@ -10,7 +10,7 @@
   <Identity
     Name="OneRoomHealthKioskApp"
     Publisher="CN=OneRoomHealth"
-    Version="1.0.5.0" />
+    Version="1.0.10.0" />
 
   <Properties>
     <DisplayName>OneRoom Health Kiosk App</DisplayName>
