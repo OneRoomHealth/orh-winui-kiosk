@@ -1,6 +1,6 @@
 # Certificate Directory
 
-This directory contains signing certificates for the UWP Kiosk App.
+This directory contains signing certificates for the WinUI 3 Desktop Kiosk App.
 
 ## Development Certificate
 
@@ -11,7 +11,7 @@ To generate a development certificate, run:
 ```
 
 This will create:
-- `DEV_KIOSK.pfx` - Private key for signing (password: dev123)
+- `DEV_KIOSK.pfx` - Private key for signing (password shown in console)
 - `DEV_KIOSK.cer` - Public certificate for installation
 
 ## Installing the Certificate
@@ -27,16 +27,19 @@ Import-Certificate -FilePath .\DEV_KIOSK.cer -CertStoreLocation Cert:\LocalMachi
 For production:
 1. Generate a certificate with your organization's details
 2. Store the PFX password securely (e.g., Azure Key Vault, GitHub Secrets)
-3. Update the certificate reference in `KioskApp.Uwp.csproj`
+3. Configure the CI workflow to use repository secrets for the certificate
 
-## CI/CD Setup
+## CI/CD Setup (GitHub Actions)
 
-For GitHub Actions:
-1. Generate the certificate
-2. Add secrets to GitHub:
-   - `UWP_CERTIFICATE_BASE64` - Base64-encoded PFX file
-   - `UWP_CERTIFICATE_PASSWORD` - PFX password
-3. The CI workflow will decode and use the certificate for signing
+Use these repository secrets as referenced by `.github/workflows/build-and-release.yml`:
+- `SIGNING_CERTIFICATE` - Base64-encoded PFX file
+- `CERTIFICATE_PASSWORD` - PFX password
+- `RELEASE_TOKEN` - GitHub PAT with `repo` scope (to create releases)
+
+The CI workflow decodes and uses the certificate to sign the MSIX package and publishes:
+- The MSIX/MSIXBundle
+- The public certificate (`.cer`)
+- An App Installer file (`.appinstaller`) for auto-updates
 
 ## Security Note
 

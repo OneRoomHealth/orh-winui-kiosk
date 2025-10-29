@@ -1,4 +1,4 @@
-name: Build UWP Kiosk App
+name: (DISABLED) Build UWP Kiosk App
 
 on:
   push:
@@ -16,6 +16,7 @@ env:
 
 jobs:
   build:
+    if: false  # Disabled: UWP project removed from this repository
     runs-on: windows-2022   # explicit & stable
     strategy:
       matrix:
