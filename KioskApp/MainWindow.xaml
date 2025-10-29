@@ -12,6 +12,28 @@
                   HorizontalAlignment="Stretch"
                   VerticalAlignment="Stretch"
                   DefaultBackgroundColor="Transparent" />
+
+        <!-- Status overlay shown during loading/errors -->
+        <Border x:Name="StatusOverlay"
+                Background="#80000000"
+                Visibility="Collapsed">
+            <StackPanel HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="8">
+                <TextBlock x:Name="StatusTitle"
+                           Text="Loading kiosk..."
+                           Foreground="White"
+                           FontSize="20"
+                           TextAlignment="Center"/>
+                <TextBlock x:Name="StatusDetail"
+                           Text=""
+                           Foreground="White"
+                           Opacity="0.8"
+                           TextAlignment="Center"
+                           TextWrapping="WrapWholeWords"
+                           MaxWidth="800"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </Window>
 

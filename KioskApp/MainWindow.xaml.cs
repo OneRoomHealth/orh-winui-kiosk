@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.Web.WebView2.Core;
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using WinRT.Interop;
 
@@ -75,23 +76,37 @@ public sealed partial class MainWindow : Window
             var bounds = displayArea.WorkArea;
             _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(bounds.X, bounds.Y, bounds.Width, bounds.Height));
             _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+
+            // Prevent closing via shell close messages
+            _appWindow.Closing += (_, e) => { e.Cancel = true; };
         }
 
         // Ensure window style changes are applied and shown
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER);
-
-        // Optional: prevent user close; kiosk is closed via Ctrl+Alt+Del
-        if (_appWindow != null)
-        {
-            _appWindow.Closing += (_, e) => { e.Cancel = true; };
-        }
     }
 
     private async void InitializeWebView()
     {
         try
         {
-            await KioskWebView.EnsureCoreWebView2Async();
+            ShowStatus("Loading kiosk...", "Initializing browser engine (WebView2)");
+
+            // Ensure a writable user data folder to avoid permission issues
+            var userDataFolder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OneRoomHealthKiosk", "WebView2");
+            Directory.CreateDirectory(userDataFolder);
+            var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder);
+
+            KioskWebView.CoreWebView2InitializationCompleted += (s, e) =>
+            {
+                if (!e.IsSuccess)
+                {
+                    Logger.Log($"CoreWebView2 initialization failed: {e.InitializationException?.Message}");
+                    ShowStatus("Browser failed to initialize", e.InitializationException?.Message ?? "Unknown error");
+                }
+            };
+
+            await KioskWebView.EnsureCoreWebView2Async(environment);
+
             if (KioskWebView.CoreWebView2 != null)
             {
                 var settings = KioskWebView.CoreWebView2.Settings;
@@ -102,13 +117,42 @@ public sealed partial class MainWindow : Window
                 settings.IsZoomControlEnabled = false;
                 settings.IsStatusBarEnabled = false;
 
+                // Navigation event handlers for diagnostics
+                KioskWebView.CoreWebView2.NavigationStarting += (_, args) =>
+                {
+                    Logger.Log($"NavigationStarting: {args.Uri}");
+                    ShowStatus("Loading...", args.Uri);
+                };
+
+                KioskWebView.CoreWebView2.NavigationCompleted += (_, args) =>
+                {
+                    if (args.IsSuccess)
+                    {
+                        Logger.Log("NavigationCompleted: success");
+                        HideStatus();
+                    }
+                    else
+                    {
+                        Logger.Log($"NavigationCompleted: failed - StatusCode={args.HttpStatusCode}");
+                        ShowStatus("Failed to load page", $"HTTP status: {args.HttpStatusCode}");
+                    }
+                };
+
                 // Navigate to default screensaver URL at startup
-                KioskWebView.CoreWebView2.Navigate("https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default");
+                var defaultUrl = "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default";
+                Logger.Log($"Navigating to default URL: {defaultUrl}");
+                KioskWebView.CoreWebView2.Navigate(defaultUrl);
+            }
+            else
+            {
+                Logger.Log("CoreWebView2 is null after EnsureCoreWebView2Async");
+                ShowStatus("Browser not available", "WebView2 CoreWebView2 was not created");
             }
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"WebView2 initialization error: {ex.Message}");
+            Logger.Log($"WebView2 initialization error: {ex.Message}");
+            ShowStatus("Error initializing browser", ex.Message);
         }
     }
 
@@ -121,9 +165,23 @@ public sealed partial class MainWindow : Window
         {
             if (KioskWebView?.CoreWebView2 != null && !string.IsNullOrWhiteSpace(url))
             {
+                Logger.Log($"NavigateToUrl called: {url}");
+                ShowStatus("Loading...", url);
                 KioskWebView.CoreWebView2.Navigate(url);
             }
         });
+    }
+
+    private void ShowStatus(string title, string? detail = null)
+    {
+        StatusTitle.Text = title;
+        StatusDetail.Text = detail ?? string.Empty;
+        StatusOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void HideStatus()
+    {
+        StatusOverlay.Visibility = Visibility.Collapsed;
     }
 }
 

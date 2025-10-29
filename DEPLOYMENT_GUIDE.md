@@ -131,15 +131,15 @@ If you prefer manual configuration:
 
 #### 1. Create Kiosk User
 
-```powershell
+   ```powershell
 $Password = ConvertTo-SecureString "OrhKiosk!2025" -AsPlainText -Force
 New-LocalUser -Name "orhKiosk" -Password $Password -FullName "Kiosk User" -PasswordNeverExpires
 Add-LocalGroupMember -Group "Users" -Member "orhKiosk"
-```
+   ```
 
 #### 2. Enable Auto-Login
 
-```powershell
+   ```powershell
 $regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
 Set-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1"
 Set-ItemProperty -Path $regPath -Name "DefaultUserName" -Value "orhKiosk"
