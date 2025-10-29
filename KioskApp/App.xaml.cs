@@ -14,10 +14,13 @@ public partial class App : Application
 
 	public App()
 	{
+		Debug.WriteLine("App constructor called");
 		this.InitializeComponent();
+		Debug.WriteLine("InitializeComponent completed");
 		
 		// Catch unhandled exceptions to prevent silent crashes
 		this.UnhandledException += App_UnhandledException;
+		Debug.WriteLine("App constructor completed");
 	}
 
 	private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
@@ -38,22 +41,34 @@ public partial class App : Application
 
 	protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
 	{
+		Debug.WriteLine("OnLaunched reached");
 		try
 		{
 			Logger.Log("=== OneRoom Health Kiosk App Starting ===");
+			Debug.WriteLine("Creating MainWindow...");
+			
 			m_window = new MainWindow();
+			Debug.WriteLine("MainWindow created, calling Activate()...");
+			
 			m_window.Activate();
+			Debug.WriteLine("Window activated");
 			Logger.Log("MainWindow created and activated");
 
 			// Start in-process localhost command server without blocking UI thread
 			if (m_window is MainWindow mainWindow)
 			{
+				Debug.WriteLine("Starting LocalCommandServer...");
 				_serverTask = LocalCommandServer.StartAsync(mainWindow);
 				Logger.Log("LocalCommandServer start requested");
 			}
+			
+			Debug.WriteLine("OnLaunched completed successfully");
 		}
 		catch (Exception ex)
 		{
+			Debug.WriteLine($"EXCEPTION in OnLaunched: {ex.GetType().Name}: {ex.Message}");
+			Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+			
 			Logger.Log($"LAUNCH ERROR: {ex.Message}");
 			Logger.Log(ex.StackTrace ?? "<no stack>");
 			try

@@ -41,7 +41,20 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        
+        // Hook Loaded event - do all initialization there when window is fully ready
+        this.Loaded += MainWindow_Loaded;
+    }
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        Debug.WriteLine("MainWindow_Loaded event fired");
+        Logger.Log("MainWindow.Loaded event fired");
+        
+        // Configure kiosk window after it's loaded
         ConfigureAsKioskWindow();
+        
+        // Initialize WebView2 after window is ready
         InitializeWebView();
     }
 
@@ -89,6 +102,7 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            Debug.WriteLine("InitializeWebView started");
             ShowStatus("Loading kiosk...", "Initializing browser engine (WebView2)");
 
             // Log any initialization exception via the control's event (if supported)
@@ -96,20 +110,25 @@ public sealed partial class MainWindow : Window
             {
                 if (e.Exception != null)
                 {
+                    Debug.WriteLine($"CoreWebView2Initialized FAILED: {e.Exception.Message}");
                     Logger.Log($"CoreWebView2Initialized exception: {e.Exception.Message}");
                     ShowStatus("Browser failed to initialize", e.Exception.Message);
                 }
                 else
                 {
+                    Debug.WriteLine("CoreWebView2Initialized successfully");
                     Logger.Log("CoreWebView2Initialized successfully");
                 }
             };
 
+            Debug.WriteLine("Calling EnsureCoreWebView2Async...");
             // Use the simplest initialization - no custom environment needed for packaged apps
             await KioskWebView.EnsureCoreWebView2Async();
+            Debug.WriteLine("EnsureCoreWebView2Async completed");
 
             if (KioskWebView.CoreWebView2 != null)
             {
+                Debug.WriteLine("CoreWebView2 available, configuring settings...");
                 var settings = KioskWebView.CoreWebView2.Settings;
                 settings.AreDefaultContextMenusEnabled = false;
                 settings.AreDevToolsEnabled = false;
@@ -117,10 +136,12 @@ public sealed partial class MainWindow : Window
                 settings.AreBrowserAcceleratorKeysEnabled = false;
                 settings.IsZoomControlEnabled = false;
                 settings.IsStatusBarEnabled = false;
+                Debug.WriteLine("Settings configured");
 
                 // Navigation event handlers for diagnostics
                 KioskWebView.CoreWebView2.NavigationStarting += (_, args) =>
                 {
+                    Debug.WriteLine($"NavigationStarting: {args.Uri}");
                     Logger.Log($"NavigationStarting: {args.Uri}");
                     ShowStatus("Loading...", args.Uri);
                 };
@@ -129,11 +150,13 @@ public sealed partial class MainWindow : Window
                 {
                     if (args.IsSuccess)
                     {
+                        Debug.WriteLine("NavigationCompleted: SUCCESS");
                         Logger.Log("NavigationCompleted: success");
                         HideStatus();
                     }
                     else
                     {
+                        Debug.WriteLine($"NavigationCompleted: FAILED - HTTP {args.HttpStatusCode}");
                         Logger.Log($"NavigationCompleted: failed - StatusCode={args.HttpStatusCode}");
                         ShowStatus("Failed to load page", $"HTTP status: {args.HttpStatusCode}");
                     }
@@ -141,11 +164,13 @@ public sealed partial class MainWindow : Window
 
                 // Navigate to default screensaver URL at startup
                 var defaultUrl = "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default";
+                Debug.WriteLine($"Navigating to: {defaultUrl}");
                 Logger.Log($"Navigating to default URL: {defaultUrl}");
                 KioskWebView.CoreWebView2.Navigate(defaultUrl);
             }
             else
             {
+                Debug.WriteLine("ERROR: CoreWebView2 is NULL after EnsureCoreWebView2Async!");
                 Logger.Log("CoreWebView2 is null after EnsureCoreWebView2Async");
                 ShowStatus("Browser not available", "WebView2 CoreWebView2 was not created");
             }
