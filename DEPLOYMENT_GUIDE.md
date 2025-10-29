@@ -1,17 +1,40 @@
 # OneRoom Health Kiosk App - Deployment Guide
 
-Complete installation and configuration guide for deploying the kiosk app on Windows 11 Enterprise devices.
+Complete installation and configuration guide for deploying the kiosk app on Windows 11 Enterprise devices using **Shell Launcher v2**.
+
+---
+
+## ⚠️ Important: Shell Launcher Only
+
+**This app uses Shell Launcher v2 and will NOT appear in Windows Assigned Access kiosk app picker.**
+
+### Why Not Assigned Access?
+
+This is a **packaged desktop app** (WinUI 3 with `runFullTrust` capability), which Assigned Access doesn't support. Only pure UWP apps appear in the Assigned Access app picker.
+
+### Shell Launcher vs Assigned Access
+
+| Feature | **Shell Launcher v2** (This App) | Assigned Access |
+|---------|----------------------------------|-----------------|
+| **Windows Edition** | Enterprise/Education only | Pro/Enterprise/Education |
+| **Shell Replacement** | ✅ Complete (replaces Explorer.exe) | ❌ Partial (runs alongside Explorer) |
+| **Security** | ✅ Highest (no OS access at all) | ⚠️ Medium (some escape routes) |
+| **HTTP API** | ✅ Supported | ❌ Not allowed |
+| **Setup Complexity** | Medium (PowerShell script) | Easy (GUI wizard) |
+| **Best For** | Fixed kiosks, medical devices | Temporary guest access |
+
+**This app is designed for Shell Launcher v2**, which provides maximum security for dedicated kiosk devices.
 
 ---
 
 ## 📋 Prerequisites
 
-- **Windows 11 Enterprise** or **Education** (required for Shell Launcher v2)
+- **Windows 11 Enterprise or Education** (Shell Launcher v2 feature required)
 - **Administrator access**
 - **WebView2 Runtime** (included with Windows 11)
 - **.NET 8 Runtime** (usually included)
 
-**Note:** This app requires **Windows 11 Enterprise** with Shell Launcher v2. It will NOT work on Windows 11 Pro or Home editions.
+**Note:** This app will NOT work with Windows 11 Pro Assigned Access. Enterprise/Education edition is required.
 
 ---
 

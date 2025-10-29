@@ -1,6 +1,6 @@
 # OneRoom Health Kiosk App (WinUI 3)
 
-Full-screen Windows 11 Enterprise kiosk application built with **WinUI 3** and **WebView2**. Designed to run as a locked-down kiosk shell using Windows Shell Launcher v2.
+Full-screen Windows 11 Enterprise kiosk application built with **WinUI 3** and **WebView2**. Uses **Shell Launcher v2** to completely replace the Windows shell with a locked-down browser experience.
 
 ---
 
@@ -12,17 +12,106 @@ This application provides a secure, full-screen browser experience for Windows 1
 - ✅ **WebView2 browser** filling the entire screen
 - ✅ **Automatic navigation** to default URL on startup
 - ✅ **Local HTTP API** on `http://127.0.0.1:8787` for runtime navigation control
-- ✅ **Shell Launcher v2 integration** for Windows 11 Enterprise kiosk mode
+- ✅ **Shell Launcher v2 integration** - replaces Explorer.exe as the Windows shell
 - ✅ **Security hardened** - disables dev tools, context menus, and browser shortcuts
+
+---
+
+## ⚠️ Important: Shell Launcher Only
+
+**This app uses Shell Launcher v2 and will NOT appear in Windows Assigned Access kiosk app picker.**
+
+- ✅ **Works with:** Windows 11 Enterprise/Education with Shell Launcher v2
+- ❌ **Does NOT work with:** Windows 11 Pro Assigned Access (app picker)
+- **Why:** This is a packaged desktop app with `runFullTrust` capability, which Assigned Access doesn't support
+
+**If you need Windows 11 Pro Assigned Access support**, you would need a separate UWP app version without the HTTP API functionality.
 
 ---
 
 ## 📋 Requirements
 
-- **Windows 11 Enterprise** (Shell Launcher v2 feature)
+- **Windows 11 Enterprise or Education** (Shell Launcher v2 feature required)
 - **Administrator access** for deployment
 - **.NET 8.0** runtime
 - **WebView2 Runtime** (included with Windows 11)
+
+---
+
+## 🔍 How Shell Launcher v2 Works
+
+Shell Launcher v2 is a Windows Enterprise feature that replaces the default Windows shell (Explorer.exe) with a custom application.
+
+### Normal Windows Boot Process
+```
+User Login → Explorer.exe starts → Desktop, Start Menu, Taskbar appear
+```
+
+### Shell Launcher v2 Boot Process
+```
+User Login → YOUR APP starts → No Explorer, only your app runs
+```
+
+### Key Concepts
+
+#### 1. **Complete Shell Replacement**
+- When a user logs in, **your app replaces Explorer.exe entirely**
+- No desktop, Start menu, taskbar, or File Explorer
+- Only your application window is visible
+- User cannot access anything except what your app provides
+
+#### 2. **Per-User Configuration**
+- Shell Launcher is configured **per user account** via their SID (Security Identifier)
+- You can have different shells for different users:
+  - `orhKiosk` user → Runs your kiosk app
+  - `Administrator` user → Runs normal Explorer.exe
+- Other users can still log in normally with Explorer
+
+#### 3. **Auto-Login Integration**
+- Typically paired with Windows auto-login
+- Device boots → Auto-login as kiosk user → Your app launches automatically
+- Creates a true "appliance-like" experience
+
+#### 4. **WMI-Based Configuration**
+- Configured via WMI (Windows Management Instrumentation)
+- Uses `MDM_Policy_Config01_ShellLauncher01` CIM class
+- Stored in Windows registry and MDM bridge
+- Survives reboots and Windows updates
+
+### How This App Uses Shell Launcher
+
+The `provision_kiosk_user.ps1` script configures Shell Launcher by:
+
+1. **Creating a kiosk user** (`orhKiosk` by default)
+2. **Enabling auto-login** for that user (password stored in registry)
+3. **Setting your app as the shell** for that user's SID
+4. **Keeping Explorer as default** for other users (for troubleshooting)
+
+When the device reboots:
+1. Windows auto-logs in as `orhKiosk`
+2. Instead of Explorer.exe, Windows launches `OneRoomHealthKioskApp.exe`
+3. Your app takes over the entire screen
+4. User sees only the WebView2 browser with your web application
+5. No way to access Windows UI except Ctrl+Alt+Del
+
+### Security Benefits
+
+- ✅ **No OS access** - Users cannot access Windows settings, file system, or other apps
+- ✅ **No escape routes** - Alt+Tab, Windows key, and other shortcuts don't work
+- ✅ **Process isolation** - Your app is the only running user process
+- ✅ **Controlled navigation** - Users can only view URLs your app allows
+- ✅ **Remote control** - HTTP API lets you change URLs from another machine
+
+### Exit Methods
+
+**For end users:**
+- Only `Ctrl+Alt+Del` → Sign Out
+
+**For administrators:**
+1. Press `Ctrl+Alt+Del` → Sign Out
+2. Log in with admin account (runs normal Explorer.exe)
+3. Make changes as needed
+4. To permanently disable: Update Shell Launcher config or clear auto-login
 
 ---
 

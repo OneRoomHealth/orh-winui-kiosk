@@ -25,6 +25,8 @@ public static class LocalCommandServer
             _listener.Prefixes.Add("http://127.0.0.1:8787/");
             _listener.Start();
             
+            System.Diagnostics.Debug.WriteLine("HTTP Command Server started on http://127.0.0.1:8787");
+            
             await Task.Run(async () =>
             {
                 while (_listener != null && _listener.IsListening)
@@ -46,9 +48,20 @@ public static class LocalCommandServer
                 }
             });
         }
+        catch (HttpListenerException ex) when (ex.ErrorCode == 5) // Access Denied
+        {
+            System.Diagnostics.Debug.WriteLine("HTTP server failed: Access denied. Run as Administrator or configure URL ACL.");
+            // Continue without HTTP server - app will still work, just no remote navigation
+        }
+        catch (HttpListenerException ex) when (ex.ErrorCode == 183) // Port already in use
+        {
+            System.Diagnostics.Debug.WriteLine("HTTP server failed: Port 8787 already in use by another application.");
+            // Continue without HTTP server - app will still work, just no remote navigation
+        }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Failed to start command server: {ex.Message}");
+            // Continue without HTTP server - app will still work, just no remote navigation
         }
     }
 
