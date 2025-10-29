@@ -110,6 +110,19 @@ public sealed partial class MainWindow : Window
 
         // Ensure window style changes are applied and shown
         SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER);
+        
+        // Verify window configuration
+        if (_appWindow != null)
+        {
+            var size = _appWindow.Size;
+            var position = _appWindow.Position;
+            var presenter = _appWindow.Presenter;
+            string windowInfo = $"Window configured:\n" +
+                              $"Size: {size.Width}x{size.Height}\n" +
+                              $"Position: ({position.X}, {position.Y})\n" +
+                              $"Presenter: {presenter?.Kind}";
+            MessageBoxW(IntPtr.Zero, windowInfo, "Window Config", 0);
+        }
     }
 
     private async Task InitializeWebViewAsync()
@@ -199,6 +212,13 @@ public sealed partial class MainWindow : Window
                         Debug.WriteLine("NavigationCompleted: SUCCESS");
                         Logger.Log("NavigationCompleted: success");
                         HideStatus();
+                        
+                        // Check if overlay is actually hidden
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            var overlayAfterHide = StatusOverlay.Visibility;
+                            MessageBoxW(IntPtr.Zero, $"HideStatus() called.\nStatusOverlay now: {overlayAfterHide}", "After HideStatus", 0);
+                        });
                     }
                     else
                     {
@@ -222,10 +242,18 @@ public sealed partial class MainWindow : Window
                 MessageBoxW(IntPtr.Zero, "Navigate() call completed", "Debug", 0);
                 Debug.WriteLine("Navigate() call completed");
                 
-                // Check visibility
+                // Check visibility and size
                 var webViewVisibility = KioskWebView.Visibility;
                 var overlayVisibility = StatusOverlay.Visibility;
-                MessageBoxW(IntPtr.Zero, $"WebView2 Visibility: {webViewVisibility}\nStatusOverlay: {overlayVisibility}", "Visibility Check", 0);
+                var webViewWidth = KioskWebView.ActualWidth;
+                var webViewHeight = KioskWebView.ActualHeight;
+                
+                string diagnostics = $"WebView2 Visibility: {webViewVisibility}\n" +
+                                   $"WebView2 Size: {webViewWidth}x{webViewHeight}\n" +
+                                   $"StatusOverlay: {overlayVisibility}\n" +
+                                   $"Window AppWindow: {(_appWindow != null ? "Created" : "NULL")}";
+                
+                MessageBoxW(IntPtr.Zero, diagnostics, "Visibility & Size Check", 0);
             }
             else
             {
