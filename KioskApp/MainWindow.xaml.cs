@@ -159,6 +159,47 @@ public sealed partial class MainWindow : Window
         Logger.Log("ConfigureAsKioskWindow completed");
     }
 
+    /// <summary>
+    /// Creates a custom WebView2 environment with kiosk-optimized settings.
+    /// Enables autoplay and media permissions for seamless kiosk experience.
+    /// </summary>
+    private async Task<CoreWebView2Environment> CreateWebView2EnvironmentAsync()
+    {
+        try
+        {
+            var userDataFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "OneRoomHealthKiosk",
+                "WebView2Data");
+
+            Debug.WriteLine($"WebView2 user data folder: {userDataFolder}");
+            Logger.Log($"WebView2 user data folder: {userDataFolder}");
+
+            var options = new CoreWebView2EnvironmentOptions();
+            
+            // Phase 1: Configure autoplay policy and media settings
+            // This enables automatic media playback without user interaction
+            options.AdditionalBrowserArguments = 
+                "--autoplay-policy=no-user-gesture-required " +
+                "--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies";
+
+            Debug.WriteLine($"Browser arguments: {options.AdditionalBrowserArguments}");
+            Logger.Log("Creating WebView2 environment with autoplay enabled");
+
+            return await CoreWebView2Environment.CreateAsync(
+                browserExecutableFolder: null,
+                userDataFolder: userDataFolder,
+                options: options);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Failed to create custom environment: {ex.Message}");
+            Logger.Log($"Failed to create custom environment: {ex.Message}, using default");
+            // Fall back to default environment
+            return await CoreWebView2Environment.CreateAsync();
+        }
+    }
+
     private async Task InitializeWebViewAsync()
     {
         try
@@ -182,10 +223,14 @@ public sealed partial class MainWindow : Window
                 }
             };
 
+            Debug.WriteLine("Creating custom WebView2 environment...");
+            var environment = await CreateWebView2EnvironmentAsync();
+            Debug.WriteLine("WebView2 environment created");
+
             Debug.WriteLine("Calling EnsureCoreWebView2Async with 30s timeout...");
             
             // Add timeout to prevent hanging forever
-            var initTask = KioskWebView.EnsureCoreWebView2Async().AsTask();
+            var initTask = KioskWebView.EnsureCoreWebView2Async(environment).AsTask();
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
             var completedTask = await Task.WhenAny(initTask, timeoutTask);
             
@@ -211,8 +256,18 @@ public sealed partial class MainWindow : Window
                 settings.AreBrowserAcceleratorKeysEnabled = false;
                 settings.IsZoomControlEnabled = false;
                 settings.IsStatusBarEnabled = false;
+                
+                // Phase 1: Additional media-related settings
+                settings.IsPasswordAutosaveEnabled = false;
+                settings.IsGeneralAutofillEnabled = false;
+                
                 Debug.WriteLine("Settings configured");
-                Logger.Log("WebView2 settings configured");
+                Logger.Log("WebView2 settings configured (including media autoplay)");
+
+                // Phase 1: Add automatic permission approval for media devices
+                KioskWebView.CoreWebView2.PermissionRequested += CoreWebView2_PermissionRequested;
+                Debug.WriteLine("PermissionRequested event handler registered");
+                Logger.Log("Automatic media permission approval enabled");
 
                 // Navigation event handlers for diagnostics
                 KioskWebView.CoreWebView2.NavigationStarting += (_, args) =>
@@ -283,6 +338,71 @@ public sealed partial class MainWindow : Window
                 KioskWebView.CoreWebView2.Navigate(url);
             }
         });
+    }
+
+    /// <summary>
+    /// Phase 1: Handles permission requests from web content.
+    /// Automatically approves critical media permissions (microphone, camera) for kiosk mode.
+    /// This eliminates user prompts and enables seamless media functionality.
+    /// </summary>
+    private void CoreWebView2_PermissionRequested(object? sender, CoreWebView2PermissionRequestedEventArgs e)
+    {
+        // Auto-approve critical media permissions for kiosk operation
+        switch (e.PermissionKind)
+        {
+            case CoreWebView2PermissionKind.Microphone:
+                e.State = CoreWebView2PermissionState.Allow;
+                Debug.WriteLine($"Auto-approved MICROPHONE permission for: {e.Uri}");
+                Logger.Log($"Auto-approved microphone access for: {e.Uri}");
+                break;
+
+            case CoreWebView2PermissionKind.Camera:
+                e.State = CoreWebView2PermissionState.Allow;
+                Debug.WriteLine($"Auto-approved CAMERA permission for: {e.Uri}");
+                Logger.Log($"Auto-approved camera access for: {e.Uri}");
+                break;
+
+            case CoreWebView2PermissionKind.Geolocation:
+                e.State = CoreWebView2PermissionState.Allow;
+                Debug.WriteLine($"Auto-approved GEOLOCATION permission for: {e.Uri}");
+                Logger.Log($"Auto-approved geolocation for: {e.Uri}");
+                break;
+
+            case CoreWebView2PermissionKind.Notifications:
+                e.State = CoreWebView2PermissionState.Allow;
+                Debug.WriteLine($"Auto-approved NOTIFICATIONS permission for: {e.Uri}");
+                Logger.Log($"Auto-approved notifications for: {e.Uri}");
+                break;
+
+            case CoreWebView2PermissionKind.OtherSensors:
+                e.State = CoreWebView2PermissionState.Allow;
+                Debug.WriteLine($"Auto-approved OTHER SENSORS permission for: {e.Uri}");
+                Logger.Log($"Auto-approved other sensors for: {e.Uri}");
+                break;
+
+            case CoreWebView2PermissionKind.ClipboardRead:
+                e.State = CoreWebView2PermissionState.Allow;
+                Debug.WriteLine($"Auto-approved CLIPBOARD READ permission for: {e.Uri}");
+                Logger.Log($"Auto-approved clipboard read for: {e.Uri}");
+                break;
+
+            // Deny potentially dangerous permissions
+            case CoreWebView2PermissionKind.MultipleAutomaticDownloads:
+                e.State = CoreWebView2PermissionState.Deny;
+                Debug.WriteLine($"Denied MULTIPLE DOWNLOADS permission for: {e.Uri}");
+                Logger.Log($"Denied multiple downloads for: {e.Uri}");
+                break;
+
+            default:
+                // For any other permission types, allow them for maximum compatibility
+                e.State = CoreWebView2PermissionState.Allow;
+                Debug.WriteLine($"Auto-approved permission {e.PermissionKind} for: {e.Uri}");
+                Logger.Log($"Auto-approved {e.PermissionKind} for: {e.Uri}");
+                break;
+        }
+
+        // Persist the decision so the user isn't prompted again for the same site
+        e.SavesInProfile = true;
     }
 
     private void ShowStatus(string title, string? detail = null)
