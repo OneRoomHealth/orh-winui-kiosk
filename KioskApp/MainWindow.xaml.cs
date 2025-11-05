@@ -163,7 +163,7 @@ public sealed partial class MainWindow : Window
     /// Creates a custom WebView2 environment with kiosk-optimized settings.
     /// Enables autoplay and media permissions for seamless kiosk experience.
     /// </summary>
-    private async Task<CoreWebView2Environment> CreateWebView2EnvironmentAsync()
+    private async Task<CoreWebView2Environment?> CreateWebView2EnvironmentAsync()
     {
         try
         {
@@ -175,25 +175,30 @@ public sealed partial class MainWindow : Window
             Debug.WriteLine($"WebView2 user data folder: {userDataFolder}");
             Logger.Log($"WebView2 user data folder: {userDataFolder}");
 
-            var options = new CoreWebView2EnvironmentOptions();
-            
-            // Phase 1: Configure autoplay policy and media settings
-            // This enables automatic media playback without user interaction
-            options.AdditionalBrowserArguments = 
-                "--autoplay-policy=no-user-gesture-required " +
-                "--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies";
+            var options = new CoreWebView2EnvironmentOptions
+            {
+                // Phase 1: Configure autoplay policy and media settings
+                // This enables automatic media playback without user interaction
+                AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required " +
+                                            "--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies"
+            };
 
             Debug.WriteLine($"Browser arguments: {options.AdditionalBrowserArguments}");
             Logger.Log("Creating WebView2 environment with autoplay enabled");
 
-            return await CoreWebView2Environment.CreateAsync(null, userDataFolder, options);
+            // Use the WinUI3/WebView2 approach with named parameters
+            var env = await CoreWebView2Environment.CreateAsync(
+                userDataFolder: userDataFolder,
+                options: options);
+            
+            return env;
         }
         catch (Exception ex)
         {
             Debug.WriteLine($"Failed to create custom environment: {ex.Message}");
             Logger.Log($"Failed to create custom environment: {ex.Message}, using default");
             // Fall back to default environment
-            return await CoreWebView2Environment.CreateAsync();
+            return null;
         }
     }
 
@@ -222,12 +227,22 @@ public sealed partial class MainWindow : Window
 
             Debug.WriteLine("Creating custom WebView2 environment...");
             var environment = await CreateWebView2EnvironmentAsync();
-            Debug.WriteLine("WebView2 environment created");
+            
+            if (environment != null)
+            {
+                Debug.WriteLine("Custom WebView2 environment created successfully");
+            }
+            else
+            {
+                Debug.WriteLine("Using default WebView2 environment");
+            }
 
             Debug.WriteLine("Calling EnsureCoreWebView2Async with 30s timeout...");
             
             // Add timeout to prevent hanging forever
-            var initTask = KioskWebView.EnsureCoreWebView2Async(environment).AsTask();
+            var initTask = environment != null 
+                ? KioskWebView.EnsureCoreWebView2Async(environment).AsTask()
+                : KioskWebView.EnsureCoreWebView2Async().AsTask();
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
             var completedTask = await Task.WhenAny(initTask, timeoutTask);
             
