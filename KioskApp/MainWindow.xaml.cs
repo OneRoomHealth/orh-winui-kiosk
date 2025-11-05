@@ -186,10 +186,7 @@ public sealed partial class MainWindow : Window
             Debug.WriteLine($"Browser arguments: {options.AdditionalBrowserArguments}");
             Logger.Log("Creating WebView2 environment with autoplay enabled");
 
-            return await CoreWebView2Environment.CreateAsync(
-                browserExecutableFolder: null,
-                userDataFolder: userDataFolder,
-                options: options);
+            return await CoreWebView2Environment.CreateAsync(userDataFolder, options);
         }
         catch (Exception ex)
         {
