@@ -159,48 +159,6 @@ public sealed partial class MainWindow : Window
         Logger.Log("ConfigureAsKioskWindow completed");
     }
 
-    /// <summary>
-    /// Creates a custom WebView2 environment with kiosk-optimized settings.
-    /// Enables autoplay and media permissions for seamless kiosk experience.
-    /// </summary>
-    private async Task<CoreWebView2Environment?> CreateWebView2EnvironmentAsync()
-    {
-        try
-        {
-            var userDataFolder = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "OneRoomHealthKiosk",
-                "WebView2Data");
-
-            Debug.WriteLine($"WebView2 user data folder: {userDataFolder}");
-            Logger.Log($"WebView2 user data folder: {userDataFolder}");
-
-            var options = new CoreWebView2EnvironmentOptions
-            {
-                // Phase 1: Configure autoplay policy and media settings
-                // This enables automatic media playback without user interaction
-                AdditionalBrowserArguments = "--autoplay-policy=no-user-gesture-required " +
-                                            "--disable-features=PreloadMediaEngagementData,MediaEngagementBypassAutoplayPolicies"
-            };
-
-            Debug.WriteLine($"Browser arguments: {options.AdditionalBrowserArguments}");
-            Logger.Log("Creating WebView2 environment with autoplay enabled");
-
-            // Use the WinUI3/WebView2 approach with named parameters
-            var env = await CoreWebView2Environment.CreateAsync(
-                userDataFolder: userDataFolder,
-                options: options);
-            
-            return env;
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Failed to create custom environment: {ex.Message}");
-            Logger.Log($"Failed to create custom environment: {ex.Message}, using default");
-            // Fall back to default environment
-            return null;
-        }
-    }
 
     private async Task InitializeWebViewAsync()
     {
@@ -208,6 +166,10 @@ public sealed partial class MainWindow : Window
         {
             Debug.WriteLine("InitializeWebViewAsync started");
             ShowStatus("Loading kiosk...", "Initializing browser engine (WebView2)");
+            
+            // Phase 1: Using default WebView2 environment for maximum compatibility
+            // Media permissions are handled via PermissionRequested event (most important)
+            // Autoplay is handled via script injection after page load
 
             // Log any initialization exception via the control's event (if supported)
             KioskWebView.CoreWebView2Initialized += (s, e) =>
@@ -225,24 +187,10 @@ public sealed partial class MainWindow : Window
                 }
             };
 
-            Debug.WriteLine("Creating custom WebView2 environment...");
-            var environment = await CreateWebView2EnvironmentAsync();
-            
-            if (environment != null)
-            {
-                Debug.WriteLine("Custom WebView2 environment created successfully");
-            }
-            else
-            {
-                Debug.WriteLine("Using default WebView2 environment");
-            }
-
             Debug.WriteLine("Calling EnsureCoreWebView2Async with 30s timeout...");
             
             // Add timeout to prevent hanging forever
-            var initTask = environment != null 
-                ? KioskWebView.EnsureCoreWebView2Async(environment).AsTask()
-                : KioskWebView.EnsureCoreWebView2Async().AsTask();
+            var initTask = KioskWebView.EnsureCoreWebView2Async().AsTask();
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
             var completedTask = await Task.WhenAny(initTask, timeoutTask);
             
@@ -289,12 +237,33 @@ public sealed partial class MainWindow : Window
                     ShowStatus("Loading...", args.Uri);
                 };
 
-                KioskWebView.CoreWebView2.NavigationCompleted += (_, args) =>
+                KioskWebView.CoreWebView2.NavigationCompleted += async (_, args) =>
                 {
                     if (args.IsSuccess)
                     {
                         Debug.WriteLine("NavigationCompleted: SUCCESS");
                         Logger.Log("NavigationCompleted: success");
+                        
+                        // Phase 1: Inject script to enable autoplay for media elements
+                        try
+                        {
+                            await KioskWebView.CoreWebView2.ExecuteScriptAsync(@"
+                                (function() {
+                                    // Enable autoplay for all media elements
+                                    document.querySelectorAll('video, audio').forEach(function(media) {
+                                        media.setAttribute('autoplay', '');
+                                        media.muted = false;
+                                        media.play().catch(e => console.log('Autoplay attempted:', e));
+                                    });
+                                })();
+                            ");
+                            Debug.WriteLine("Autoplay script injected successfully");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"Failed to inject autoplay script: {ex.Message}");
+                        }
+                        
                         HideStatus();
                     }
                     else
