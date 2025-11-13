@@ -1,0 +1,42 @@
+{
+  "kiosk": {
+    "defaultUrl": "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default",
+    "targetMonitorIndex": 1,
+    "fullscreen": true,
+    "alwaysOnTop": true,
+    "videoMode": {
+      "enabled": true,
+      "carescapeVideoPath": "C:\\Users\\CareWall\\Desktop\\Demo\\chehaliscare.mp4",
+      "demoVideoPath": "C:\\Users\\CareWall\\Desktop\\Demo\\demo_video.mp4",
+      "carescapeVolume": 50,
+      "demoVolume": 75,
+      "targetMonitor": 2,
+      "flicButtonEnabled": true
+    }
+  },
+  "debug": {
+    "enabled": true,
+    "hotkey": "Ctrl+Shift+F12",
+    "autoOpenDevTools": false,
+    "windowSizePercent": 80
+  },
+  "exit": {
+    "enabled": true,
+    "hotkey": "Ctrl+Shift+Escape",
+    "requirePassword": true,
+    "passwordHash": "",
+    "timeout": 5000
+  },
+  "logging": {
+    "enabled": true,
+    "level": "Info",
+    "path": "%LocalAppData%\\OneRoomHealthKiosk\\logs",
+    "maxSizeKb": 10240,
+    "maxFiles": 5
+  },
+  "httpApi": {
+    "enabled": true,
+    "port": 8787,
+    "allowRemote": false
+  }
+}

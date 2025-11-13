@@ -1,6 +1,8 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 
 namespace KioskApp
 {
@@ -39,6 +41,57 @@ namespace KioskApp
 			catch
 			{
 				// Swallow logging errors
+			}
+		}
+
+		/// <summary>
+		/// Logs a security event with additional context for audit trail.
+		/// These events are logged both to file and Windows Event Log.
+		/// </summary>
+		public static void LogSecurityEvent(string eventType, string details)
+		{
+			try
+			{
+				var auditEntry = new
+				{
+					Timestamp = DateTime.UtcNow,
+					EventType = eventType,
+					User = Environment.UserName,
+					Machine = Environment.MachineName,
+					Details = details
+				};
+
+				var auditJson = JsonSerializer.Serialize(auditEntry);
+
+				// Log to file with AUDIT prefix
+				Log($"AUDIT: {auditJson}");
+
+				// Also log to Windows Event Log if possible
+				try
+				{
+					// Create event source if it doesn't exist (requires admin on first run)
+					const string sourceName = "OneRoomHealthKiosk";
+					const string logName = "Application";
+
+					if (!EventLog.SourceExists(sourceName))
+					{
+						EventLog.CreateEventSource(sourceName, logName);
+					}
+
+					EventLog.WriteEntry(
+						sourceName,
+						auditJson,
+						EventLogEntryType.Information,
+						1000); // Event ID 1000 for security events
+				}
+				catch
+				{
+					// Swallow event log errors - continue with file logging
+				}
+			}
+			catch
+			{
+				// Swallow audit logging errors
 			}
 		}
 	}

@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kiosk Video Player</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        
+        video {
+            width: 100vw;
+            height: 100vh;
+            object-fit: fill;
+        }
+        
+        #status {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 18px;
+            display: none;
+            z-index: 1000;
+        }
+        
+        #error {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(255, 0, 0, 0.9);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            font-size: 20px;
+            display: none;
+            z-index: 1001;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <video id="videoPlayer" autoplay></video>
+    <div id="status"></div>
+    <div id="error"></div>
+
+    <script>
+        // Simple Flic Video Player for Kiosk
+        class FlicVideoPlayer {
+            constructor() {
+                this.player = document.getElementById('videoPlayer');
+                this.statusEl = document.getElementById('status');
+                this.errorEl = document.getElementById('error');
+                
+                // Video configurations
+                this.videos = {
+                    carescape: {
+                        path: '',
+                        volume: 0.5,
+                        loop: true,
+                        name: 'Carescape'
+                    },
+                    demo: {
+                        path: '',
+                        volume: 0.75,
+                        loop: false,
+                        name: 'Demo'
+                    }
+                };
+                
+                this.currentVideo = 'carescape';
+                this.isInitialized = false;
+                
+                // Event listeners
+                this.setupEventListeners();
+                
+                // Listen for commands from C#
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.addEventListener('message', (event) => {
+                        this.handleCommand(event.data);
+                    });
+                }
+                
+                console.log('Flic Video Player initialized');
+            }
+            
+            setupEventListeners() {
+                // Handle video end event
+                this.player.addEventListener('ended', () => {
+                    console.log('Video ended:', this.currentVideo);
+                    if (this.currentVideo === 'demo') {
+                        this.showStatus('Demo finished, returning to Carescape');
+                        setTimeout(() => {
+                            this.playVideo('carescape');
+                        }, 1000);
+                    }
+                });
+                
+                // Handle video errors
+                this.player.addEventListener('error', (e) => {
+                    console.error('Video error:', e);
+                    this.showError(`Failed to load video: ${this.currentVideo}`);
+                });
+                
+                // Handle video loaded
+                this.player.addEventListener('loadeddata', () => {
+                    console.log('Video loaded:', this.currentVideo);
+                    this.hideError();
+                });
+                
+                // Keyboard shortcuts for testing
+                document.addEventListener('keydown', (e) => {
+                    if (e.ctrlKey && e.altKey) {
+                        switch(e.key.toLowerCase()) {
+                            case 'd':
+                                e.preventDefault();
+                                this.toggle();
+                                break;
+                            case 'r':
+                                e.preventDefault();
+                                this.restart();
+                                break;
+                        }
+                    }
+                });
+            }
+            
+            handleCommand(command) {
+                console.log('Received command:', command);
+                
+                switch(command.action) {
+                    case 'init':
+                        this.initialize(command);
+                        break;
+                    case 'play':
+                        this.playVideo(command.video);
+                        break;
+                    case 'toggle':
+                        this.toggle();
+                        break;
+                    case 'stop':
+                        this.stop();
+                        break;
+                    case 'restart':
+                        this.restart();
+                        break;
+                    case 'volume':
+                        this.setVolume(command.level);
+                        break;
+                }
+            }
+            
+            initialize(config) {
+                console.log('Initializing with config:', config);
+                
+                if (config.carescapeVideo) {
+                    this.videos.carescape.path = config.carescapeVideo;
+                }
+                if (config.demoVideo) {
+                    this.videos.demo.path = config.demoVideo;
+                }
+                if (config.carescapeVolume !== undefined) {
+                    this.videos.carescape.volume = config.carescapeVolume / 100;
+                }
+                if (config.demoVolume !== undefined) {
+                    this.videos.demo.volume = config.demoVolume / 100;
+                }
+                
+                this.isInitialized = true;
+                
+                // Start with carescape video
+                this.playVideo('carescape');
+            }
+            
+            playVideo(videoName) {
+                const video = this.videos[videoName];
+                if (!video || !video.path) {
+                    this.showError(`Video not configured: ${videoName}`);
+                    return;
+                }
+                
+                console.log(`Playing ${videoName}:`, video.path);
+                
+                this.currentVideo = videoName;
+                this.player.src = video.path;
+                this.player.volume = video.volume;
+                this.player.loop = video.loop;
+                
+                // Force play
+                const playPromise = this.player.play();
+                if (playPromise !== undefined) {
+                    playPromise
+                        .then(() => {
+                            console.log('Playback started successfully');
+                            this.showStatus(`Playing: ${video.name}`);
+                        })
+                        .catch(error => {
+                            console.error('Playback failed:', error);
+                            this.showError('Failed to start playback');
+                        });
+                }
+                
+                // Send status to C#
+                this.sendMessage({
+                    event: 'videoChanged',
+                    video: videoName,
+                    timestamp: new Date().toISOString()
+                });
+            }
+            
+            toggle() {
+                const nextVideo = this.currentVideo === 'carescape' ? 'demo' : 'carescape';
+                console.log(`Toggling from ${this.currentVideo} to ${nextVideo}`);
+                this.playVideo(nextVideo);
+            }
+            
+            stop() {
+                console.log('Stopping video');
+                this.player.pause();
+                this.player.src = '';
+                this.showStatus('Stopped');
+                
+                this.sendMessage({
+                    event: 'videoStopped',
+                    timestamp: new Date().toISOString()
+                });
+            }
+            
+            restart() {
+                console.log('Restarting carescape video');
+                this.playVideo('carescape');
+            }
+            
+            setVolume(level) {
+                const volume = Math.max(0, Math.min(1, level / 100));
+                this.player.volume = volume;
+                console.log('Volume set to:', volume);
+            }
+            
+            showStatus(message) {
+                this.statusEl.textContent = message;
+                this.statusEl.style.display = 'block';
+                
+                // Auto-hide after 3 seconds
+                clearTimeout(this.statusTimeout);
+                this.statusTimeout = setTimeout(() => {
+                    this.statusEl.style.display = 'none';
+                }, 3000);
+            }
+            
+            showError(message) {
+                this.errorEl.textContent = message;
+                this.errorEl.style.display = 'block';
+            }
+            
+            hideError() {
+                this.errorEl.style.display = 'none';
+            }
+            
+            sendMessage(data) {
+                if (window.chrome && window.chrome.webview) {
+                    window.chrome.webview.postMessage(data);
+                }
+            }
+        }
+        
+        // Initialize player
+        const player = new FlicVideoPlayer();
+        
+        // Expose to window for testing
+        window.flicPlayer = player;
+        
+        // Log that we're ready
+        console.log('Simple video player ready');
+    </script>
+</body>
+</html>

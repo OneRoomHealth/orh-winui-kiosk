@@ -34,6 +34,9 @@
 
   <ItemGroup>
     <Content Include="Assets\**" />
+    <Content Include="Resources\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
