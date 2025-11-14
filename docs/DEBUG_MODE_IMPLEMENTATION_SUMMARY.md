@@ -45,8 +45,8 @@ Successfully implemented the complete debug mode and exit strategy for the OneRo
 
 ## Features Implemented
 
-### Debug Mode (Ctrl+Shift+F12)
-✅ Hotkey detection with Ctrl+Shift+F12
+### Debug Mode (Ctrl+Shift+I)
+✅ Hotkey detection with Ctrl+Shift+I
 ✅ Window transitions from fullscreen to windowed (configurable size, default 80%)
 ✅ Window becomes resizable and movable
 ✅ WebView2 developer tools enabled
@@ -57,7 +57,7 @@ Successfully implemented the complete debug mode and exit strategy for the OneRo
 ✅ Auto-open dev tools option (configurable)
 ✅ Toggle back to fullscreen with same hotkey
 
-### Exit Mechanism (Ctrl+Shift+Escape)
+### Exit Mechanism (Ctrl+Shift+Q)
 ✅ Password-protected exit (Option A from plan)
 ✅ Password dialog with PasswordBox control
 ✅ SHA256 password validation
@@ -95,13 +95,13 @@ Successfully implemented the complete debug mode and exit strategy for the OneRo
   },
   "debug": {
     "enabled": true,
-    "hotkey": "Ctrl+Shift+F12",
+    "hotkey": "Ctrl+Shift+I",
     "autoOpenDevTools": false,
     "windowSizePercent": 80
   },
   "exit": {
     "enabled": true,
-    "hotkey": "Ctrl+Shift+Escape",
+    "hotkey": "Ctrl+Shift+Q",
     "requirePassword": true,
     "passwordHash": "SHA256_HASH_HERE",
     "timeout": 5000
@@ -136,14 +136,14 @@ To change the password:
 ### For Developers
 
 **Enter Debug Mode:**
-1. Press `Ctrl+Shift+F12` while kiosk is running
+1. Press `Ctrl+Shift+I` while kiosk is running
 2. Window will resize to 80% of screen
 3. Window becomes movable and resizable
 4. Developer tools are enabled (press F12 to open)
-5. Press `Ctrl+Shift+F12` again to exit debug mode
+5. Press `Ctrl+Shift+I` again to exit debug mode
 
 **Exit Kiosk:**
-1. Press `Ctrl+Shift+Escape`
+1. Press `Ctrl+Shift+Q`
 2. Enter password: `admin123` (default)
 3. Click "Exit"
 4. Application will close and launch Explorer.exe if in Shell Launcher mode
@@ -178,11 +178,11 @@ Edit `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 
 ## Testing Checklist
 
-- [ ] Test debug mode hotkey (Ctrl+Shift+F12)
+- [ ] Test debug mode hotkey (Ctrl+Shift+I)
 - [ ] Verify window resizes to 80% and becomes movable
 - [ ] Confirm developer tools can be opened (F12)
 - [ ] Test debug mode toggle (exit with same hotkey)
-- [ ] Test exit hotkey (Ctrl+Shift+Escape)
+- [ ] Test exit hotkey (Ctrl+Shift+Q)
 - [ ] Verify password dialog appears
 - [ ] Test correct password acceptance
 - [ ] Test incorrect password rejection

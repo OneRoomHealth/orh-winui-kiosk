@@ -27,9 +27,7 @@ public sealed partial class MainWindow : Window
     private bool _isVideoMode = false;
     private VideoController? _videoController;
 
-    // Configuration: Set target monitor index (0 = first monitor, 1 = second monitor, etc.)
-    // Set to -1 to use primary monitor automatically
-    private const int TARGET_MONITOR_INDEX = 1; // Use second monitor (index 1)
+    // Monitor index is now configured via config.json instead of being hardcoded
 
     // Win32 styles for borderless + topmost
     private const int GWL_STYLE = -16;
@@ -162,18 +160,19 @@ public sealed partial class MainWindow : Window
             
             // Select target display
             DisplayArea targetDisplay;
-            if (TARGET_MONITOR_INDEX >= 0 && TARGET_MONITOR_INDEX < allDisplays.Count)
+            int targetMonitorIndex = _config.Kiosk.TargetMonitorIndex;
+            if (targetMonitorIndex >= 0 && targetMonitorIndex < allDisplays.Count)
             {
-                targetDisplay = allDisplays[TARGET_MONITOR_INDEX];
-                Debug.WriteLine($"Using configured monitor index {TARGET_MONITOR_INDEX}");
-                Logger.Log($"Using configured monitor index {TARGET_MONITOR_INDEX}");
+                targetDisplay = allDisplays[targetMonitorIndex];
+                Debug.WriteLine($"Using configured monitor index {targetMonitorIndex}");
+                Logger.Log($"Using configured monitor index {targetMonitorIndex}");
             }
             else
             {
                 // Invalid index, fallback to primary
                 targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-                Debug.WriteLine($"WARNING: Monitor index {TARGET_MONITOR_INDEX} is invalid (only {allDisplays.Count} displays found). Using primary.");
-                Logger.Log($"WARNING: Monitor index {TARGET_MONITOR_INDEX} is invalid. Using primary.");
+                Debug.WriteLine($"WARNING: Monitor index {targetMonitorIndex} is invalid (only {allDisplays.Count} displays found). Using primary.");
+                Logger.Log($"WARNING: Monitor index {targetMonitorIndex} is invalid. Using primary.");
             }
             
             var bounds = targetDisplay.OuterBounds; // Use OuterBounds for true fullscreen
@@ -469,8 +468,8 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// Keyboard event handler for hotkey detection using CoreWindow (WinUI 3 approach).
-    /// Ctrl+Shift+F12: Toggle debug mode
-    /// Ctrl+Shift+Escape: Exit kiosk mode
+    /// Ctrl+Shift+I: Toggle debug mode
+    /// Ctrl+Shift+Q: Exit kiosk mode
     /// Ctrl+Alt+D: Toggle video (Flic button)
     /// </summary>
     private async void CoreWindow_KeyDown(CoreWindow sender, KeyEventArgs args)
@@ -484,18 +483,18 @@ public sealed partial class MainWindow : Window
         bool shiftPressed = (shiftState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
         bool altPressed = (altState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
 
-        // Debug mode hotkey: Ctrl+Shift+F12
-        if (_config.Debug.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.F12)
+        // Debug mode hotkey: Ctrl+Shift+I
+        if (_config.Debug.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.I)
         {
-            Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+F12");
+            Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+I");
             await ToggleDebugMode();
             args.Handled = true;
         }
 
-        // Exit hotkey: Ctrl+Shift+Escape
-        if (_config.Exit.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.Escape)
+        // Exit hotkey: Ctrl+Shift+Q
+        if (_config.Exit.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.Q)
         {
-            Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Escape");
+            Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Q");
             await HandleExitRequest();
             args.Handled = true;
         }
