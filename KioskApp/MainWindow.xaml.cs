@@ -94,6 +94,22 @@ public sealed partial class MainWindow : Window
             Debug.WriteLine("MainWindow_Activated event fired (first activation)");
             Logger.Log("MainWindow.Activated event fired");
             
+            // Register keyboard event handler using CoreWindow (WinUI 3 approach)
+            // Must be done after window is activated
+            try
+            {
+                var coreWindow = Microsoft.UI.Core.CoreWindow.GetForCurrentThread();
+                if (coreWindow != null)
+                {
+                    coreWindow.KeyDown += CoreWindow_KeyDown;
+                    Logger.Log("Keyboard event handler registered");
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Failed to register keyboard handler: {ex.Message}");
+            }
+            
             // Configure kiosk window after it's activated
             ConfigureAsKioskWindow();
             
@@ -466,61 +482,61 @@ public sealed partial class MainWindow : Window
     #region Debug Mode and Exit Mechanism
 
     /// <summary>
-    /// Keyboard event handler for hotkey detection.
+    /// Keyboard event handler for hotkey detection using CoreWindow (WinUI 3 approach).
     /// Ctrl+Shift+F12: Toggle debug mode
     /// Ctrl+Shift+Escape: Exit kiosk mode
+    /// Ctrl+Alt+D: Toggle video (Flic button)
     /// </summary>
-    private async void OnKeyDown(object sender, KeyRoutedEventArgs e)
+    private async void CoreWindow_KeyDown(Microsoft.UI.Core.CoreWindow sender, Microsoft.UI.Core.KeyEventArgs args)
     {
         // Get modifier key states
-        var ctrlState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control);
-        var shiftState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift);
+        var ctrlState = sender.GetKeyState(VirtualKey.Control);
+        var shiftState = sender.GetKeyState(VirtualKey.Shift);
+        var altState = sender.GetKeyState(VirtualKey.Menu);
 
         bool ctrlPressed = (ctrlState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
         bool shiftPressed = (shiftState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+        bool altPressed = (altState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
 
         // Debug mode hotkey: Ctrl+Shift+F12
-        if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.F12)
+        if (_config.Debug.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.F12)
         {
             Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+F12");
             await ToggleDebugMode();
-            e.Handled = true;
+            args.Handled = true;
         }
 
         // Exit hotkey: Ctrl+Shift+Escape
-        if (_config.Exit.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.Escape)
+        if (_config.Exit.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.Escape)
         {
             Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Escape");
             await HandleExitRequest();
-            e.Handled = true;
+            args.Handled = true;
         }
         
         // Video control hotkeys (when video mode is enabled)
         if (_isVideoMode)
         {
-            var altState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu);
-            bool altPressed = (altState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
-            
             // Ctrl+Alt+D - Toggle video (Flic button)
-            if (ctrlPressed && altPressed && e.Key == VirtualKey.D && _videoController != null)
+            if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.D && _videoController != null)
             {
                 Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video");
                 await _videoController.HandleFlicButtonPressAsync();
-                e.Handled = true;
+                args.Handled = true;
             }
             // Ctrl+Alt+E - Stop video
-            else if (ctrlPressed && altPressed && e.Key == VirtualKey.E && _videoController != null)
+            else if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.E && _videoController != null)
             {
                 Logger.Log("Stop video pressed (Ctrl+Alt+E)");
                 await _videoController.StopAsync();
-                e.Handled = true;
+                args.Handled = true;
             }
             // Ctrl+Alt+R - Restart carescape video
-            else if (ctrlPressed && altPressed && e.Key == VirtualKey.R && _videoController != null)
+            else if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.R && _videoController != null)
             {
                 Logger.Log("Restart carescape pressed (Ctrl+Alt+R)");
                 await _videoController.RestartCarescapeAsync();
-                e.Handled = true;
+                args.Handled = true;
             }
         }
     }
