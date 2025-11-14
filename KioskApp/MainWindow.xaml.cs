@@ -24,8 +24,7 @@ public sealed partial class MainWindow : Window
     
     // Video mode fields
     private bool _isVideoMode = false;
-    private bool _isDemoPlaying = false;
-    private string _videoPlayerHtml = string.Empty;
+    private VideoController? _videoController;
 
     // Configuration: Set target monitor index (0 = first monitor, 1 = second monitor, etc.)
     // Set to -1 to use primary monitor automatically
@@ -79,8 +78,8 @@ public sealed partial class MainWindow : Window
             Logger.Log($"Video mode enabled - Carescape: {_config.Kiosk.VideoMode.CarescapeVideoPath}");
             Logger.Log($"Demo: {_config.Kiosk.VideoMode.DemoVideoPath}");
             
-            // Load video player HTML
-            LoadVideoPlayerHtml();
+            // Initialize VideoController for MPV integration
+            _videoController = new VideoController(_config.Kiosk.VideoMode);
         }
 
         // Register keyboard event handler for hotkeys
@@ -318,9 +317,14 @@ public sealed partial class MainWindow : Window
 
                 // Navigate to default screensaver URL at startup
                 // Initialize video mode if enabled, otherwise navigate to default URL
-                if (_isVideoMode)
+                if (_isVideoMode && _videoController != null)
                 {
-                    await InitializeVideoMode();
+                    // Hide WebView when in video mode
+                    KioskWebView.Visibility = Visibility.Collapsed;
+                    
+                    // Initialize MPV video controller
+                    await _videoController.InitializeAsync();
+                    Logger.Log("Video mode initialized with MPV");
                 }
                 else
                 {
@@ -493,24 +497,24 @@ public sealed partial class MainWindow : Window
             bool altPressed = (altState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
             
             // Ctrl+Alt+D - Toggle video (Flic button)
-            if (ctrlPressed && altPressed && e.Key == VirtualKey.D)
+            if (ctrlPressed && altPressed && e.Key == VirtualKey.D && _videoController != null)
             {
                 Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video");
-                await ToggleVideoAsync();
+                await _videoController.HandleFlicButtonPressAsync();
                 e.Handled = true;
             }
             // Ctrl+Alt+E - Stop video
-            else if (ctrlPressed && altPressed && e.Key == VirtualKey.E)
+            else if (ctrlPressed && altPressed && e.Key == VirtualKey.E && _videoController != null)
             {
                 Logger.Log("Stop video pressed (Ctrl+Alt+E)");
-                await StopVideoAsync();
+                await _videoController.StopAsync();
                 e.Handled = true;
             }
             // Ctrl+Alt+R - Restart carescape video
-            else if (ctrlPressed && altPressed && e.Key == VirtualKey.R)
+            else if (ctrlPressed && altPressed && e.Key == VirtualKey.R && _videoController != null)
             {
                 Logger.Log("Restart carescape pressed (Ctrl+Alt+R)");
-                await RestartCarescapeVideoAsync();
+                await _videoController.RestartCarescapeAsync();
                 e.Handled = true;
             }
         }
@@ -794,286 +798,6 @@ public sealed partial class MainWindow : Window
             return false;
         }
     }
-
-    #endregion
-    
-    #region Video Mode Methods
-    
-    /// <summary>
-    /// Loads the video player HTML from embedded resources
-    /// </summary>
-    private void LoadVideoPlayerHtml()
-    {
-        try
-        {
-            var resourcePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "simple-video-player.html");
-            if (File.Exists(resourcePath))
-            {
-                _videoPlayerHtml = File.ReadAllText(resourcePath);
-                Logger.Log("Video player HTML loaded from file");
-            }
-            else
-            {
-                // Use embedded HTML as fallback
-                _videoPlayerHtml = @"<!DOCTYPE html>
-<html lang=""en"">
-<head>
-    <meta charset=""UTF-8"">
-    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
-    <title>Kiosk Video Player</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #000; overflow: hidden; font-family: Arial, sans-serif; }
-        video { width: 100vw; height: 100vh; object-fit: fill; }
-        #status { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); 
-                  background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; 
-                  border-radius: 5px; font-size: 18px; display: none; z-index: 1000; }
-    </style>
-</head>
-<body>
-    <video id=""videoPlayer"" autoplay></video>
-    <div id=""status""></div>
-    <script>
-        class FlicVideoPlayer {
-            constructor() {
-                this.player = document.getElementById('videoPlayer');
-                this.statusEl = document.getElementById('status');
-                this.videos = { carescape: { path: '', volume: 0.5, loop: true },
-                               demo: { path: '', volume: 0.75, loop: false } };
-                this.currentVideo = 'carescape';
-                
-                this.player.addEventListener('ended', () => {
-                    if (this.currentVideo === 'demo') {
-                        this.showStatus('Demo finished, returning to Carescape');
-                        setTimeout(() => { this.playVideo('carescape'); }, 1000);
-                    }
-                });
-                
-                if (window.chrome && window.chrome.webview) {
-                    window.chrome.webview.addEventListener('message', (event) => {
-                        this.handleCommand(event.data);
-                    });
-                }
-            }
-            
-            handleCommand(cmd) {
-                switch(cmd.action) {
-                    case 'init': this.initialize(cmd); break;
-                    case 'toggle': this.toggle(); break;
-                    case 'stop': this.stop(); break;
-                    case 'restart': this.playVideo('carescape'); break;
-                }
-            }
-            
-            initialize(config) {
-                if (config.carescapeVideo) this.videos.carescape.path = config.carescapeVideo;
-                if (config.demoVideo) this.videos.demo.path = config.demoVideo;
-                if (config.carescapeVolume !== undefined) this.videos.carescape.volume = config.carescapeVolume / 100;
-                if (config.demoVolume !== undefined) this.videos.demo.volume = config.demoVolume / 100;
-                this.playVideo('carescape');
-            }
-            
-            playVideo(videoName) {
-                const video = this.videos[videoName];
-                if (!video || !video.path) return;
-                this.currentVideo = videoName;
-                this.player.src = video.path;
-                this.player.volume = video.volume;
-                this.player.loop = video.loop;
-                this.player.play().then(() => {
-                    this.showStatus('Playing: ' + videoName);
-                }).catch(error => {
-                    console.error('Playback failed:', error);
-                });
-                if (window.chrome && window.chrome.webview) {
-                    window.chrome.webview.postMessage({
-                        event: 'videoChanged', video: videoName
-                    });
-                }
-            }
-            
-            toggle() {
-                const nextVideo = this.currentVideo === 'carescape' ? 'demo' : 'carescape';
-                this.playVideo(nextVideo);
-            }
-            
-            stop() {
-                this.player.pause();
-                this.player.src = '';
-                this.showStatus('Stopped');
-            }
-            
-            showStatus(message) {
-                this.statusEl.textContent = message;
-                this.statusEl.style.display = 'block';
-                clearTimeout(this.statusTimeout);
-                this.statusTimeout = setTimeout(() => {
-                    this.statusEl.style.display = 'none';
-                }, 3000);
-            }
-        }
-        const player = new FlicVideoPlayer();
-    </script>
-</body>
-</html>";
-                Logger.Log("Using embedded video player HTML");
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error loading video player HTML: {ex.Message}");
-        }
-    }
-    
-    /// <summary>
-    /// Initialize video mode if enabled
-    /// </summary>
-    private async Task InitializeVideoMode()
-    {
-        if (!_isVideoMode || string.IsNullOrEmpty(_videoPlayerHtml))
-        {
-            return;
-        }
-        
-        try
-        {
-            Logger.Log("Initializing video mode...");
-            
-            // Navigate to video player HTML
-            var dataUri = $"data:text/html;charset=utf-8,{Uri.EscapeDataString(_videoPlayerHtml)}";
-            KioskWebView.CoreWebView2.Navigate(dataUri);
-            
-            // Wait for navigation to complete
-            await Task.Delay(1000);
-            
-            // Initialize video player with configuration
-            var initCommand = new
-            {
-                action = "init",
-                carescapeVideo = ConvertToFileUrl(_config.Kiosk.VideoMode.CarescapeVideoPath),
-                demoVideo = ConvertToFileUrl(_config.Kiosk.VideoMode.DemoVideoPath),
-                carescapeVolume = _config.Kiosk.VideoMode.CarescapeVolume,
-                demoVolume = _config.Kiosk.VideoMode.DemoVolume
-            };
-            
-            var json = System.Text.Json.JsonSerializer.Serialize(initCommand);
-            await KioskWebView.CoreWebView2.PostWebMessageAsJsonAsync(json);
-            
-            // Listen for messages from the video player
-            KioskWebView.CoreWebView2.WebMessageReceived += VideoPlayer_WebMessageReceived;
-            
-            Logger.Log("Video mode initialized successfully");
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error initializing video mode: {ex.Message}");
-        }
-    }
-    
-    /// <summary>
-    /// Convert file path to file:// URL
-    /// </summary>
-    private string ConvertToFileUrl(string filePath)
-    {
-        if (string.IsNullOrEmpty(filePath))
-            return string.Empty;
-            
-        // Ensure absolute path
-        if (!Path.IsPathRooted(filePath))
-            filePath = Path.GetFullPath(filePath);
-            
-        // Convert to file URL
-        return new Uri(filePath).AbsoluteUri;
-    }
-    
-    /// <summary>
-    /// Handle messages from the video player
-    /// </summary>
-    private void VideoPlayer_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
-    {
-        try
-        {
-            var message = e.TryGetWebMessageAsString();
-            Logger.Log($"Video player message: {message}");
-            
-            // Parse and handle video player events if needed
-            var data = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object>>(message);
-            if (data != null && data.ContainsKey("event"))
-            {
-                var eventName = data["event"].ToString();
-                switch (eventName)
-                {
-                    case "videoChanged":
-                        var videoName = data.ContainsKey("video") ? data["video"].ToString() : "unknown";
-                        _isDemoPlaying = videoName == "demo";
-                        Logger.Log($"Video changed to: {videoName}");
-                        break;
-                        
-                    case "videoStopped":
-                        Logger.Log("Video playback stopped");
-                        break;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error handling video player message: {ex.Message}");
-        }
-    }
-    
-    /// <summary>
-    /// Toggle between carescape and demo videos
-    /// </summary>
-    private async Task ToggleVideoAsync()
-    {
-        try
-        {
-            var command = new { action = "toggle" };
-            var json = System.Text.Json.JsonSerializer.Serialize(command);
-            await KioskWebView.CoreWebView2.PostWebMessageAsJsonAsync(json);
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error toggling video: {ex.Message}");
-        }
-    }
-    
-    /// <summary>
-    /// Stop video playback
-    /// </summary>
-    private async Task StopVideoAsync()
-    {
-        try
-        {
-            var command = new { action = "stop" };
-            var json = System.Text.Json.JsonSerializer.Serialize(command);
-            await KioskWebView.CoreWebView2.PostWebMessageAsJsonAsync(json);
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error stopping video: {ex.Message}");
-        }
-    }
-    
-    /// <summary>
-    /// Restart carescape video
-    /// </summary>
-    private async Task RestartCarescapeVideoAsync()
-    {
-        try
-        {
-            var command = new { action = "restart" };
-            var json = System.Text.Json.JsonSerializer.Serialize(command);
-            await KioskWebView.CoreWebView2.PostWebMessageAsJsonAsync(json);
-            _isDemoPlaying = false;
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error restarting carescape video: {ex.Message}");
-        }
-    }
-    
-    #endregion
 
     #endregion
 }

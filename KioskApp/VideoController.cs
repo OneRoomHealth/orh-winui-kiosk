@@ -16,10 +16,9 @@ namespace KioskApp
     {
         private Process? _mpvProcess;
         private bool _isDemoPlaying;
-        private readonly CancellationTokenSource _cancellationSource;
+        private CancellationTokenSource _cancellationSource;
         private Task? _monitoringTask;
         private readonly VideoModeSettings _settings;
-        private readonly ILogger _logger;
 
         // Volume control via Windows Core Audio API
         private readonly VolumeController _volumeController;
@@ -27,10 +26,9 @@ namespace KioskApp
         public bool IsVideoModeEnabled => _settings.Enabled;
         public bool IsDemoPlaying => _isDemoPlaying;
 
-        public VideoController(VideoModeSettings settings, ILogger logger)
+        public VideoController(VideoModeSettings settings)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _cancellationSource = new CancellationTokenSource();
             _volumeController = new VolumeController();
         }
@@ -42,17 +40,17 @@ namespace KioskApp
         {
             if (!_settings.Enabled)
             {
-                _logger.Log("Video mode is disabled in configuration");
+                Logger.Log("Video mode is disabled in configuration");
                 return;
             }
 
             if (!ValidateVideoPaths())
             {
-                _logger.Log("Video paths validation failed");
+                Logger.Log("Video paths validation failed");
                 return;
             }
 
-            _logger.Log("Initializing video controller...");
+            Logger.Log("Initializing video controller...");
             await PlayCarescapeVideoAsync();
         }
 
@@ -63,12 +61,12 @@ namespace KioskApp
         {
             if (_isDemoPlaying)
             {
-                _logger.Log("Flic pressed: Returning to carescape video");
+                Logger.Log("Flic pressed: Returning to carescape video");
                 await PlayCarescapeVideoAsync();
             }
             else
             {
-                _logger.Log("Flic pressed: Playing demo video");
+                Logger.Log("Flic pressed: Playing demo video");
                 await PlayDemoVideoAsync();
             }
         }
@@ -81,7 +79,12 @@ namespace KioskApp
             try
             {
                 // Cancel demo monitoring if running
-                _cancellationSource?.Cancel();
+                if (_isDemoPlaying)
+                {
+                    _cancellationSource?.Cancel();
+                    _cancellationSource?.Dispose();
+                    _cancellationSource = new CancellationTokenSource();
+                }
                 
                 _isDemoPlaying = false;
                 
@@ -94,16 +97,16 @@ namespace KioskApp
 
                 if (success)
                 {
-                    _logger.Log("Carescape video started successfully");
+                    Logger.Log("Carescape video started successfully");
                 }
                 else
                 {
-                    _logger.Log("Failed to start carescape video");
+                    Logger.Log("Failed to start carescape video");
                 }
             }
             catch (Exception ex)
             {
-                _logger.Log($"Error playing carescape video: {ex.Message}");
+                Logger.Log($"Error playing carescape video: {ex.Message}");
             }
         }
 
@@ -125,20 +128,20 @@ namespace KioskApp
 
                 if (success)
                 {
-                    _logger.Log("Demo video started successfully");
+                    Logger.Log("Demo video started successfully");
                     
                     // Start monitoring for demo completion
                     _monitoringTask = MonitorDemoCompletionAsync(_cancellationSource.Token);
                 }
                 else
                 {
-                    _logger.Log("Failed to start demo video");
+                    Logger.Log("Failed to start demo video");
                     _isDemoPlaying = false;
                 }
             }
             catch (Exception ex)
             {
-                _logger.Log($"Error playing demo video: {ex.Message}");
+                Logger.Log($"Error playing demo video: {ex.Message}");
                 _isDemoPlaying = false;
             }
         }
@@ -148,13 +151,13 @@ namespace KioskApp
         /// </summary>
         private async Task MonitorDemoCompletionAsync(CancellationToken cancellationToken)
         {
-            _logger.Log("Starting demo video monitoring...");
+            Logger.Log("Starting demo video monitoring...");
 
             while (_isDemoPlaying && !cancellationToken.IsCancellationRequested)
             {
                 if (_mpvProcess?.HasExited ?? true)
                 {
-                    _logger.Log("Demo video completed, returning to carescape");
+                    Logger.Log("Demo video completed, returning to carescape");
                     await PlayCarescapeVideoAsync();
                     break;
                 }
@@ -162,7 +165,7 @@ namespace KioskApp
                 await Task.Delay(500, cancellationToken);
             }
 
-            _logger.Log("Demo monitoring ended");
+            Logger.Log("Demo monitoring ended");
         }
 
         /// <summary>
@@ -176,7 +179,7 @@ namespace KioskApp
                 string? mpvPath = FindMpvExecutable();
                 if (string.IsNullOrEmpty(mpvPath))
                 {
-                    _logger.Log("MPV executable not found");
+                    Logger.Log("MPV executable not found");
                     return false;
                 }
 
@@ -221,7 +224,7 @@ namespace KioskApp
                 
                 if (_mpvProcess == null)
                 {
-                    _logger.Log("Failed to start MPV process");
+                    Logger.Log("Failed to start MPV process");
                     return false;
                 }
 
@@ -233,7 +236,7 @@ namespace KioskApp
             }
             catch (Exception ex)
             {
-                _logger.Log($"Error starting MPV: {ex.Message}");
+                Logger.Log($"Error starting MPV: {ex.Message}");
                 return false;
             }
         }
@@ -297,13 +300,13 @@ namespace KioskApp
         {
             if (!File.Exists(_settings.CarescapeVideoPath))
             {
-                _logger.Log($"Carescape video not found: {_settings.CarescapeVideoPath}");
+                Logger.Log($"Carescape video not found: {_settings.CarescapeVideoPath}");
                 return false;
             }
 
             if (!File.Exists(_settings.DemoVideoPath))
             {
-                _logger.Log($"Demo video not found: {_settings.DemoVideoPath}");
+                Logger.Log($"Demo video not found: {_settings.DemoVideoPath}");
                 return false;
             }
 
@@ -315,7 +318,7 @@ namespace KioskApp
         /// </summary>
         public async Task StopAsync()
         {
-            _logger.Log("Stopping video playback...");
+            Logger.Log("Stopping video playback...");
             
             _cancellationSource?.Cancel();
             
@@ -336,7 +339,7 @@ namespace KioskApp
         /// </summary>
         public async Task RestartCarescapeAsync()
         {
-            _logger.Log("Restarting carescape video...");
+            Logger.Log("Restarting carescape video...");
             await PlayCarescapeVideoAsync();
         }
 

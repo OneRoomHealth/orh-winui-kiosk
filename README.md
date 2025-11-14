@@ -11,9 +11,12 @@ This application provides a secure, full-screen browser experience for Windows 1
 - ✅ **Full-screen, borderless, always-on-top window** with no system chrome
 - ✅ **WebView2 browser** filling the entire screen
 - ✅ **Automatic navigation** to default URL on startup
+- ✅ **Video Mode** - MPV player integration with Flic button support
 - ✅ **Local HTTP API** on `http://127.0.0.1:8787` for runtime navigation control
 - ✅ **Shell Launcher v2 integration** - replaces Explorer.exe as the Windows shell
 - ✅ **Security hardened** - disables dev tools, context menus, and browser shortcuts
+- ✅ **Debug Mode** - Ctrl+Shift+F12 for developer access
+- ✅ **Exit Mechanism** - Password-protected exit from kiosk mode
 
 ---
 
@@ -240,6 +243,46 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/navigate `
 
 ---
 
+## 🎬 Video Mode (Flic Button Integration)
+
+The app supports video playback mode using MPV player with Flic button control:
+
+**Features:**
+- Switch between two videos (carescape and demo)
+- Automatic return to carescape after demo completes
+- Volume control per video
+- Multi-monitor support
+
+**Controls:**
+- `Ctrl+Alt+D` - Toggle between videos (Flic button)
+- `Ctrl+Alt+E` - Stop video playback
+- `Ctrl+Alt+R` - Restart carescape video
+
+**Configuration:**
+Enable video mode in `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
+```json
+{
+  "kiosk": {
+    "videoMode": {
+      "enabled": true,
+      "carescapeVideoPath": "C:\\Videos\\carescape.mp4",
+      "demoVideoPath": "C:\\Videos\\demo.mp4",
+      "carescapeVolume": 50,
+      "demoVolume": 75,
+      "targetMonitor": 2
+    }
+  }
+}
+```
+
+**Requirements:**
+- MPV player installed (download from https://sourceforge.net/projects/mpv-player-windows/files/)
+- Recommended location: `C:\mpv\mpv.exe` or in system PATH
+
+See [Video Mode Guide](docs/VIDEO_MODE_GUIDE.md) for complete documentation.
+
+---
+
 ## ⚙️ Configuration
 
 ### Change Default URL
@@ -430,7 +473,14 @@ The kiosk app implements multiple security layers:
 
 ## 📖 Additional Documentation
 
-- **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** - Detailed deployment instructions for IT administrators
+All detailed documentation is available in the [`docs/`](docs/) folder:
+
+- **[Video Mode Guide](docs/VIDEO_MODE_GUIDE.md)** - Flic button video control with MPV integration
+- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Complete installation and deployment instructions
+- **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Configuration Reference](docs/CONFIGURATION.md)** - All configuration options
+- **[Local Build Guide](docs/LOCAL_BUILD_GUIDE.md)** - Building from source
+- **[GitHub CI/CD Setup](docs/GITHUB_SETUP_QUICKSTART.md)** - Automated builds and releases
 - **[build/certs/README.md](build/certs/README.md)** - Certificate generation and management
 
 ---
