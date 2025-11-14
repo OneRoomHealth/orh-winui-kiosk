@@ -117,7 +117,7 @@ public sealed partial class MainWindow : Window
                 await ToggleDebugMode();
             }
         };
-        this.KeyboardAccelerators.Add(debugAccelerator);
+        ((FrameworkElement)this.Content).KeyboardAccelerators.Add(debugAccelerator);
 
         // Exit mode: Ctrl+Shift+Q
         var exitAccelerator = new KeyboardAccelerator
@@ -134,7 +134,7 @@ public sealed partial class MainWindow : Window
                 await HandleExitRequest();
             }
         };
-        this.KeyboardAccelerators.Add(exitAccelerator);
+        ((FrameworkElement)this.Content).KeyboardAccelerators.Add(exitAccelerator);
 
         // Video mode accelerators
         if (_isVideoMode)
@@ -154,7 +154,7 @@ public sealed partial class MainWindow : Window
                     await _videoController.HandleFlicButtonPressAsync();
                 }
             };
-            this.KeyboardAccelerators.Add(flicAccelerator);
+            ((FrameworkElement)this.Content).KeyboardAccelerators.Add(flicAccelerator);
 
             // Stop video: Ctrl+Alt+E
             var stopAccelerator = new KeyboardAccelerator
@@ -171,7 +171,7 @@ public sealed partial class MainWindow : Window
                     await _videoController.StopAsync();
                 }
             };
-            this.KeyboardAccelerators.Add(stopAccelerator);
+            ((FrameworkElement)this.Content).KeyboardAccelerators.Add(stopAccelerator);
 
             // Restart carescape: Ctrl+Alt+R
             var restartAccelerator = new KeyboardAccelerator
@@ -188,10 +188,10 @@ public sealed partial class MainWindow : Window
                     await _videoController.RestartCarescapeAsync();
                 }
             };
-            this.KeyboardAccelerators.Add(restartAccelerator);
+            ((FrameworkElement)this.Content).KeyboardAccelerators.Add(restartAccelerator);
         }
 
-        Logger.Log($"Keyboard accelerators registered: {this.KeyboardAccelerators.Count} total");
+        Logger.Log($"Keyboard accelerators registered: {((FrameworkElement)this.Content).KeyboardAccelerators.Count} total");
     }
 
     // Alternative keyboard handling using PreviewKeyDown
@@ -392,7 +392,10 @@ public sealed partial class MainWindow : Window
             }
 
             // Prevent closing via shell close messages
-            _appWindow.Closing += (_, e) => { e.Cancel = true; };
+            if (_appWindow != null)
+            {
+                _appWindow.Closing += (_, e) => { e.Cancel = true; };
+            }
         }
         else
         {
