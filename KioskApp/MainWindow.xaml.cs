@@ -87,7 +87,7 @@ public sealed partial class MainWindow : Window
         this.Activated += MainWindow_Activated;
     }
 
-    private void MainWindow_Activated(object sender, WindowActivatedEventArgs e)
+    private void MainWindow_Activated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs e)
     {
         // Only initialize once on first activation
         if (e.WindowActivationState != WindowActivationState.Deactivated && _appWindow == null)
