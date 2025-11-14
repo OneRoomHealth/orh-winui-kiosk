@@ -37,12 +37,12 @@ The hotkeys are configurable via the `config.json` file located at:
 ```json
 {
   "kiosk": {
-    "targetMonitorIndex": 1,  // 0-based index (0 = first monitor, 1 = second monitor, etc.)
+    "targetMonitorIndex": 1,  // 0-based index (0 = first monitor, 1 = second monitor, etc.) - defaults to 1 if not specified
     "fullscreen": true,
     "alwaysOnTop": true,
     "videoMode": {
       "enabled": false,
-      "targetMonitor": 1
+      "targetMonitor": 1  // Also defaults to 1
     }
   },
   "debug": {

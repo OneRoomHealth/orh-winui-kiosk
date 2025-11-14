@@ -45,7 +45,7 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
@@ -81,8 +81,180 @@ public sealed partial class MainWindow : Window
             _videoController = new VideoController(_config.Kiosk.VideoMode);
         }
 
+        // Setup keyboard accelerators for WinUI 3
+        SetupKeyboardAccelerators();
+        
+        // Also setup PreviewKeyDown as backup for keyboard handling
+        this.Content.PreviewKeyDown += Window_PreviewKeyDown;
+        
         // Hook Activated event - do all initialization there when window is fully ready
         this.Activated += MainWindow_Activated;
+    }
+
+    // Debug test button click handler
+    private async void DebugTestButton_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Log("Debug test button clicked - keyboard accelerators working test");
+        ShowStatus("TEST", "Button clicked! Press Ctrl+Shift+I for debug mode, Ctrl+Shift+Q to exit");
+        await Task.Delay(3000);
+        HideStatus();
+    }
+
+    private void SetupKeyboardAccelerators()
+    {
+        // Debug mode: Ctrl+Shift+I
+        var debugAccelerator = new KeyboardAccelerator
+        {
+            Key = VirtualKey.I,
+            Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift
+        };
+        debugAccelerator.Invoked += async (s, e) =>
+        {
+            e.Handled = true;
+            if (_config.Debug.Enabled)
+            {
+                Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+I");
+                await ToggleDebugMode();
+            }
+        };
+        this.KeyboardAccelerators.Add(debugAccelerator);
+
+        // Exit mode: Ctrl+Shift+Q
+        var exitAccelerator = new KeyboardAccelerator
+        {
+            Key = VirtualKey.Q,
+            Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift
+        };
+        exitAccelerator.Invoked += async (s, e) =>
+        {
+            e.Handled = true;
+            if (_config.Exit.Enabled)
+            {
+                Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Q");
+                await HandleExitRequest();
+            }
+        };
+        this.KeyboardAccelerators.Add(exitAccelerator);
+
+        // Video mode accelerators
+        if (_isVideoMode)
+        {
+            // Flic button: Ctrl+Alt+D
+            var flicAccelerator = new KeyboardAccelerator
+            {
+                Key = VirtualKey.D,
+                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
+            };
+            flicAccelerator.Invoked += async (s, e) =>
+            {
+                e.Handled = true;
+                if (_videoController != null)
+                {
+                    Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video");
+                    await _videoController.HandleFlicButtonPressAsync();
+                }
+            };
+            this.KeyboardAccelerators.Add(flicAccelerator);
+
+            // Stop video: Ctrl+Alt+E
+            var stopAccelerator = new KeyboardAccelerator
+            {
+                Key = VirtualKey.E,
+                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
+            };
+            stopAccelerator.Invoked += async (s, e) =>
+            {
+                e.Handled = true;
+                if (_videoController != null)
+                {
+                    Logger.Log("Stop video pressed (Ctrl+Alt+E)");
+                    await _videoController.StopAsync();
+                }
+            };
+            this.KeyboardAccelerators.Add(stopAccelerator);
+
+            // Restart carescape: Ctrl+Alt+R
+            var restartAccelerator = new KeyboardAccelerator
+            {
+                Key = VirtualKey.R,
+                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
+            };
+            restartAccelerator.Invoked += async (s, e) =>
+            {
+                e.Handled = true;
+                if (_videoController != null)
+                {
+                    Logger.Log("Restart carescape pressed (Ctrl+Alt+R)");
+                    await _videoController.RestartCarescapeAsync();
+                }
+            };
+            this.KeyboardAccelerators.Add(restartAccelerator);
+        }
+
+        Logger.Log($"Keyboard accelerators registered: {this.KeyboardAccelerators.Count} total");
+    }
+
+    // Alternative keyboard handling using PreviewKeyDown
+    private async void Window_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        try
+        {
+            // Simple modifier detection for debugging
+            var currentWindow = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control);
+            bool ctrlPressed = (currentWindow & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+            
+            currentWindow = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift);
+            bool shiftPressed = (currentWindow & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+            
+            currentWindow = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu);
+            bool altPressed = (currentWindow & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+
+            Logger.Log($"PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
+
+        // Debug mode: Ctrl+Shift+I
+        if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.I)
+        {
+            e.Handled = true;
+            Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+I (via PreviewKeyDown)");
+            await ToggleDebugMode();
+        }
+        // Exit: Ctrl+Shift+Q
+        else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.Q)
+        {
+            e.Handled = true;
+            Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Q (via PreviewKeyDown)");
+            await HandleExitRequest();
+        }
+        // Video controls when in video mode
+        else if (_isVideoMode && _videoController != null)
+        {
+            // Flic button: Ctrl+Alt+D
+            if (ctrlPressed && altPressed && e.Key == VirtualKey.D)
+            {
+                e.Handled = true;
+                Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video (via PreviewKeyDown)");
+                await _videoController.HandleFlicButtonPressAsync();
+            }
+            // Stop: Ctrl+Alt+E
+            else if (ctrlPressed && altPressed && e.Key == VirtualKey.E)
+            {
+                e.Handled = true;
+                Logger.Log("Stop video pressed (Ctrl+Alt+E) (via PreviewKeyDown)");
+                await _videoController.StopAsync();
+            }
+            // Restart: Ctrl+Alt+R
+            else if (ctrlPressed && altPressed && e.Key == VirtualKey.R)
+            {
+                e.Handled = true;
+                Logger.Log("Restart carescape pressed (Ctrl+Alt+R) (via PreviewKeyDown)");
+                await _videoController.RestartCarescapeAsync();
+            }
+        }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error in PreviewKeyDown: {ex.Message}");
+        }
     }
 
     private void MainWindow_Activated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs e)
@@ -92,22 +264,6 @@ public sealed partial class MainWindow : Window
         {
             Debug.WriteLine("MainWindow_Activated event fired (first activation)");
             Logger.Log("MainWindow.Activated event fired");
-            
-            // Register keyboard event handler using CoreWindow (WinUI 3 approach)
-            // Must be done after window is activated
-            try
-            {
-                var coreWindow = CoreWindow.GetForCurrentThread();
-                if (coreWindow != null)
-                {
-                    coreWindow.KeyDown += CoreWindow_KeyDown;
-                    Logger.Log("Keyboard event handler registered");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"Failed to register keyboard handler: {ex.Message}");
-            }
             
             // Configure kiosk window after it's activated
             ConfigureAsKioskWindow();
@@ -121,25 +277,44 @@ public sealed partial class MainWindow : Window
     /// Removes system chrome, forces fullscreen, and sets always-on-top.
     /// Uses Win32 APIs via HWND obtained from WinUI 3 window.
     /// </summary>
-    private void ConfigureAsKioskWindow()
+    private async void ConfigureAsKioskWindow()
     {
-        _hwnd = WindowNative.GetWindowHandle(this);
-        var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
-        _appWindow = AppWindow.GetFromWindowId(windowId);
+        try
+        {
+            // Add delay to ensure window is fully initialized
+            await Task.Delay(100);
+            
+            _hwnd = WindowNative.GetWindowHandle(this);
+            var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
+            _appWindow = AppWindow.GetFromWindowId(windowId);
+            
+            Logger.Log($"ConfigureAsKioskWindow started - HWND: {_hwnd}, WindowId: {windowId}");
 
-        // Remove caption/system menu/min/max/resize
-        var style = GetWindowLong(_hwnd, GWL_STYLE);
-        style &= ~WS_CAPTION;
-        style &= ~WS_THICKFRAME;
-        style &= ~WS_MINIMIZEBOX;
-        style &= ~WS_MAXIMIZEBOX;
-        style &= ~WS_SYSMENU;
-        SetWindowLong(_hwnd, GWL_STYLE, style);
+            // Get current window styles for debugging
+            var originalStyle = GetWindowLong(_hwnd, GWL_STYLE);
+            Logger.Log($"Original window style: 0x{originalStyle:X8}");
 
-        // Make topmost
-        var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
-        exStyle |= WS_EX_TOPMOST;
-        SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
+            // Remove caption/system menu/min/max/resize
+            var style = originalStyle;
+            style &= ~WS_CAPTION;
+            style &= ~WS_THICKFRAME;
+            style &= ~WS_MINIMIZEBOX;
+            style &= ~WS_MAXIMIZEBOX;
+            style &= ~WS_SYSMENU;
+            
+            var styleResult = SetWindowLong(_hwnd, GWL_STYLE, style);
+            Logger.Log($"New window style: 0x{style:X8}, SetWindowLong result: 0x{styleResult:X8}");
+
+            // Get current extended style for debugging
+            var originalExStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
+            Logger.Log($"Original extended style: 0x{originalExStyle:X8}");
+
+            // Make topmost
+            var exStyle = originalExStyle;
+            exStyle |= WS_EX_TOPMOST;
+            
+            var exStyleResult = SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
+            Logger.Log($"New extended style: 0x{exStyle:X8}, SetWindowLong result: 0x{exStyleResult:X8}");
 
         // Size to full monitor bounds
         if (_appWindow != null)
@@ -161,18 +336,21 @@ public sealed partial class MainWindow : Window
             // Select target display
             DisplayArea targetDisplay;
             int targetMonitorIndex = _config.Kiosk.TargetMonitorIndex;
+            
+            Logger.Log($"Target monitor index from config: {targetMonitorIndex} (default is 1)");
+            
             if (targetMonitorIndex >= 0 && targetMonitorIndex < allDisplays.Count)
             {
                 targetDisplay = allDisplays[targetMonitorIndex];
-                Debug.WriteLine($"Using configured monitor index {targetMonitorIndex}");
-                Logger.Log($"Using configured monitor index {targetMonitorIndex}");
+                Debug.WriteLine($"Using monitor index {targetMonitorIndex}");
+                Logger.Log($"Using monitor index {targetMonitorIndex}");
             }
             else
             {
                 // Invalid index, fallback to primary
                 targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
                 Debug.WriteLine($"WARNING: Monitor index {targetMonitorIndex} is invalid (only {allDisplays.Count} displays found). Using primary.");
-                Logger.Log($"WARNING: Monitor index {targetMonitorIndex} is invalid. Using primary.");
+                Logger.Log($"WARNING: Monitor index {targetMonitorIndex} is invalid (only {allDisplays.Count} displays found). Using primary display instead.");
             }
             
             var bounds = targetDisplay.OuterBounds; // Use OuterBounds for true fullscreen
@@ -182,11 +360,30 @@ public sealed partial class MainWindow : Window
             {
                 // Store normal window bounds for debug mode
                 _normalWindowBounds = bounds;
+                
+                Logger.Log($"Setting window position - X: {bounds.X}, Y: {bounds.Y}, Width: {bounds.Width}, Height: {bounds.Height}");
 
-                // Position window at the display's origin and set its size
-                SetWindowPos(_hwnd, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
-                Debug.WriteLine($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
-                Logger.Log($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
+                // First, try to use AppWindow presenter for fullscreen
+                if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
+                {
+                    Logger.Log($"Current presenter kind: {_appWindow.Presenter.Kind}, switching to FullScreen");
+                    _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                    await Task.Delay(100); // Give time for presenter change
+                }
+
+                // Then position window at the display's origin and set its size
+                bool posResult = SetWindowPos(_hwnd, HWND_TOPMOST, bounds.X, bounds.Y, bounds.Width, bounds.Height, 
+                                            SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+                
+                Logger.Log($"SetWindowPos result: {posResult}, Last Win32 Error: {Marshal.GetLastWin32Error()}");
+                
+                // Verify window position
+                await Task.Delay(100);
+                if (GetWindowRect(_hwnd, out RECT actualRect))
+                {
+                    Logger.Log($"Actual window position after SetWindowPos: X={actualRect.Left}, Y={actualRect.Top}, " +
+                              $"Width={actualRect.Right - actualRect.Left}, Height={actualRect.Bottom - actualRect.Top}");
+                }
             }
             else
             {
@@ -197,14 +394,32 @@ public sealed partial class MainWindow : Window
             // Prevent closing via shell close messages
             _appWindow.Closing += (_, e) => { e.Cancel = true; };
         }
+        else
+        {
+            Logger.Log("ERROR: _appWindow is null!");
+        }
 
-        // Ensure window style changes are applied and shown (using SWP_NOSIZE to keep current size)
-        const uint SWP_NOSIZE = 0x0001;
-        SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE);
-        
-        Debug.WriteLine("ConfigureAsKioskWindow completed");
         Logger.Log("ConfigureAsKioskWindow completed");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"ERROR in ConfigureAsKioskWindow: {ex.Message}");
+            Logger.Log($"Stack trace: {ex.StackTrace}");
+        }
     }
+
+    // Add RECT struct for GetWindowRect
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
 
     private async Task InitializeWebViewAsync()
@@ -465,66 +680,6 @@ public sealed partial class MainWindow : Window
     }
 
     #region Debug Mode and Exit Mechanism
-
-    /// <summary>
-    /// Keyboard event handler for hotkey detection using CoreWindow (WinUI 3 approach).
-    /// Ctrl+Shift+I: Toggle debug mode
-    /// Ctrl+Shift+Q: Exit kiosk mode
-    /// Ctrl+Alt+D: Toggle video (Flic button)
-    /// </summary>
-    private async void CoreWindow_KeyDown(CoreWindow sender, KeyEventArgs args)
-    {
-        // Get modifier key states
-        var ctrlState = sender.GetKeyState(VirtualKey.Control);
-        var shiftState = sender.GetKeyState(VirtualKey.Shift);
-        var altState = sender.GetKeyState(VirtualKey.Menu);
-
-        bool ctrlPressed = (ctrlState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
-        bool shiftPressed = (shiftState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
-        bool altPressed = (altState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
-
-        // Debug mode hotkey: Ctrl+Shift+I
-        if (_config.Debug.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.I)
-        {
-            Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+I");
-            await ToggleDebugMode();
-            args.Handled = true;
-        }
-
-        // Exit hotkey: Ctrl+Shift+Q
-        if (_config.Exit.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.Q)
-        {
-            Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Q");
-            await HandleExitRequest();
-            args.Handled = true;
-        }
-        
-        // Video control hotkeys (when video mode is enabled)
-        if (_isVideoMode)
-        {
-            // Ctrl+Alt+D - Toggle video (Flic button)
-            if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.D && _videoController != null)
-            {
-                Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video");
-                await _videoController.HandleFlicButtonPressAsync();
-                args.Handled = true;
-            }
-            // Ctrl+Alt+E - Stop video
-            else if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.E && _videoController != null)
-            {
-                Logger.Log("Stop video pressed (Ctrl+Alt+E)");
-                await _videoController.StopAsync();
-                args.Handled = true;
-            }
-            // Ctrl+Alt+R - Restart carescape video
-            else if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.R && _videoController != null)
-            {
-                Logger.Log("Restart carescape pressed (Ctrl+Alt+R)");
-                await _videoController.RestartCarescapeAsync();
-                args.Handled = true;
-            }
-        }
-    }
 
     /// <summary>
     /// Toggles debug mode on/off.

@@ -33,7 +33,7 @@ public class KioskSettings
     public string DefaultUrl { get; set; } = "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default";
 
     [JsonPropertyName("targetMonitorIndex")]
-    public int TargetMonitorIndex { get; set; } = 1;
+    public int TargetMonitorIndex { get; set; } = 1; // Default to second monitor (index 1)
 
     [JsonPropertyName("fullscreen")]
     public bool Fullscreen { get; set; } = true;
@@ -66,7 +66,7 @@ public class VideoModeSettings
     public double DemoVolume { get; set; } = 75;
 
     [JsonPropertyName("targetMonitor")]
-    public int TargetMonitor { get; set; } = 1;
+    public int TargetMonitor { get; set; } = 1; // Default to second monitor (same as main window)
 
     [JsonPropertyName("flicButtonEnabled")]
     public bool FlicButtonEnabled { get; set; } = true;
