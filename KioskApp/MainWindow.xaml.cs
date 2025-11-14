@@ -10,6 +10,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using Windows.System;
 using Windows.Graphics;
+using Windows.UI.Core;
 using WinRT.Interop;
 
 namespace KioskApp;
@@ -98,7 +99,7 @@ public sealed partial class MainWindow : Window
             // Must be done after window is activated
             try
             {
-                var coreWindow = Microsoft.UI.Core.CoreWindow.GetForCurrentThread();
+                var coreWindow = CoreWindow.GetForCurrentThread();
                 if (coreWindow != null)
                 {
                     coreWindow.KeyDown += CoreWindow_KeyDown;
@@ -487,16 +488,16 @@ public sealed partial class MainWindow : Window
     /// Ctrl+Shift+Escape: Exit kiosk mode
     /// Ctrl+Alt+D: Toggle video (Flic button)
     /// </summary>
-    private async void CoreWindow_KeyDown(Microsoft.UI.Core.CoreWindow sender, Microsoft.UI.Core.KeyEventArgs args)
+    private async void CoreWindow_KeyDown(CoreWindow sender, KeyEventArgs args)
     {
         // Get modifier key states
         var ctrlState = sender.GetKeyState(VirtualKey.Control);
         var shiftState = sender.GetKeyState(VirtualKey.Shift);
         var altState = sender.GetKeyState(VirtualKey.Menu);
 
-        bool ctrlPressed = (ctrlState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
-        bool shiftPressed = (shiftState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
-        bool altPressed = (altState & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
+        bool ctrlPressed = (ctrlState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+        bool shiftPressed = (shiftState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+        bool altPressed = (altState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
 
         // Debug mode hotkey: Ctrl+Shift+F12
         if (_config.Debug.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.F12)
