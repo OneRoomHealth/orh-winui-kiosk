@@ -161,19 +161,12 @@ public sealed partial class MainWindow : Window
             }
             
             // Select target display
-            DisplayArea? targetDisplay = null;
+            DisplayArea targetDisplay;
             if (TARGET_MONITOR_INDEX >= 0 && TARGET_MONITOR_INDEX < allDisplays.Count)
             {
                 targetDisplay = allDisplays[TARGET_MONITOR_INDEX];
                 Debug.WriteLine($"Using configured monitor index {TARGET_MONITOR_INDEX}");
                 Logger.Log($"Using configured monitor index {TARGET_MONITOR_INDEX}");
-            }
-            else if (TARGET_MONITOR_INDEX == -1)
-            {
-                // Use primary display
-                targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-                Debug.WriteLine("Using primary monitor");
-                Logger.Log("Using primary monitor");
             }
             else
             {
@@ -181,14 +174,6 @@ public sealed partial class MainWindow : Window
                 targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
                 Debug.WriteLine($"WARNING: Monitor index {TARGET_MONITOR_INDEX} is invalid (only {allDisplays.Count} displays found). Using primary.");
                 Logger.Log($"WARNING: Monitor index {TARGET_MONITOR_INDEX} is invalid. Using primary.");
-            }
-            
-            if (targetDisplay == null)
-            {
-                // Final fallback - use primary display
-                targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-                Debug.WriteLine("Using primary monitor as final fallback");
-                Logger.Log("Using primary monitor as final fallback");
             }
             
             var bounds = targetDisplay.OuterBounds; // Use OuterBounds for true fullscreen
