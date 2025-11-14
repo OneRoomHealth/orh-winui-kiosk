@@ -209,7 +209,11 @@ public sealed partial class MainWindow : Window
             currentWindow = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu);
             bool altPressed = (currentWindow & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
 
-            Logger.Log($"PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
+            // Always log key presses for debugging
+            if (e.Key != VirtualKey.None)
+            {
+                Logger.Log($"PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
+            }
 
         // Debug mode: Ctrl+Shift+I
         if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.I)
@@ -270,6 +274,48 @@ public sealed partial class MainWindow : Window
             
             // Initialize WebView2 asynchronously without blocking the Activated event
             _ = InitializeWebViewAsync();
+            
+            // Ensure window has focus for keyboard input
+            _ = FocusWindowAsync();
+        }
+    }
+
+    private async Task FocusWindowAsync()
+    {
+        await Task.Delay(500); // Small delay to ensure window is ready
+        
+        try
+        {
+            // Try to focus the window
+            this.Activate();
+            
+            // Try to focus the content
+            if (this.Content is FrameworkElement content)
+            {
+                content.Focus(FocusState.Programmatic);
+            }
+            
+            // Also try to focus the grid directly
+            if (this.Content is Grid grid && grid.Children.Count > 0)
+            {
+                grid.Focus(FocusState.Programmatic);
+            }
+            
+            // For extra measure, try focusing the WebView
+            if (KioskWebView != null)
+            {
+                KioskWebView.Focus(FocusState.Programmatic);
+            }
+            
+            Logger.Log("Window focused for keyboard input");
+            
+            // Try again after a longer delay to ensure it sticks
+            await Task.Delay(1000);
+            this.Activate();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error focusing window: {ex.Message}");
         }
     }
 
@@ -530,6 +576,13 @@ public sealed partial class MainWindow : Window
                         }
                         
                         HideStatus();
+                        
+                        // Hide the test button after successful navigation
+                        if (DebugTestButton != null)
+                        {
+                            DebugTestButton.Visibility = Visibility.Collapsed;
+                            Logger.Log("Test button hidden after successful navigation");
+                        }
                     }
                     else
                     {
@@ -664,13 +717,19 @@ public sealed partial class MainWindow : Window
         e.SavesInProfile = true;
     }
 
-    private void ShowStatus(string title, string? detail = null)
+    private void ShowStatus(string title, string? detail = null, int? autoHideMs = null)
     {
-        DispatcherQueue.TryEnqueue(() =>
+        DispatcherQueue.TryEnqueue(async () =>
         {
             StatusTitle.Text = title;
             StatusDetail.Text = detail ?? string.Empty;
             StatusOverlay.Visibility = Visibility.Visible;
+            
+            if (autoHideMs.HasValue)
+            {
+                await Task.Delay(autoHideMs.Value);
+                HideStatus();
+            }
         });
     }
 
@@ -707,7 +766,7 @@ public sealed partial class MainWindow : Window
     private async Task EnterDebugMode()
     {
         Logger.LogSecurityEvent("EnterDebugMode", "Entering debug mode");
-        ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+F12 to exit.");
+        ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+I to exit.", 2000);
 
         await Task.Run(() =>
         {
@@ -715,6 +774,26 @@ public sealed partial class MainWindow : Window
             {
                 try
                 {
+                    // 0. Make sure WebView is visible (in case video mode hid it)
+                    if (_isVideoMode && _videoController != null)
+                    {
+                        // Stop video playback in debug mode
+                        _ = _videoController.StopAsync();
+                        Logger.Log("Video playback stopped for debug mode");
+                    }
+                    
+                    if (KioskWebView != null)
+                    {
+                        KioskWebView.Visibility = Visibility.Visible;
+                        Logger.Log("WebView made visible for debug mode");
+                    }
+                    
+                    // Show test button in debug mode
+                    if (DebugTestButton != null)
+                    {
+                        DebugTestButton.Visibility = Visibility.Visible;
+                    }
+                    
                     // 1. Enable WebView2 developer features
                     if (KioskWebView?.CoreWebView2?.Settings != null)
                     {
@@ -772,7 +851,7 @@ public sealed partial class MainWindow : Window
 
         await Task.Run(() =>
         {
-            DispatcherQueue.TryEnqueue(() =>
+            DispatcherQueue.TryEnqueue(async () =>
             {
                 try
                 {
@@ -802,6 +881,22 @@ public sealed partial class MainWindow : Window
 
                     // 3. Update window title
                     this.Title = "OneRoom Health Kiosk";
+                    
+                    // 4. Restore video mode if it was enabled
+                    if (_isVideoMode && _videoController != null)
+                    {
+                        // Hide WebView again for video mode
+                        KioskWebView.Visibility = Visibility.Collapsed;
+                        // Restart video playback
+                        await _videoController.InitializeAsync();
+                        Logger.Log("Video mode restored after exiting debug mode");
+                    }
+                    
+                    // 5. Hide test button again
+                    if (DebugTestButton != null)
+                    {
+                        DebugTestButton.Visibility = Visibility.Collapsed;
+                    }
 
                     Logger.Log("Debug mode exited, returned to kiosk mode");
                     HideStatus();
