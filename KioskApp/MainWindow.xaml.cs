@@ -82,9 +82,6 @@ public sealed partial class MainWindow : Window
             _videoController = new VideoController(_config.Kiosk.VideoMode);
         }
 
-        // Register keyboard event handler for hotkeys
-        this.KeyDown += OnKeyDown;
-
         // Hook Activated event - do all initialization there when window is fully ready
         this.Activated += MainWindow_Activated;
     }
@@ -167,6 +164,14 @@ public sealed partial class MainWindow : Window
                 targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
                 Debug.WriteLine($"WARNING: Monitor index {TARGET_MONITOR_INDEX} is invalid (only {allDisplays.Count} displays found). Using primary.");
                 Logger.Log($"WARNING: Monitor index {TARGET_MONITOR_INDEX} is invalid. Using primary.");
+            }
+            
+            if (targetDisplay == null)
+            {
+                // Final fallback - use primary display
+                targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+                Debug.WriteLine("Using primary monitor as final fallback");
+                Logger.Log("Using primary monitor as final fallback");
             }
             
             var bounds = targetDisplay.OuterBounds; // Use OuterBounds for true fullscreen
@@ -623,7 +628,7 @@ public sealed partial class MainWindow : Window
                         // Close developer tools if open
                         try
                         {
-                            KioskWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Browser.close", "{}");
+                            _ = KioskWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Browser.close", "{}");
                         }
                         catch
                         {
