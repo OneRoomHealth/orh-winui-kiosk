@@ -77,6 +77,35 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
 
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+    private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KBDLLHOOKSTRUCT
+    {
+        public uint vkCode;
+        public uint scanCode;
+        public uint flags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    private const int WH_KEYBOARD_LL = 13;
+    private const int WM_KEYDOWN = 0x0100;
+    private LowLevelKeyboardProc? _keyboardProc;
+    private IntPtr _hookID = IntPtr.Zero;
+
     public MainWindow(KioskConfiguration config)
     {
         this.InitializeComponent();
@@ -142,17 +171,35 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            // Method 1: Window-level PreviewKeyDown (catches keys before child controls)
+            // Method 1: Low-level keyboard hook (catches ALL keyboard input)
+            SetupLowLevelKeyboardHook();
+
+            // Method 2: Window-level PreviewKeyDown (catches keys before child controls)
             this.Content.PreviewKeyDown += Content_PreviewKeyDown;
             Logger.Log("Window PreviewKeyDown handler registered");
 
-            // Method 2: Accelerator keys on window content (standard WinUI approach)
+            // Method 3: Accelerator keys on window content (standard WinUI approach)
             SetupKeyboardAccelerators();
             
-            // Method 3: WebView2-specific handling (prevent WebView from eating keys)
+            // Method 4: WebView2-specific handling (prevent WebView from eating keys)
             // This will be set up after WebView2 is initialized
             
             Logger.Log("All keyboard handlers registered successfully");
+            
+            // Log enabled hotkeys for debugging
+            Logger.Log("=== ENABLED HOTKEYS ===");
+            if (_config.Debug.Enabled)
+                Logger.Log($"  Debug Mode: {_config.Debug.Hotkey} (configured) / Ctrl+Shift+F12 (handled)");
+            if (_config.Exit.Enabled)
+                Logger.Log($"  Exit Kiosk: {_config.Exit.Hotkey} (configured) / Ctrl+Shift+Escape (handled)");
+            if (_isVideoMode)
+            {
+                Logger.Log("  Video Controls:");
+                Logger.Log("    Toggle Video: Ctrl+Alt+D");
+                Logger.Log("    Stop Video: Ctrl+Alt+E");
+                Logger.Log("    Restart Carescape: Ctrl+Alt+R");
+            }
+            Logger.Log("======================");
         }
         catch (Exception ex)
         {
@@ -160,6 +207,98 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Sets up a low-level keyboard hook to capture all keyboard input
+    /// </summary>
+    private void SetupLowLevelKeyboardHook()
+    {
+        try
+        {
+            _keyboardProc = HookCallback;
+            using (System.Diagnostics.Process curProcess = System.Diagnostics.Process.GetCurrentProcess())
+            using (System.Diagnostics.ProcessModule curModule = curProcess.MainModule!)
+            {
+                _hookID = SetWindowsHookEx(WH_KEYBOARD_LL, _keyboardProc, GetModuleHandle(curModule.ModuleName), 0);
+            }
+            Logger.Log("Low-level keyboard hook installed");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to install keyboard hook: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Low-level keyboard hook callback
+    /// </summary>
+    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && wParam == (IntPtr)WM_KEYDOWN)
+        {
+            KBDLLHOOKSTRUCT hookStruct = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+            VirtualKey vkCode = (VirtualKey)hookStruct.vkCode;
+
+            // Get modifier states
+            bool ctrlPressed = (GetKeyState((int)VirtualKey.Control) & 0x8000) != 0;
+            bool shiftPressed = (GetKeyState((int)VirtualKey.Shift) & 0x8000) != 0;
+            bool altPressed = (GetKeyState((int)VirtualKey.Menu) & 0x8000) != 0;
+
+            // Log the key press (only log our hotkey combinations to avoid log spam)
+            if ((ctrlPressed && shiftPressed && (vkCode == VirtualKey.F12 || vkCode == VirtualKey.Escape)) ||
+                (ctrlPressed && altPressed && (vkCode == VirtualKey.D || vkCode == VirtualKey.E || vkCode == VirtualKey.R)))
+            {
+                Logger.Log($"[HOTKEY] LowLevelKeyboardHook: Key={vkCode}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
+            }
+
+            // Handle our hotkeys
+            bool handled = false;
+
+            // Debug mode: Ctrl+Shift+F12
+            if (_config.Debug.Enabled && ctrlPressed && shiftPressed && vkCode == VirtualKey.F12)
+            {
+                handled = true;
+                Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+F12 (via keyboard hook)");
+                DispatcherQueue.TryEnqueue(async () => await ToggleDebugMode());
+            }
+            // Exit: Ctrl+Shift+Escape
+            else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && vkCode == VirtualKey.Escape)
+            {
+                handled = true;
+                Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Escape (via keyboard hook)");
+                DispatcherQueue.TryEnqueue(async () => await HandleExitRequest());
+            }
+            // Video controls when in video mode
+            else if (_isVideoMode && _videoController != null && ctrlPressed && altPressed)
+            {
+                switch (vkCode)
+                {
+                    case VirtualKey.D:
+                        handled = true;
+                        Logger.Log("Flic button pressed (Ctrl+Alt+D) via keyboard hook");
+                        DispatcherQueue.TryEnqueue(async () => await _videoController.HandleFlicButtonPressAsync());
+                        break;
+                    case VirtualKey.E:
+                        handled = true;
+                        Logger.Log("Stop video pressed (Ctrl+Alt+E) via keyboard hook");
+                        DispatcherQueue.TryEnqueue(async () => await _videoController.StopAsync());
+                        break;
+                    case VirtualKey.R:
+                        handled = true;
+                        Logger.Log("Restart carescape pressed (Ctrl+Alt+R) via keyboard hook");
+                        DispatcherQueue.TryEnqueue(async () => await _videoController.RestartCarescapeAsync());
+                        break;
+                }
+            }
+
+            // If we handled this key, consume it
+            if (handled)
+            {
+                return (IntPtr)1;
+            }
+        }
+
+        return CallNextHookEx(_hookID, nCode, wParam, lParam);
+    }
 
     /// <summary>
     /// Content PreviewKeyDown handler - backup method
@@ -173,8 +312,12 @@ public sealed partial class MainWindow : Window
             bool shiftPressed = (GetKeyState((int)VirtualKey.Shift) & 0x8000) != 0;
             bool altPressed = (GetKeyState((int)VirtualKey.Menu) & 0x8000) != 0;
 
-            // Log for debugging
-            Logger.Log($"Content_PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
+            // Log for debugging (only log our hotkey combinations)
+            if ((ctrlPressed && shiftPressed && (e.Key == VirtualKey.F12 || e.Key == VirtualKey.Escape)) ||
+                (ctrlPressed && altPressed && (e.Key == VirtualKey.D || e.Key == VirtualKey.E || e.Key == VirtualKey.R)))
+            {
+                Logger.Log($"[HOTKEY] Content_PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
+            }
 
             // Handle hotkeys
             if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.F12)
@@ -450,7 +593,7 @@ public sealed partial class MainWindow : Window
                     ShowStatus("Initializing", "Loading WebView2...");
                     
                     await KioskWebView.EnsureCoreWebView2Async();
-                    await SetupWebView();
+                    SetupWebView();
                     
                     // Navigate to the configured URL
                     KioskWebView.Source = new Uri(_config.Kiosk.DefaultUrl);
@@ -476,7 +619,7 @@ public sealed partial class MainWindow : Window
     /// <summary>
     /// Configures WebView2 settings, including developer tools restrictions.
     /// </summary>
-    private async Task SetupWebView()
+    private void SetupWebView()
     {
         var settings = KioskWebView.CoreWebView2.Settings;
 
@@ -517,14 +660,16 @@ public sealed partial class MainWindow : Window
         {
             try
             {
-                // Inject JavaScript to prevent WebView from capturing certain key combinations
+                // Inject JavaScript to prevent WebView from consuming our hotkeys
                 string script = @"
                     document.addEventListener('keydown', function(e) {
-                        // Allow our hotkeys to bubble up to the application
+                        // Check if this is one of our hotkeys
                         if ((e.ctrlKey && e.shiftKey && (e.key === 'F12' || e.key === 'Escape')) ||
-                            (e.ctrlKey && e.altKey && (e.key === 'd' || e.key === 'e' || e.key === 'r'))) {
-                            e.stopPropagation();
-                            return false;
+                            (e.ctrlKey && e.altKey && (e.key === 'd' || e.key === 'D' || e.key === 'e' || e.key === 'E' || e.key === 'r' || e.key === 'R'))) {
+                            // Prevent the webpage from handling these keys
+                            e.preventDefault();
+                            // IMPORTANT: Do NOT call stopPropagation() - we want the event to bubble up!
+                            console.log('Kiosk hotkey detected:', e.key);
                         }
                     }, true);
                 ";
@@ -732,7 +877,8 @@ public sealed partial class MainWindow : Window
                     // In video mode, hide WebView and restart video
                     if (_isVideoMode && _videoController != null)
                     {
-                        KioskWebView.Visibility = Visibility.Collapsed;
+                        if (KioskWebView != null)
+                            KioskWebView.Visibility = Visibility.Collapsed;
                         _ = _videoController.InitializeAsync();
                     }
 
@@ -802,6 +948,17 @@ public sealed partial class MainWindow : Window
             
             // TODO: Stop API server when implemented
             // _apiServer?.Dispose();
+            
+            // Stop command server if running
+            LocalCommandServer.Stop();
+            
+            // Unhook keyboard hook
+            if (_hookID != IntPtr.Zero)
+            {
+                UnhookWindowsHookEx(_hookID);
+                _hookID = IntPtr.Zero;
+                Logger.Log("Keyboard hook removed");
+            }
             
             // Close the window
             this.Close();

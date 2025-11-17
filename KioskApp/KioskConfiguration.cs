@@ -81,7 +81,7 @@ public class DebugSettings
     public bool Enabled { get; set; } = true; // Enabled by default for development
 
     [JsonPropertyName("hotkey")]
-    public string Hotkey { get; set; } = "Ctrl+Shift+I";
+    public string Hotkey { get; set; } = "Ctrl+Shift+F12";
 
     [JsonPropertyName("autoOpenDevTools")]
     public bool AutoOpenDevTools { get; set; } = false;
@@ -99,7 +99,7 @@ public class ExitSettings
     public bool Enabled { get; set; } = true; // Enabled by default for development
 
     [JsonPropertyName("hotkey")]
-    public string Hotkey { get; set; } = "Ctrl+Shift+Q";
+    public string Hotkey { get; set; } = "Ctrl+Shift+Escape";
 
     [JsonPropertyName("requirePassword")]
     public bool RequirePassword { get; set; } = true;
