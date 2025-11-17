@@ -34,17 +34,6 @@
                            MaxWidth="800"/>
             </StackPanel>
         </Border>
-        
-        <!-- Debug test button - remove in production -->
-        <Button x:Name="DebugTestButton"
-                Content="Test"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Top"
-                Margin="10"
-                Width="60"
-                Height="30"
-                Opacity="0.3"
-                Click="DebugTestButton_Click"/>
     </Grid>
 </Window>
 

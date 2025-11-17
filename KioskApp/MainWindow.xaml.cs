@@ -1,31 +1,36 @@
-using Microsoft.UI;
-using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using Microsoft.Web.WebView2.Core;
 using System;
 using System.Diagnostics;
-using System.IO;
+using System.Threading.Tasks;
 using System.Runtime.InteropServices;
-using Windows.System;
-using Windows.Graphics;
-using Windows.UI.Core;
+using Microsoft.UI;
+using Microsoft.UI.Windowing;
+using Microsoft.UI.Interop;
 using WinRT.Interop;
+using Windows.Graphics.Display;
+using Windows.Foundation;
+using Windows.System;
+using Windows.UI.Core;
+using Windows.UI.ViewManagement;
+using System.IO;
+using System.Reflection;
+using Microsoft.UI.Xaml.Input;
 
 namespace KioskApp;
 
+/// <summary>
+/// Main window for the OneRoom Health Kiosk application.
+/// </summary>
 public sealed partial class MainWindow : Window
 {
+    // Core objects and references
+    private readonly KioskConfiguration _config;
     private AppWindow? _appWindow;
-    private KioskConfiguration _config = new();
-    private bool _isDebugMode = false;
-    private RectInt32 _normalWindowBounds;
     private IntPtr _hwnd;
-    
-    // Video mode fields
-    private bool _isVideoMode = false;
     private VideoController? _videoController;
+    private CoreDispatcher? _coreDispatcher;
 
     // Monitor index is now configured via config.json instead of being hardcoded
 
@@ -38,7 +43,21 @@ public sealed partial class MainWindow : Window
     private const int WS_MAXIMIZEBOX = 0x00010000;
     private const int WS_SYSMENU = 0x00080000;
     private const int WS_EX_TOPMOST = 0x00000008;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+    private const uint SWP_NOZORDER = 0x0004;
+    private const uint SWP_FRAMECHANGED = 0x0020;
+    private const uint SWP_NOMOVE = 0x0002;
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
 
+    // API server control
+    private ApiServer? _apiServer;
+
+    // State management
+    private bool _isDebugMode = false;
+    private Rect _normalWindowBounds;
+    private bool _isVideoMode = false;
+
+    // Win32 API imports
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -48,217 +67,36 @@ public sealed partial class MainWindow : Window
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
-    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-    private const uint SWP_SHOWWINDOW = 0x0040;
-    private const uint SWP_FRAMECHANGED = 0x0020;
-    private const uint SWP_NOZORDER = 0x0004;
-    private const uint SWP_NOMOVE = 0x0002;
-
-    public MainWindow()
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
     {
-        InitializeComponent();
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
 
-        // Load configuration
-        _config = ConfigurationManager.Load();
-        Logger.Log("Configuration loaded");
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
-        // Ensure default password is set if not configured
-        if (_config.Exit.RequirePassword && string.IsNullOrEmpty(_config.Exit.PasswordHash))
-        {
-            _config.Exit.PasswordHash = SecurityHelper.GetDefaultPasswordHash();
-            ConfigurationManager.Save(_config);
-            Logger.Log("Default exit password set (admin123)");
-        }
+    public MainWindow(KioskConfiguration config)
+    {
+        this.InitializeComponent();
+        _config = config;
+        Logger.Log("MainWindow constructor called");
         
-        // Check if video mode is enabled
-        if (_config.Kiosk.VideoMode?.Enabled == true)
+        // Determine if we're in video mode based on config
+        _isVideoMode = _config.Kiosk.VideoMode?.Enabled ?? false;
+        Logger.Log($"Video mode enabled: {_isVideoMode}");
+        
+        // Initialize video controller if video mode is enabled
+        if (_isVideoMode && _config.Kiosk.VideoMode != null)
         {
-            _isVideoMode = true;
-            Logger.Log($"Video mode enabled - Carescape: {_config.Kiosk.VideoMode.CarescapeVideoPath}");
-            Logger.Log($"Demo: {_config.Kiosk.VideoMode.DemoVideoPath}");
-            
-            // Initialize VideoController for MPV integration
             _videoController = new VideoController(_config.Kiosk.VideoMode);
         }
 
-        // Setup keyboard accelerators for WinUI 3
-        SetupKeyboardAccelerators();
-        
-        // Also setup PreviewKeyDown as backup for keyboard handling
-        this.Content.PreviewKeyDown += Window_PreviewKeyDown;
-        
         // Hook Activated event - do all initialization there when window is fully ready
         this.Activated += MainWindow_Activated;
-    }
-
-    // Debug test button click handler
-    private async void DebugTestButton_Click(object sender, RoutedEventArgs e)
-    {
-        Logger.Log("Debug test button clicked - keyboard accelerators working test");
-        ShowStatus("TEST", "Button clicked! Press Ctrl+Shift+I for debug mode, Ctrl+Shift+Q to exit");
-        await Task.Delay(3000);
-        HideStatus();
-    }
-
-    private void SetupKeyboardAccelerators()
-    {
-        // Debug mode: Ctrl+Shift+I
-        var debugAccelerator = new KeyboardAccelerator
-        {
-            Key = VirtualKey.I,
-            Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift
-        };
-        debugAccelerator.Invoked += async (s, e) =>
-        {
-            e.Handled = true;
-            if (_config.Debug.Enabled)
-            {
-                Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+I");
-                await ToggleDebugMode();
-            }
-        };
-        ((FrameworkElement)this.Content).KeyboardAccelerators.Add(debugAccelerator);
-
-        // Exit mode: Ctrl+Shift+Q
-        var exitAccelerator = new KeyboardAccelerator
-        {
-            Key = VirtualKey.Q,
-            Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift
-        };
-        exitAccelerator.Invoked += async (s, e) =>
-        {
-            e.Handled = true;
-            if (_config.Exit.Enabled)
-            {
-                Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Q");
-                await HandleExitRequest();
-            }
-        };
-        ((FrameworkElement)this.Content).KeyboardAccelerators.Add(exitAccelerator);
-
-        // Video mode accelerators
-        if (_isVideoMode)
-        {
-            // Flic button: Ctrl+Alt+D
-            var flicAccelerator = new KeyboardAccelerator
-            {
-                Key = VirtualKey.D,
-                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
-            };
-            flicAccelerator.Invoked += async (s, e) =>
-            {
-                e.Handled = true;
-                if (_videoController != null)
-                {
-                    Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video");
-                    await _videoController.HandleFlicButtonPressAsync();
-                }
-            };
-            ((FrameworkElement)this.Content).KeyboardAccelerators.Add(flicAccelerator);
-
-            // Stop video: Ctrl+Alt+E
-            var stopAccelerator = new KeyboardAccelerator
-            {
-                Key = VirtualKey.E,
-                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
-            };
-            stopAccelerator.Invoked += async (s, e) =>
-            {
-                e.Handled = true;
-                if (_videoController != null)
-                {
-                    Logger.Log("Stop video pressed (Ctrl+Alt+E)");
-                    await _videoController.StopAsync();
-                }
-            };
-            ((FrameworkElement)this.Content).KeyboardAccelerators.Add(stopAccelerator);
-
-            // Restart carescape: Ctrl+Alt+R
-            var restartAccelerator = new KeyboardAccelerator
-            {
-                Key = VirtualKey.R,
-                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
-            };
-            restartAccelerator.Invoked += async (s, e) =>
-            {
-                e.Handled = true;
-                if (_videoController != null)
-                {
-                    Logger.Log("Restart carescape pressed (Ctrl+Alt+R)");
-                    await _videoController.RestartCarescapeAsync();
-                }
-            };
-            ((FrameworkElement)this.Content).KeyboardAccelerators.Add(restartAccelerator);
-        }
-
-        Logger.Log($"Keyboard accelerators registered: {((FrameworkElement)this.Content).KeyboardAccelerators.Count} total");
-    }
-
-    // Alternative keyboard handling using PreviewKeyDown
-    private async void Window_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
-    {
-        try
-        {
-            // Simple modifier detection for debugging
-            var currentWindow = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control);
-            bool ctrlPressed = (currentWindow & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
-            
-            currentWindow = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Shift);
-            bool shiftPressed = (currentWindow & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
-            
-            currentWindow = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu);
-            bool altPressed = (currentWindow & Windows.UI.Core.CoreVirtualKeyStates.Down) == Windows.UI.Core.CoreVirtualKeyStates.Down;
-
-            // Always log key presses for debugging
-            if (e.Key != VirtualKey.None)
-            {
-                Logger.Log($"PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
-            }
-
-        // Debug mode: Ctrl+Shift+I
-        if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.I)
-        {
-            e.Handled = true;
-            Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+I (via PreviewKeyDown)");
-            await ToggleDebugMode();
-        }
-        // Exit: Ctrl+Shift+Q
-        else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.Q)
-        {
-            e.Handled = true;
-            Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Q (via PreviewKeyDown)");
-            await HandleExitRequest();
-        }
-        // Video controls when in video mode
-        else if (_isVideoMode && _videoController != null)
-        {
-            // Flic button: Ctrl+Alt+D
-            if (ctrlPressed && altPressed && e.Key == VirtualKey.D)
-            {
-                e.Handled = true;
-                Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video (via PreviewKeyDown)");
-                await _videoController.HandleFlicButtonPressAsync();
-            }
-            // Stop: Ctrl+Alt+E
-            else if (ctrlPressed && altPressed && e.Key == VirtualKey.E)
-            {
-                e.Handled = true;
-                Logger.Log("Stop video pressed (Ctrl+Alt+E) (via PreviewKeyDown)");
-                await _videoController.StopAsync();
-            }
-            // Restart: Ctrl+Alt+R
-            else if (ctrlPressed && altPressed && e.Key == VirtualKey.R)
-            {
-                e.Handled = true;
-                Logger.Log("Restart carescape pressed (Ctrl+Alt+R) (via PreviewKeyDown)");
-                await _videoController.RestartCarescapeAsync();
-            }
-        }
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error in PreviewKeyDown: {ex.Message}");
-        }
     }
 
     private void MainWindow_Activated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs e)
@@ -269,98 +107,306 @@ public sealed partial class MainWindow : Window
             Debug.WriteLine("MainWindow_Activated event fired (first activation)");
             Logger.Log("MainWindow.Activated event fired");
             
+            // Get CoreDispatcher for UI thread operations
+            _coreDispatcher = Windows.ApplicationModel.Core.CoreApplication.MainView.CoreWindow.Dispatcher;
+            
             // Configure kiosk window after it's activated
             ConfigureAsKioskWindow();
             
+            // Setup comprehensive keyboard handling
+            SetupKeyboardHandling();
+            
             // Initialize WebView2 asynchronously without blocking the Activated event
             _ = InitializeWebViewAsync();
-            
-            // Ensure window has focus for keyboard input
-            _ = FocusWindowAsync();
-        }
-    }
-
-    private async Task FocusWindowAsync()
-    {
-        await Task.Delay(500); // Small delay to ensure window is ready
-        
-        try
-        {
-            // Try to focus the window
-            this.Activate();
-            
-            // Try to focus the content
-            if (this.Content is FrameworkElement content)
-            {
-                content.Focus(FocusState.Programmatic);
-            }
-            
-            // Also try to focus the grid directly
-            if (this.Content is Grid grid && grid.Children.Count > 0)
-            {
-                grid.Focus(FocusState.Programmatic);
-            }
-            
-            // For extra measure, try focusing the WebView
-            if (KioskWebView != null)
-            {
-                KioskWebView.Focus(FocusState.Programmatic);
-            }
-            
-            Logger.Log("Window focused for keyboard input");
-            
-            // Try again after a longer delay to ensure it sticks
-            await Task.Delay(1000);
-            this.Activate();
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error focusing window: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// Removes system chrome, forces fullscreen, and sets always-on-top.
-    /// Uses Win32 APIs via HWND obtained from WinUI 3 window.
+    /// Sets up comprehensive keyboard handling to ensure hotkeys work reliably
     /// </summary>
-    private async void ConfigureAsKioskWindow()
+    private void SetupKeyboardHandling()
     {
         try
         {
-            // Add delay to ensure window is fully initialized
-            await Task.Delay(100);
-            
-            _hwnd = WindowNative.GetWindowHandle(this);
-            var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
-            _appWindow = AppWindow.GetFromWindowId(windowId);
-            
-            Logger.Log($"ConfigureAsKioskWindow started - HWND: {_hwnd}, WindowId: {windowId}");
+            // Method 1: CoreWindow keyboard handler (most reliable for global hotkeys)
+            var coreWindow = CoreWindow.GetForCurrentThread();
+            if (coreWindow != null)
+            {
+                coreWindow.KeyDown += CoreWindow_KeyDown;
+                Logger.Log("CoreWindow keyboard handler registered");
+            }
 
-            // Get current window styles for debugging
-            var originalStyle = GetWindowLong(_hwnd, GWL_STYLE);
-            Logger.Log($"Original window style: 0x{originalStyle:X8}");
+            // Method 2: Window-level PreviewKeyDown (catches keys before child controls)
+            this.Content.PreviewKeyDown += Content_PreviewKeyDown;
+            Logger.Log("Window PreviewKeyDown handler registered");
 
-            // Remove caption/system menu/min/max/resize
-            var style = originalStyle;
-            style &= ~WS_CAPTION;
-            style &= ~WS_THICKFRAME;
-            style &= ~WS_MINIMIZEBOX;
-            style &= ~WS_MAXIMIZEBOX;
-            style &= ~WS_SYSMENU;
+            // Method 3: Accelerator keys on window content (standard WinUI approach)
+            SetupKeyboardAccelerators();
             
-            var styleResult = SetWindowLong(_hwnd, GWL_STYLE, style);
-            Logger.Log($"New window style: 0x{style:X8}, SetWindowLong result: 0x{styleResult:X8}");
-
-            // Get current extended style for debugging
-            var originalExStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
-            Logger.Log($"Original extended style: 0x{originalExStyle:X8}");
-
-            // Make topmost
-            var exStyle = originalExStyle;
-            exStyle |= WS_EX_TOPMOST;
+            // Method 4: WebView2-specific handling (prevent WebView from eating keys)
+            // This will be set up after WebView2 is initialized
             
-            var exStyleResult = SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
-            Logger.Log($"New extended style: 0x{exStyle:X8}, SetWindowLong result: 0x{exStyleResult:X8}");
+            Logger.Log("All keyboard handlers registered successfully");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error setting up keyboard handling: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// CoreWindow keyboard handler - most reliable for catching all keyboard input
+    /// </summary>
+    private async void CoreWindow_KeyDown(CoreWindow sender, KeyEventArgs args)
+    {
+        try
+        {
+            // Get modifier states
+            var ctrlState = sender.GetKeyState(VirtualKey.Control);
+            var shiftState = sender.GetKeyState(VirtualKey.Shift);
+            var altState = sender.GetKeyState(VirtualKey.Menu);
+
+            bool ctrlPressed = (ctrlState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+            bool shiftPressed = (shiftState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+            bool altPressed = (altState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+
+            // Log key press for debugging
+            if (args.VirtualKey != VirtualKey.None)
+            {
+                Logger.Log($"CoreWindow_KeyDown: Key={args.VirtualKey}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
+            }
+
+            // Debug mode: Ctrl+Shift+F12
+            if (_config.Debug.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.F12)
+            {
+                args.Handled = true;
+                Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+F12");
+                await ToggleDebugMode();
+            }
+            // Exit: Ctrl+Shift+Escape
+            else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.Escape)
+            {
+                args.Handled = true;
+                Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Escape");
+                await HandleExitRequest();
+            }
+            // Video controls when in video mode
+            else if (_isVideoMode && _videoController != null)
+            {
+                // Flic button: Ctrl+Alt+D
+                if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.D)
+                {
+                    args.Handled = true;
+                    Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video");
+                    await _videoController.HandleFlicButtonPressAsync();
+                }
+                // Stop: Ctrl+Alt+E
+                else if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.E)
+                {
+                    args.Handled = true;
+                    Logger.Log("Stop video pressed (Ctrl+Alt+E)");
+                    await _videoController.StopAsync();
+                }
+                // Restart: Ctrl+Alt+R
+                else if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.R)
+                {
+                    args.Handled = true;
+                    Logger.Log("Restart carescape pressed (Ctrl+Alt+R)");
+                    await _videoController.RestartCarescapeAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error in CoreWindow_KeyDown: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Content PreviewKeyDown handler - backup method
+    /// </summary>
+    private async void Content_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        try
+        {
+            // Get modifier states
+            var keyboardState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread;
+            bool ctrlPressed = (keyboardState(VirtualKey.Control) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+            bool shiftPressed = (keyboardState(VirtualKey.Shift) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+            bool altPressed = (keyboardState(VirtualKey.Menu) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+
+            // Log for debugging
+            Logger.Log($"Content_PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
+
+            // Handle the same hotkeys as CoreWindow handler
+            if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.F12)
+            {
+                e.Handled = true;
+                await ToggleDebugMode();
+            }
+            else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.Escape)
+            {
+                e.Handled = true;
+                await HandleExitRequest();
+            }
+            else if (_isVideoMode && _videoController != null && ctrlPressed && altPressed)
+            {
+                if (e.Key == VirtualKey.D)
+                {
+                    e.Handled = true;
+                    await _videoController.HandleFlicButtonPressAsync();
+                }
+                else if (e.Key == VirtualKey.E)
+                {
+                    e.Handled = true;
+                    await _videoController.StopAsync();
+                }
+                else if (e.Key == VirtualKey.R)
+                {
+                    e.Handled = true;
+                    await _videoController.RestartCarescapeAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error in Content_PreviewKeyDown: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Sets up keyboard accelerators as an additional method
+    /// </summary>
+    private void SetupKeyboardAccelerators()
+    {
+        try
+        {
+            var content = this.Content as FrameworkElement;
+            if (content == null) return;
+
+            // Clear any existing accelerators
+            content.KeyboardAccelerators.Clear();
+
+            // Debug mode: Ctrl+Shift+F12
+            var debugAccel = new KeyboardAccelerator
+            {
+                Key = VirtualKey.F12,
+                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift
+            };
+            debugAccel.Invoked += async (s, e) =>
+            {
+                e.Handled = true;
+                if (_config.Debug.Enabled)
+                {
+                    Logger.Log("Debug accelerator invoked");
+                    await ToggleDebugMode();
+                }
+            };
+            content.KeyboardAccelerators.Add(debugAccel);
+
+            // Exit: Ctrl+Shift+Escape
+            var exitAccel = new KeyboardAccelerator
+            {
+                Key = VirtualKey.Escape,
+                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift
+            };
+            exitAccel.Invoked += async (s, e) =>
+            {
+                e.Handled = true;
+                if (_config.Exit.Enabled)
+                {
+                    Logger.Log("Exit accelerator invoked");
+                    await HandleExitRequest();
+                }
+            };
+            content.KeyboardAccelerators.Add(exitAccel);
+
+            // Video mode accelerators
+            if (_isVideoMode)
+            {
+                // Flic button: Ctrl+Alt+D
+                var flicAccel = new KeyboardAccelerator
+                {
+                    Key = VirtualKey.D,
+                    Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
+                };
+                flicAccel.Invoked += async (s, e) =>
+                {
+                    e.Handled = true;
+                    if (_videoController != null)
+                    {
+                        Logger.Log("Flic accelerator invoked");
+                        await _videoController.HandleFlicButtonPressAsync();
+                    }
+                };
+                content.KeyboardAccelerators.Add(flicAccel);
+
+                // Stop: Ctrl+Alt+E
+                var stopAccel = new KeyboardAccelerator
+                {
+                    Key = VirtualKey.E,
+                    Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
+                };
+                stopAccel.Invoked += async (s, e) =>
+                {
+                    e.Handled = true;
+                    if (_videoController != null)
+                    {
+                        Logger.Log("Stop accelerator invoked");
+                        await _videoController.StopAsync();
+                    }
+                };
+                content.KeyboardAccelerators.Add(stopAccel);
+
+                // Restart: Ctrl+Alt+R
+                var restartAccel = new KeyboardAccelerator
+                {
+                    Key = VirtualKey.R,
+                    Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
+                };
+                restartAccel.Invoked += async (s, e) =>
+                {
+                    e.Handled = true;
+                    if (_videoController != null)
+                    {
+                        Logger.Log("Restart accelerator invoked");
+                        await _videoController.RestartCarescapeAsync();
+                    }
+                };
+                content.KeyboardAccelerators.Add(restartAccel);
+            }
+
+            Logger.Log($"Keyboard accelerators set up: {content.KeyboardAccelerators.Count} total");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error setting up keyboard accelerators: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Configures the window as a kiosk (borderless fullscreen) window.
+    /// Uses Win32 APIs via HWND obtained from WinUI 3 window.
+    /// </summary>
+    private void ConfigureAsKioskWindow()
+    {
+        _hwnd = WindowNative.GetWindowHandle(this);
+        var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
+        _appWindow = AppWindow.GetFromWindowId(windowId);
+
+        // Remove caption/system menu/min/max/resize
+        var style = GetWindowLong(_hwnd, GWL_STYLE);
+        style &= ~WS_CAPTION;
+        style &= ~WS_THICKFRAME;
+        style &= ~WS_MINIMIZEBOX;
+        style &= ~WS_MAXIMIZEBOX;
+        style &= ~WS_SYSMENU;
+        SetWindowLong(_hwnd, GWL_STYLE, style);
+
+        // Make topmost
+        var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
+        exStyle |= WS_EX_TOPMOST;
+        SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
 
         // Size to full monitor bounds
         if (_appWindow != null)
@@ -383,20 +429,18 @@ public sealed partial class MainWindow : Window
             DisplayArea targetDisplay;
             int targetMonitorIndex = _config.Kiosk.TargetMonitorIndex;
             
-            Logger.Log($"Target monitor index from config: {targetMonitorIndex} (default is 1)");
-            
             if (targetMonitorIndex >= 0 && targetMonitorIndex < allDisplays.Count)
             {
                 targetDisplay = allDisplays[targetMonitorIndex];
-                Debug.WriteLine($"Using monitor index {targetMonitorIndex}");
-                Logger.Log($"Using monitor index {targetMonitorIndex}");
+                Debug.WriteLine($"Using configured monitor index {targetMonitorIndex}");
+                Logger.Log($"Using configured monitor index {targetMonitorIndex}");
             }
             else
             {
                 // Invalid index, fallback to primary
                 targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
                 Debug.WriteLine($"WARNING: Monitor index {targetMonitorIndex} is invalid (only {allDisplays.Count} displays found). Using primary.");
-                Logger.Log($"WARNING: Monitor index {targetMonitorIndex} is invalid (only {allDisplays.Count} displays found). Using primary display instead.");
+                Logger.Log($"WARNING: Monitor index {targetMonitorIndex} is invalid. Using primary.");
             }
             
             var bounds = targetDisplay.OuterBounds; // Use OuterBounds for true fullscreen
@@ -406,330 +450,207 @@ public sealed partial class MainWindow : Window
             {
                 // Store normal window bounds for debug mode
                 _normalWindowBounds = bounds;
-                
-                Logger.Log($"Setting window position - X: {bounds.X}, Y: {bounds.Y}, Width: {bounds.Width}, Height: {bounds.Height}");
 
-                // First, try to use AppWindow presenter for fullscreen
-                if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
-                {
-                    Logger.Log($"Current presenter kind: {_appWindow.Presenter.Kind}, switching to FullScreen");
-                    _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                    await Task.Delay(100); // Give time for presenter change
-                }
-
-                // Then position window at the display's origin and set its size
-                bool posResult = SetWindowPos(_hwnd, HWND_TOPMOST, bounds.X, bounds.Y, bounds.Width, bounds.Height, 
-                                            SWP_SHOWWINDOW | SWP_FRAMECHANGED);
-                
-                Logger.Log($"SetWindowPos result: {posResult}, Last Win32 Error: {Marshal.GetLastWin32Error()}");
-                
-                // Verify window position
-                await Task.Delay(100);
-                if (GetWindowRect(_hwnd, out RECT actualRect))
-                {
-                    Logger.Log($"Actual window position after SetWindowPos: X={actualRect.Left}, Y={actualRect.Top}, " +
-                              $"Width={actualRect.Right - actualRect.Left}, Height={actualRect.Bottom - actualRect.Top}");
-                }
+                // Position window at the display's origin and set its size
+                SetWindowPos(_hwnd, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
+                Debug.WriteLine($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
+                Logger.Log($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
             }
             else
             {
-                Debug.WriteLine($"ERROR: Display bounds are invalid: {bounds.Width}x{bounds.Height}");
-                Logger.Log($"ERROR: Display bounds are invalid");
+                Debug.WriteLine("Warning: Invalid display bounds received");
+                Logger.Log("Warning: Invalid display bounds received");
             }
 
             // Prevent closing via shell close messages
-            if (_appWindow != null)
-            {
-                _appWindow.Closing += (_, e) => { e.Cancel = true; };
-            }
-        }
-        else
-        {
-            Logger.Log("ERROR: _appWindow is null!");
+            _appWindow.Closing += (_, e) => { e.Cancel = true; };
         }
 
+        // Ensure window style changes are applied and shown (using SWP_NOSIZE to keep current size)
+        const uint SWP_NOSIZE = 0x0001;
+        SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE);
+        
+        Debug.WriteLine("ConfigureAsKioskWindow completed");
         Logger.Log("ConfigureAsKioskWindow completed");
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"ERROR in ConfigureAsKioskWindow: {ex.Message}");
-            Logger.Log($"Stack trace: {ex.StackTrace}");
-        }
     }
 
-    // Add RECT struct for GetWindowRect
-    [StructLayout(LayoutKind.Sequential)]
-    private struct RECT
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
-
-
+    /// <summary>
+    /// Initializes WebView2 and navigates to the configured URL or starts video mode.
+    /// </summary>
     private async Task InitializeWebViewAsync()
     {
         try
         {
-            Debug.WriteLine("InitializeWebViewAsync started");
-            ShowStatus("Loading kiosk...", "Initializing browser engine (WebView2)");
-            
-            // Phase 1: Using default WebView2 environment for maximum compatibility
-            // Media permissions are handled via PermissionRequested event (most important)
-            // Autoplay is handled via script injection after page load
-
-            // Log any initialization exception via the control's event (if supported)
-            KioskWebView.CoreWebView2Initialized += (s, e) =>
+            // Start API server if remote navigation is enabled
+            if (_config.Remote.Enabled)
             {
-                if (e.Exception != null)
-                {
-                    Debug.WriteLine($"CoreWebView2Initialized FAILED: {e.Exception.Message}");
-                    Logger.Log($"CoreWebView2Initialized exception: {e.Exception.Message}");
-                    ShowStatus("Browser failed to initialize", e.Exception.Message);
-                }
-                else
-                {
-                    Debug.WriteLine("CoreWebView2Initialized successfully");
-                    Logger.Log("CoreWebView2Initialized successfully");
-                }
-            };
-
-            Debug.WriteLine("Calling EnsureCoreWebView2Async with 30s timeout...");
-            
-            // Add timeout to prevent hanging forever
-            var initTask = KioskWebView.EnsureCoreWebView2Async().AsTask();
-            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30));
-            var completedTask = await Task.WhenAny(initTask, timeoutTask);
-            
-            if (completedTask == timeoutTask)
-            {
-                Debug.WriteLine("ERROR: WebView2 initialization TIMED OUT after 30 seconds");
-                Logger.Log("WebView2 initialization timed out after 30 seconds");
-                ShowStatus("Browser initialization timed out", "WebView2 failed to initialize within 30 seconds. Check if WebView2 Runtime is installed.");
-                return;
+                _apiServer = new ApiServer(_config, KioskWebView, DispatcherQueue);
+                await _apiServer.StartAsync();
             }
             
-            await initTask; // Will throw if initialization failed
-            Debug.WriteLine("EnsureCoreWebView2Async completed");
-            
-            if (KioskWebView.CoreWebView2 != null)
+            // Handle video mode vs web mode
+            if (_isVideoMode)
             {
-                Debug.WriteLine("CoreWebView2 available, configuring settings...");
+                // Hide the WebView in video mode
+                KioskWebView.Visibility = Visibility.Collapsed;
+                Logger.Log("WebView hidden for video mode");
                 
-                var settings = KioskWebView.CoreWebView2.Settings;
-                settings.AreDefaultContextMenusEnabled = false;
-                settings.AreDevToolsEnabled = false;
-                settings.AreDefaultScriptDialogsEnabled = true;
-                settings.AreBrowserAcceleratorKeysEnabled = false;
-                settings.IsZoomControlEnabled = false;
-                settings.IsStatusBarEnabled = false;
-                
-                // Phase 1: Additional media-related settings
-                settings.IsPasswordAutosaveEnabled = false;
-                settings.IsGeneralAutofillEnabled = false;
-                
-                Debug.WriteLine("Settings configured");
-                Logger.Log("WebView2 settings configured (including media autoplay)");
-
-                // Phase 1: Add automatic permission approval for media devices
-                KioskWebView.CoreWebView2.PermissionRequested += CoreWebView2_PermissionRequested;
-                Debug.WriteLine("PermissionRequested event handler registered");
-                Logger.Log("Automatic media permission approval enabled");
-
-                // Navigation event handlers for diagnostics
-                KioskWebView.CoreWebView2.NavigationStarting += (_, args) =>
+                // Initialize video controller
+                if (_videoController != null)
                 {
-                    Debug.WriteLine($"NavigationStarting: {args.Uri}");
-                    Logger.Log($"NavigationStarting: {args.Uri}");
-                    ShowStatus("Loading...", args.Uri);
-                };
-
-                KioskWebView.CoreWebView2.NavigationCompleted += async (_, args) =>
-                {
-                    if (args.IsSuccess)
-                    {
-                        Debug.WriteLine("NavigationCompleted: SUCCESS");
-                        Logger.Log("NavigationCompleted: success");
-                        
-                        // Phase 1: Inject script to enable autoplay for media elements
-                        try
-                        {
-                            await KioskWebView.CoreWebView2.ExecuteScriptAsync(@"
-                                (function() {
-                                    // Enable autoplay for all media elements
-                                    document.querySelectorAll('video, audio').forEach(function(media) {
-                                        media.setAttribute('autoplay', '');
-                                        media.muted = false;
-                                        media.play().catch(e => console.log('Autoplay attempted:', e));
-                                    });
-                                })();
-                            ");
-                            Debug.WriteLine("Autoplay script injected successfully");
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"Failed to inject autoplay script: {ex.Message}");
-                        }
-                        
-                        HideStatus();
-                        
-                        // Hide the test button after successful navigation
-                        if (DebugTestButton != null)
-                        {
-                            DebugTestButton.Visibility = Visibility.Collapsed;
-                            Logger.Log("Test button hidden after successful navigation");
-                        }
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"NavigationCompleted: FAILED - HTTP {args.HttpStatusCode}");
-                        Logger.Log($"NavigationCompleted: failed - StatusCode={args.HttpStatusCode}");
-                        ShowStatus("Failed to load page", $"HTTP status: {args.HttpStatusCode}");
-                    }
-                };
-
-                // Navigate to default screensaver URL at startup
-                // Initialize video mode if enabled, otherwise navigate to default URL
-                if (_isVideoMode && _videoController != null)
-                {
-                    // Hide WebView when in video mode
-                    KioskWebView.Visibility = Visibility.Collapsed;
-                    
-                    // Initialize MPV video controller
                     await _videoController.InitializeAsync();
-                    Logger.Log("Video mode initialized with MPV");
+                    Logger.Log("Video controller initialized");
                 }
-                else
-                {
-                    var defaultUrl = "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default";
-                    Debug.WriteLine($"Navigating to: {defaultUrl}");
-                    Logger.Log($"Navigating to default URL: {defaultUrl}");
-                    
-                    KioskWebView.CoreWebView2.Navigate(defaultUrl);
-                }
-                
-                Debug.WriteLine("Navigate() call completed");
             }
             else
             {
-                Debug.WriteLine("ERROR: CoreWebView2 is NULL after EnsureCoreWebView2Async!");
-                Logger.Log("CoreWebView2 is null after EnsureCoreWebView2Async");
-                ShowStatus("Browser not available", "WebView2 CoreWebView2 was not created");
+                // Web mode - ensure WebView2 runtime is available
+                try
+                {
+                    var version = CoreWebView2Environment.GetAvailableBrowserVersionString();
+                    Logger.Log($"WebView2 Runtime version: {version}");
+                    ShowStatus("Initializing", "Loading WebView2...");
+                    
+                    await KioskWebView.EnsureCoreWebView2Async();
+                    await SetupWebView();
+                    
+                    // Navigate to the configured URL
+                    KioskWebView.Source = new Uri(_config.Kiosk.DefaultUrl);
+                    Logger.Log($"Navigating to default URL: {_config.Kiosk.DefaultUrl}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"WebView2 initialization error: {ex.Message}");
+                    ShowStatus("WebView2 Error", 
+                        "WebView2 Runtime is not installed.\n\n" +
+                        "Please install from:\n" +
+                        "https://go.microsoft.com/fwlink/p/?LinkId=2124703");
+                }
             }
-            
-            Debug.WriteLine("InitializeWebViewAsync: End of try block");
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"EXCEPTION in InitializeWebViewAsync: {ex.GetType().Name}: {ex.Message}");
-            Debug.WriteLine($"Stack trace: {ex.StackTrace}");
-            Logger.Log($"WebView2 initialization error: {ex.Message}");
-            Logger.Log($"Stack trace: {ex.StackTrace}");
-            
-            ShowStatus("Error initializing browser", $"{ex.GetType().Name}: {ex.Message}");
+            Logger.Log($"InitializeWebViewAsync error: {ex.Message}");
+            ShowStatus("Initialization Error", ex.Message);
         }
-        
-        Debug.WriteLine("InitializeWebViewAsync: METHOD END");
     }
 
     /// <summary>
-    /// Navigates the visible WebView2 to the specified URL on the UI thread.
+    /// Configures WebView2 settings, including developer tools restrictions.
     /// </summary>
-    public void NavigateToUrl(string url)
+    private async Task SetupWebView()
+    {
+        var settings = KioskWebView.CoreWebView2.Settings;
+
+        // Kiosk mode settings
+        settings.IsGeneralAutofillEnabled = false;
+        settings.IsPasswordAutosaveEnabled = false;
+        settings.IsPinchZoomEnabled = false;
+        settings.IsSwipeNavigationEnabled = false;
+        settings.IsZoomControlEnabled = false;
+        settings.IsStatusBarEnabled = false;
+        
+        // Developer tools are initially disabled (unless debug mode is active)
+        settings.AreDevToolsEnabled = _isDebugMode;
+        settings.AreDefaultContextMenusEnabled = _isDebugMode;
+        settings.AreDefaultScriptDialogsEnabled = true;
+        settings.AreBrowserAcceleratorKeysEnabled = false; // Disable F5, Ctrl+R, etc.
+
+        // Navigation event handlers
+        KioskWebView.NavigationCompleted += OnNavigationCompleted;
+        
+        // Disable new window requests
+        KioskWebView.CoreWebView2.NewWindowRequested += (sender, args) =>
+        {
+            args.Handled = true; // Block popups and new windows
+        };
+
+        // Prevent WebView from capturing all keyboard input
+        // This is crucial for hotkeys to work
+        KioskWebView.CoreWebView2.DocumentTitleChanged += (sender, args) =>
+        {
+            // Periodically ensure our window has proper focus handling
+            _ = EnsureFocusHandling();
+        };
+
+        // Additional WebView keyboard handling
+        await KioskWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.Document);
+        KioskWebView.CoreWebView2.DOMContentLoaded += async (sender, args) =>
+        {
+            try
+            {
+                // Inject JavaScript to prevent WebView from capturing certain key combinations
+                string script = @"
+                    document.addEventListener('keydown', function(e) {
+                        // Allow our hotkeys to bubble up to the application
+                        if ((e.ctrlKey && e.shiftKey && (e.key === 'F12' || e.key === 'Escape')) ||
+                            (e.ctrlKey && e.altKey && (e.key === 'd' || e.key === 'e' || e.key === 'r'))) {
+                            e.stopPropagation();
+                            return false;
+                        }
+                    }, true);
+                ";
+                await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error injecting keyboard handling script: {ex.Message}");
+            }
+        };
+
+        Logger.Log("WebView2 setup completed");
+    }
+
+    /// <summary>
+    /// Ensures proper focus handling for keyboard input
+    /// </summary>
+    private async Task EnsureFocusHandling()
+    {
+        await Task.Delay(100);
+        
+        // Ensure window is active but don't steal focus from WebView unnecessarily
+        if (!_isVideoMode)
+        {
+            // In web mode, we want WebView to have focus for normal interaction
+            // But we still need our keyboard handlers to work
+            Logger.Log("Focus handling check completed");
+        }
+    }
+
+    private void OnNavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (KioskWebView?.CoreWebView2 != null && !string.IsNullOrWhiteSpace(url))
+            if (args.IsSuccess)
             {
-                Logger.Log($"NavigateToUrl called: {url}");
-                ShowStatus("Loading...", url);
-                KioskWebView.CoreWebView2.Navigate(url);
+                var uri = sender.Source.ToString();
+                ShowStatus("Navigation Complete", uri);
+                Logger.Log($"Navigation completed: {uri}");
+                
+                // Update title
+                var title = sender.CoreWebView2.DocumentTitle;
+                if (!string.IsNullOrEmpty(title))
+                {
+                    this.Title = _isDebugMode ? $"[DEBUG] {title}" : "OneRoom Health Kiosk";
+                }
+                
+                HideStatus();
+            }
+            else
+            {
+                ShowStatus("Navigation Failed", $"Error: {args.WebErrorStatus}");
+                Logger.Log($"Navigation failed: {args.WebErrorStatus}");
             }
         });
     }
 
-    /// <summary>
-    /// Phase 1: Handles permission requests from web content.
-    /// Automatically approves critical media permissions (microphone, camera) for kiosk mode.
-    /// This eliminates user prompts and enables seamless media functionality.
-    /// </summary>
-    private void CoreWebView2_PermissionRequested(object? sender, CoreWebView2PermissionRequestedEventArgs e)
+    private void ShowStatus(string title, string? detail = null)
     {
-        // Auto-approve critical media permissions for kiosk operation
-        switch (e.PermissionKind)
-        {
-            case CoreWebView2PermissionKind.Microphone:
-                e.State = CoreWebView2PermissionState.Allow;
-                Debug.WriteLine($"Auto-approved MICROPHONE permission for: {e.Uri}");
-                Logger.Log($"Auto-approved microphone access for: {e.Uri}");
-                break;
-
-            case CoreWebView2PermissionKind.Camera:
-                e.State = CoreWebView2PermissionState.Allow;
-                Debug.WriteLine($"Auto-approved CAMERA permission for: {e.Uri}");
-                Logger.Log($"Auto-approved camera access for: {e.Uri}");
-                break;
-
-            case CoreWebView2PermissionKind.Geolocation:
-                e.State = CoreWebView2PermissionState.Allow;
-                Debug.WriteLine($"Auto-approved GEOLOCATION permission for: {e.Uri}");
-                Logger.Log($"Auto-approved geolocation for: {e.Uri}");
-                break;
-
-            case CoreWebView2PermissionKind.Notifications:
-                e.State = CoreWebView2PermissionState.Allow;
-                Debug.WriteLine($"Auto-approved NOTIFICATIONS permission for: {e.Uri}");
-                Logger.Log($"Auto-approved notifications for: {e.Uri}");
-                break;
-
-            case CoreWebView2PermissionKind.OtherSensors:
-                e.State = CoreWebView2PermissionState.Allow;
-                Debug.WriteLine($"Auto-approved OTHER SENSORS permission for: {e.Uri}");
-                Logger.Log($"Auto-approved other sensors for: {e.Uri}");
-                break;
-
-            case CoreWebView2PermissionKind.ClipboardRead:
-                e.State = CoreWebView2PermissionState.Allow;
-                Debug.WriteLine($"Auto-approved CLIPBOARD READ permission for: {e.Uri}");
-                Logger.Log($"Auto-approved clipboard read for: {e.Uri}");
-                break;
-
-            // Deny potentially dangerous permissions
-            case CoreWebView2PermissionKind.MultipleAutomaticDownloads:
-                e.State = CoreWebView2PermissionState.Deny;
-                Debug.WriteLine($"Denied MULTIPLE DOWNLOADS permission for: {e.Uri}");
-                Logger.Log($"Denied multiple downloads for: {e.Uri}");
-                break;
-
-            default:
-                // For any other permission types, allow them for maximum compatibility
-                e.State = CoreWebView2PermissionState.Allow;
-                Debug.WriteLine($"Auto-approved permission {e.PermissionKind} for: {e.Uri}");
-                Logger.Log($"Auto-approved {e.PermissionKind} for: {e.Uri}");
-                break;
-        }
-
-        // Persist the decision so the user isn't prompted again for the same site
-        e.SavesInProfile = true;
-    }
-
-    private void ShowStatus(string title, string? detail = null, int? autoHideMs = null)
-    {
-        DispatcherQueue.TryEnqueue(async () =>
+        DispatcherQueue.TryEnqueue(() =>
         {
             StatusTitle.Text = title;
             StatusDetail.Text = detail ?? string.Empty;
             StatusOverlay.Visibility = Visibility.Visible;
-            
-            if (autoHideMs.HasValue)
-            {
-                await Task.Delay(autoHideMs.Value);
-                HideStatus();
-            }
         });
     }
 
@@ -744,19 +665,17 @@ public sealed partial class MainWindow : Window
     #region Debug Mode and Exit Mechanism
 
     /// <summary>
-    /// Toggles debug mode on/off.
+    /// Toggles between debug mode and kiosk mode.
     /// </summary>
     private async Task ToggleDebugMode()
     {
-        _isDebugMode = !_isDebugMode;
-
         if (_isDebugMode)
         {
-            await EnterDebugMode();
+            await ExitDebugMode();
         }
         else
         {
-            await ExitDebugMode();
+            await EnterDebugMode();
         }
     }
 
@@ -766,7 +685,7 @@ public sealed partial class MainWindow : Window
     private async Task EnterDebugMode()
     {
         Logger.LogSecurityEvent("EnterDebugMode", "Entering debug mode");
-        ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+I to exit.", 2000);
+        ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+F12 to exit.");
 
         await Task.Run(() =>
         {
@@ -774,64 +693,53 @@ public sealed partial class MainWindow : Window
             {
                 try
                 {
-                    // 0. Make sure WebView is visible (in case video mode hid it)
+                    // In video mode, stop video and show WebView
                     if (_isVideoMode && _videoController != null)
                     {
-                        // Stop video playback in debug mode
                         _ = _videoController.StopAsync();
-                        Logger.Log("Video playback stopped for debug mode");
-                    }
-                    
-                    if (KioskWebView != null)
-                    {
                         KioskWebView.Visibility = Visibility.Visible;
-                        Logger.Log("WebView made visible for debug mode");
                     }
-                    
-                    // Show test button in debug mode
-                    if (DebugTestButton != null)
-                    {
-                        DebugTestButton.Visibility = Visibility.Visible;
-                    }
-                    
-                    // 1. Enable WebView2 developer features
+
+                    // Enable WebView2 developer features
                     if (KioskWebView?.CoreWebView2?.Settings != null)
                     {
                         var settings = KioskWebView.CoreWebView2.Settings;
                         settings.AreDevToolsEnabled = true;
                         settings.AreDefaultContextMenusEnabled = true;
                         settings.AreBrowserAcceleratorKeysEnabled = true;
-                        Logger.Log("WebView2 developer features enabled");
-
-                        // Auto-open dev tools if configured
-                        if (_config.Debug.AutoOpenDevTools)
-                        {
-                            KioskWebView.CoreWebView2.OpenDevToolsWindow();
-                        }
+                        
+                        // Open developer tools
+                        KioskWebView.CoreWebView2.OpenDevToolsWindow();
                     }
 
-                    // 2. Calculate debug window size (80% of screen by default)
-                    var debugWidth = (int)(_normalWindowBounds.Width * (_config.Debug.WindowSizePercent / 100.0));
-                    var debugHeight = (int)(_normalWindowBounds.Height * (_config.Debug.WindowSizePercent / 100.0));
-                    var debugX = _normalWindowBounds.X + (_normalWindowBounds.Width - debugWidth) / 2;
-                    var debugY = _normalWindowBounds.Y + (_normalWindowBounds.Height - debugHeight) / 2;
+                    // Window the application
+                    if (_appWindow?.Presenter.Kind == AppWindowPresenterKind.FullScreen)
+                    {
+                        _appWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+                    }
 
-                    // 3. Remove window styles (make it resizable and not topmost)
+                    // Restore window frame
                     var style = GetWindowLong(_hwnd, GWL_STYLE);
                     style |= WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
                     SetWindowLong(_hwnd, GWL_STYLE, style);
 
+                    // Remove topmost
                     var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
                     exStyle &= ~WS_EX_TOPMOST;
                     SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
 
-                    // 4. Resize and reposition window
-                    SetWindowPos(_hwnd, IntPtr.Zero, debugX, debugY, debugWidth, debugHeight, SWP_SHOWWINDOW | SWP_FRAMECHANGED);
+                    // Apply normal window size
+                    const uint SWP_NOSIZE = 0x0001;
+                    SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, 0, 0, 
+                        SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE);
 
-                    // 5. Update window title
-                    this.Title = "[DEBUG] OneRoom Health Kiosk";
-
-                    Logger.Log($"Debug mode active: Window resized to {debugWidth}x{debugHeight}");
+                    // Update window title
+                    this.Title = "[DEBUG MODE] OneRoom Health Kiosk";
+                    
+                    _isDebugMode = true;
+                    Logger.Log("Debug mode enabled");
+                    
+                    _ = Task.Delay(2000).ContinueWith(_ => HideStatus());
                 }
                 catch (Exception ex)
                 {
@@ -851,11 +759,11 @@ public sealed partial class MainWindow : Window
 
         await Task.Run(() =>
         {
-            DispatcherQueue.TryEnqueue(async () =>
+            DispatcherQueue.TryEnqueue(() =>
             {
                 try
                 {
-                    // 1. Disable WebView2 developer features
+                    // Disable developer features
                     if (KioskWebView?.CoreWebView2?.Settings != null)
                     {
                         var settings = KioskWebView.CoreWebView2.Settings;
@@ -868,38 +776,30 @@ public sealed partial class MainWindow : Window
                         {
                             _ = KioskWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Browser.close", "{}");
                         }
-                        catch
-                        {
-                            // Ignore errors closing dev tools
-                        }
-
-                        Logger.Log("WebView2 developer features disabled");
+                        catch { /* Ignore if already closed */ }
                     }
 
-                    // 2. Restore kiosk window configuration
+                    // Return to fullscreen
+                    if (_appWindow?.Presenter.Kind == AppWindowPresenterKind.Overlapped)
+                    {
+                        _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                    }
+
+                    // Restore kiosk window configuration
                     ConfigureAsKioskWindow();
 
-                    // 3. Update window title
+                    // Update window title
                     this.Title = "OneRoom Health Kiosk";
                     
-                    // 4. Restore video mode if it was enabled
+                    // In video mode, hide WebView and restart video
                     if (_isVideoMode && _videoController != null)
                     {
-                        // Hide WebView again for video mode
                         KioskWebView.Visibility = Visibility.Collapsed;
-                        // Restart video playback
-                        await _videoController.InitializeAsync();
-                        Logger.Log("Video mode restored after exiting debug mode");
-                    }
-                    
-                    // 5. Hide test button again
-                    if (DebugTestButton != null)
-                    {
-                        DebugTestButton.Visibility = Visibility.Collapsed;
+                        _ = _videoController.InitializeAsync();
                     }
 
-                    Logger.Log("Debug mode exited, returned to kiosk mode");
-                    HideStatus();
+                    _isDebugMode = false;
+                    Logger.Log("Debug mode disabled, returned to kiosk mode");
                 }
                 catch (Exception ex)
                 {
@@ -910,154 +810,72 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Handles exit request by showing password dialog if required.
+    /// Handles the exit request with password protection.
     /// </summary>
     private async Task HandleExitRequest()
     {
-        Logger.LogSecurityEvent("ExitRequested", "Exit request initiated");
-
-        try
+        Logger.LogSecurityEvent("ExitRequested", "User initiated exit request");
+        
+        var dialog = new ContentDialog
         {
-            if (_config.Exit.RequirePassword)
+            Title = "Exit Kiosk Mode",
+            Content = new PasswordBox 
+            { 
+                PlaceholderText = "Enter exit password",
+                Width = 300
+            },
+            PrimaryButtonText = "Exit",
+            CloseButtonText = "Cancel",
+            XamlRoot = this.Content.XamlRoot,
+            DefaultButton = ContentDialogButton.Primary
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result == ContentDialogResult.Primary)
+        {
+            var passwordBox = (PasswordBox)dialog.Content;
+            if (SecurityHelper.VerifyPassword(passwordBox.Password, _config.Exit.PasswordHash))
             {
-                // Create password dialog
-                var passwordBox = new PasswordBox
-                {
-                    PlaceholderText = "Enter administrator password",
-                    Width = 300
-                };
-
-                var dialog = new ContentDialog
-                {
-                    Title = "Exit Kiosk Mode",
-                    Content = passwordBox,
-                    PrimaryButtonText = "Exit",
-                    CloseButtonText = "Cancel",
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = this.Content.XamlRoot
-                };
-
-                var result = await dialog.ShowAsync();
-
-                if (result == ContentDialogResult.Primary)
-                {
-                    var password = passwordBox.Password;
-
-                    if (SecurityHelper.ValidatePassword(password, _config.Exit.PasswordHash))
-                    {
-                        Logger.LogSecurityEvent("ExitPasswordValid", "Correct password provided, exiting kiosk");
-                        await PerformKioskExit();
-                    }
-                    else
-                    {
-                        Logger.LogSecurityEvent("ExitPasswordInvalid", "Invalid password attempt");
-
-                        var errorDialog = new ContentDialog
-                        {
-                            Title = "Access Denied",
-                            Content = "Invalid password. Exit request denied.",
-                            CloseButtonText = "OK",
-                            XamlRoot = this.Content.XamlRoot
-                        };
-                        await errorDialog.ShowAsync();
-                    }
-                }
-                else
-                {
-                    Logger.LogSecurityEvent("ExitCancelled", "Exit request cancelled by user");
-                }
+                Logger.LogSecurityEvent("ExitAuthorized", "Correct password provided, exiting application");
+                await CleanupAndExit();
             }
             else
             {
-                // No password required, exit immediately
-                await PerformKioskExit();
+                Logger.LogSecurityEvent("ExitDenied", "Incorrect password provided");
+                ShowStatus("Access Denied", "Incorrect password");
+                await Task.Delay(2000);
+                HideStatus();
             }
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error handling exit request: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// Performs the actual kiosk exit process.
+    /// Performs cleanup and exits the application.
     /// </summary>
-    private async Task PerformKioskExit()
+    private async Task CleanupAndExit()
     {
-        Logger.LogSecurityEvent("KioskExiting", "Performing kiosk exit");
-
         try
         {
-            // 1. Show exit message
-            ShowStatus("EXITING", "Shutting down kiosk mode...");
-
-            await Task.Delay(1000); // Brief delay to show message
-
-            // 2. Clean up WebView2
-            if (KioskWebView != null)
+            // Stop video controller if active
+            if (_videoController != null)
             {
-                try
-                {
-                    KioskWebView.Close();
-                }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
+                await _videoController.StopAsync();
             }
-
-            // 3. Stop HTTP server
-            LocalCommandServer.Stop();
-
-            // 4. Log exit
-            Logger.Log("Kiosk application exiting normally");
-
-            // 5. For Shell Launcher v2, start Explorer for the current user
-            if (IsRunningInKioskMode())
-            {
-                try
-                {
-                    Process.Start(new ProcessStartInfo
-                    {
-                        FileName = "explorer.exe",
-                        UseShellExecute = true
-                    });
-                    Logger.Log("Explorer.exe started for user");
-                }
-                catch (Exception ex)
-                {
-                    Logger.Log($"Failed to start Explorer: {ex.Message}");
-                }
-            }
-
-            // 6. Close application
-            Application.Current.Exit();
+            
+            // Stop API server
+            _apiServer?.Dispose();
+            
+            // Close the window
+            this.Close();
+            
+            // Exit the application
+            Microsoft.UI.Xaml.Application.Current.Exit();
         }
         catch (Exception ex)
         {
-            Logger.Log($"Error during exit: {ex.Message}");
-            // Force exit
-            Environment.Exit(0);
-        }
-    }
-
-    /// <summary>
-    /// Checks if the application is running as the Windows shell (Shell Launcher v2).
-    /// </summary>
-    private bool IsRunningInKioskMode()
-    {
-        try
-        {
-            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows NT\CurrentVersion\Winlogon");
-            var shell = key?.GetValue("Shell") as string;
-            return shell?.Contains("OneRoomHealthKiosk", StringComparison.OrdinalIgnoreCase) ?? false;
-        }
-        catch
-        {
-            return false;
+            Logger.Log($"Error during cleanup: {ex.Message}");
         }
     }
 
     #endregion
 }
-
