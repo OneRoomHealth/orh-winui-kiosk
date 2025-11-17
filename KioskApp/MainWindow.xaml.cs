@@ -7,7 +7,6 @@ using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
-using Microsoft.UI.Win32.Interop;
 using WinRT.Interop;
 using Windows.Graphics.Display;
 using Windows.Foundation;
