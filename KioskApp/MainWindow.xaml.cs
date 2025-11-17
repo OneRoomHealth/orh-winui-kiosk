@@ -96,6 +96,25 @@ public sealed partial class MainWindow : Window
         this.Activated += MainWindow_Activated;
     }
 
+    /// <summary>
+    /// Navigates the WebView to the specified URL.
+    /// </summary>
+    public void NavigateToUrl(string url)
+    {
+        if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                KioskWebView.Source = uri;
+                Logger.Log($"Navigating to: {url}");
+            });
+        }
+        else
+        {
+            Logger.Log($"Invalid URL: {url}");
+        }
+    }
+
     private void MainWindow_Activated(object sender, Microsoft.UI.Xaml.WindowActivatedEventArgs e)
     {
         // Only initialize once on first activation
@@ -446,7 +465,7 @@ public sealed partial class MainWindow : Window
             if (bounds.Width > 0 && bounds.Height > 0)
             {
                 // Store normal window bounds for debug mode
-                _normalWindowBounds = bounds;
+                _normalWindowBounds = new Rect(bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
                 // Position window at the display's origin and set its size
                 SetWindowPos(_hwnd, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
@@ -571,7 +590,7 @@ public sealed partial class MainWindow : Window
         };
 
         // Additional WebView keyboard handling
-        await KioskWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.Document);
+        KioskWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.Document);
         KioskWebView.CoreWebView2.DOMContentLoaded += async (sender, args) =>
         {
             try
@@ -831,7 +850,7 @@ public sealed partial class MainWindow : Window
         if (result == ContentDialogResult.Primary)
         {
             var passwordBox = (PasswordBox)dialog.Content;
-            if (SecurityHelper.VerifyPassword(passwordBox.Password, _config.Exit.PasswordHash))
+            if (SecurityHelper.ValidatePassword(passwordBox.Password, _config.Exit.PasswordHash))
             {
                 Logger.LogSecurityEvent("ExitAuthorized", "Correct password provided, exiting application");
                 await CleanupAndExit();

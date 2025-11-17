@@ -56,9 +56,14 @@ public partial class App : Application
 		try
 		{
 			Logger.Log("=== OneRoom Health Kiosk App Starting ===");
-			Debug.WriteLine("Creating MainWindow...");
+			Debug.WriteLine("Loading configuration...");
 			
-			m_window = new MainWindow();
+			// Load configuration
+			var config = ConfigurationManager.Load();
+			Logger.Log("Configuration loaded");
+			
+			Debug.WriteLine("Creating MainWindow...");
+			m_window = new MainWindow(config);
 			Debug.WriteLine("MainWindow created, calling Activate()...");
 			
 			m_window.Activate();
