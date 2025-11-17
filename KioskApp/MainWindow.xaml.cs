@@ -11,7 +11,6 @@ using WinRT.Interop;
 using Windows.Graphics.Display;
 using Windows.Foundation;
 using Windows.System;
-using Windows.UI.Core;
 using Windows.UI.ViewManagement;
 using System.IO;
 using System.Reflection;
@@ -29,7 +28,6 @@ public sealed partial class MainWindow : Window
     private AppWindow? _appWindow;
     private IntPtr _hwnd;
     private VideoController? _videoController;
-    private CoreDispatcher? _coreDispatcher;
 
     // Monitor index is now configured via config.json instead of being hardcoded
 
@@ -75,6 +73,9 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    private static extern short GetKeyState(int nVirtKey);
 
     public MainWindow(KioskConfiguration config)
     {
@@ -123,9 +124,6 @@ public sealed partial class MainWindow : Window
             Debug.WriteLine("MainWindow_Activated event fired (first activation)");
             Logger.Log("MainWindow.Activated event fired");
             
-            // Get CoreDispatcher for UI thread operations
-            _coreDispatcher = Windows.ApplicationModel.Core.CoreApplication.MainView.CoreWindow.Dispatcher;
-            
             // Configure kiosk window after it's activated
             ConfigureAsKioskWindow();
             
@@ -144,22 +142,14 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            // Method 1: CoreWindow keyboard handler (most reliable for global hotkeys)
-            var coreWindow = CoreWindow.GetForCurrentThread();
-            if (coreWindow != null)
-            {
-                coreWindow.KeyDown += CoreWindow_KeyDown;
-                Logger.Log("CoreWindow keyboard handler registered");
-            }
-
-            // Method 2: Window-level PreviewKeyDown (catches keys before child controls)
+            // Method 1: Window-level PreviewKeyDown (catches keys before child controls)
             this.Content.PreviewKeyDown += Content_PreviewKeyDown;
             Logger.Log("Window PreviewKeyDown handler registered");
 
-            // Method 3: Accelerator keys on window content (standard WinUI approach)
+            // Method 2: Accelerator keys on window content (standard WinUI approach)
             SetupKeyboardAccelerators();
             
-            // Method 4: WebView2-specific handling (prevent WebView from eating keys)
+            // Method 3: WebView2-specific handling (prevent WebView from eating keys)
             // This will be set up after WebView2 is initialized
             
             Logger.Log("All keyboard handlers registered successfully");
@@ -170,73 +160,6 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// CoreWindow keyboard handler - most reliable for catching all keyboard input
-    /// </summary>
-    private async void CoreWindow_KeyDown(CoreWindow sender, KeyEventArgs args)
-    {
-        try
-        {
-            // Get modifier states
-            var ctrlState = sender.GetKeyState(VirtualKey.Control);
-            var shiftState = sender.GetKeyState(VirtualKey.Shift);
-            var altState = sender.GetKeyState(VirtualKey.Menu);
-
-            bool ctrlPressed = (ctrlState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
-            bool shiftPressed = (shiftState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
-            bool altPressed = (altState & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
-
-            // Log key press for debugging
-            if (args.VirtualKey != VirtualKey.None)
-            {
-                Logger.Log($"CoreWindow_KeyDown: Key={args.VirtualKey}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
-            }
-
-            // Debug mode: Ctrl+Shift+F12
-            if (_config.Debug.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.F12)
-            {
-                args.Handled = true;
-                Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+F12");
-                await ToggleDebugMode();
-            }
-            // Exit: Ctrl+Shift+Escape
-            else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && args.VirtualKey == VirtualKey.Escape)
-            {
-                args.Handled = true;
-                Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Escape");
-                await HandleExitRequest();
-            }
-            // Video controls when in video mode
-            else if (_isVideoMode && _videoController != null)
-            {
-                // Flic button: Ctrl+Alt+D
-                if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.D)
-                {
-                    args.Handled = true;
-                    Logger.Log("Flic button pressed (Ctrl+Alt+D) - toggling video");
-                    await _videoController.HandleFlicButtonPressAsync();
-                }
-                // Stop: Ctrl+Alt+E
-                else if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.E)
-                {
-                    args.Handled = true;
-                    Logger.Log("Stop video pressed (Ctrl+Alt+E)");
-                    await _videoController.StopAsync();
-                }
-                // Restart: Ctrl+Alt+R
-                else if (ctrlPressed && altPressed && args.VirtualKey == VirtualKey.R)
-                {
-                    args.Handled = true;
-                    Logger.Log("Restart carescape pressed (Ctrl+Alt+R)");
-                    await _videoController.RestartCarescapeAsync();
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Logger.Log($"Error in CoreWindow_KeyDown: {ex.Message}");
-        }
-    }
 
     /// <summary>
     /// Content PreviewKeyDown handler - backup method
@@ -245,16 +168,15 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            // Get modifier states
-            var keyboardState = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread;
-            bool ctrlPressed = (keyboardState(VirtualKey.Control) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
-            bool shiftPressed = (keyboardState(VirtualKey.Shift) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
-            bool altPressed = (keyboardState(VirtualKey.Menu) & CoreVirtualKeyStates.Down) == CoreVirtualKeyStates.Down;
+            // Get modifier states using Win32 API
+            bool ctrlPressed = (GetKeyState((int)VirtualKey.Control) & 0x8000) != 0;
+            bool shiftPressed = (GetKeyState((int)VirtualKey.Shift) & 0x8000) != 0;
+            bool altPressed = (GetKeyState((int)VirtualKey.Menu) & 0x8000) != 0;
 
             // Log for debugging
             Logger.Log($"Content_PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
 
-            // Handle the same hotkeys as CoreWindow handler
+            // Handle hotkeys
             if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.F12)
             {
                 e.Handled = true;
