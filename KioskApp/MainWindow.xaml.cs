@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
-using Microsoft.UI.Interop;
+using Microsoft.UI.Win32.Interop;
 using WinRT.Interop;
 using Windows.Graphics.Display;
 using Windows.Foundation;
@@ -49,8 +49,6 @@ public sealed partial class MainWindow : Window
     private const uint SWP_NOMOVE = 0x0002;
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
 
-    // API server control
-    private ApiServer? _apiServer;
 
     // State management
     private bool _isDebugMode = false;
@@ -481,12 +479,12 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            // Start API server if remote navigation is enabled
-            if (_config.Remote.Enabled)
-            {
-                _apiServer = new ApiServer(_config, KioskWebView, DispatcherQueue);
-                await _apiServer.StartAsync();
-            }
+            // TODO: Implement API server for remote navigation
+            // if (_config.HttpApi.Enabled)
+            // {
+            //     _apiServer = new ApiServer(_config, KioskWebView, DispatcherQueue);
+            //     await _apiServer.StartAsync();
+            // }
             
             // Handle video mode vs web mode
             if (_isVideoMode)
@@ -862,8 +860,8 @@ public sealed partial class MainWindow : Window
                 await _videoController.StopAsync();
             }
             
-            // Stop API server
-            _apiServer?.Dispose();
+            // TODO: Stop API server when implemented
+            // _apiServer?.Dispose();
             
             // Close the window
             this.Close();
