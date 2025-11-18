@@ -902,7 +902,8 @@ public sealed partial class MainWindow : Window
                     DebugPanel.Visibility = Visibility.Collapsed;
                     
                     // Reset WebView margin
-                    KioskWebView.Margin = new Thickness(0);
+                    if (KioskWebView != null)
+                        KioskWebView.Margin = new Thickness(0);
                     
                     // In video mode, hide WebView and restart video
                     if (_isVideoMode && _videoController != null)
