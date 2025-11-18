@@ -713,13 +713,21 @@ public sealed partial class MainWindow : Window
                 ShowStatus("Navigation Complete", uri);
                 Logger.Log($"Navigation completed: {uri}");
                 
-                // Update current URL tracking
-                _currentUrl = uri;
-                
-                // Update URL textbox if in debug mode
-                if (_isDebugMode && UrlTextBox != null)
+                // Update current URL tracking (but don't store about:blank)
+                if (!uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
                 {
-                    UrlTextBox.Text = _currentUrl;
+                    _currentUrl = uri;
+                    
+                    // Update URL textbox if in debug mode
+                    if (_isDebugMode && UrlTextBox != null)
+                    {
+                        UrlTextBox.Text = _currentUrl;
+                    }
+                }
+                else
+                {
+                    // If navigating to about:blank, keep the previous URL
+                    Logger.Log($"Navigation to about:blank detected, keeping previous URL: {_currentUrl ?? "none"}");
                 }
                 
                 // Update title
@@ -970,17 +978,26 @@ public sealed partial class MainWindow : Window
                             KioskWebView.Visibility = Visibility.Collapsed;
                         _ = _videoController.InitializeAsync();
                     }
-                    else if (!string.IsNullOrEmpty(_currentUrl) && KioskWebView?.CoreWebView2 != null)
-                    {
-                        // Refresh the current URL to ensure proper state
-                        KioskWebView.Reload();
-                        Logger.Log($"Refreshing URL after debug mode: {_currentUrl}");
-                    }
                     else if (!string.IsNullOrEmpty(_currentUrl))
                     {
-                        // WebView2 not ready yet, navigate to the URL instead
-                        NavigateToUrl(_currentUrl);
-                        Logger.Log($"Navigating to URL after debug mode (WebView2 not ready for reload): {_currentUrl}");
+                        // Wait a moment for window configuration to complete, then navigate
+                        // Use explicit navigation instead of Reload() to ensure proper page load
+                        _ = Task.Delay(100).ContinueWith(_ =>
+                        {
+                            DispatcherQueue.TryEnqueue(() =>
+                            {
+                                if (KioskWebView?.CoreWebView2 != null && Uri.TryCreate(_currentUrl, UriKind.Absolute, out var uri))
+                                {
+                                    KioskWebView.Source = uri;
+                                    Logger.Log($"Navigating to URL after debug mode: {_currentUrl}");
+                                }
+                                else if (!string.IsNullOrEmpty(_currentUrl))
+                                {
+                                    NavigateToUrl(_currentUrl);
+                                    Logger.Log($"Navigating to URL after debug mode (WebView2 not ready): {_currentUrl}");
+                                }
+                            });
+                        });
                     }
 
                     _isDebugMode = false;
@@ -1149,7 +1166,34 @@ public sealed partial class MainWindow : Window
     {
         if (KioskWebView?.CoreWebView2 != null)
         {
-            KioskWebView.Reload();
+            // Check if current source is valid before reloading
+            var currentSource = KioskWebView.Source?.ToString();
+            
+            // If source is about:blank or invalid, navigate to stored URL instead
+            if (string.IsNullOrEmpty(currentSource) || 
+                currentSource.Equals("about:blank", StringComparison.OrdinalIgnoreCase) ||
+                !Uri.TryCreate(currentSource, UriKind.Absolute, out _))
+            {
+                // Use stored URL if available
+                if (!string.IsNullOrEmpty(_currentUrl))
+                {
+                    Logger.Log($"Reload: Current source is invalid ({currentSource}), navigating to stored URL: {_currentUrl}");
+                    NavigateToUrl(_currentUrl);
+                }
+                else
+                {
+                    // Fallback to default URL
+                    var defaultUrl = _config.Kiosk.DefaultUrl;
+                    Logger.Log($"Reload: No valid URL, navigating to default: {defaultUrl}");
+                    NavigateToUrl(defaultUrl);
+                }
+            }
+            else
+            {
+                // Valid URL, safe to reload
+                KioskWebView.Reload();
+                Logger.Log($"Reloading current page: {currentSource}");
+            }
         }
         else
         {
