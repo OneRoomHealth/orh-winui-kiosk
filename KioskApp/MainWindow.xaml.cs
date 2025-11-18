@@ -270,25 +270,50 @@ public sealed partial class MainWindow : Window
                 DispatcherQueue.TryEnqueue(async () => await HandleExitRequest());
             }
             // Video controls when in video mode
-            else if (_isVideoMode && _videoController != null && ctrlPressed && altPressed)
+            else if (ctrlPressed && altPressed && (vkCode == VirtualKey.D || vkCode == VirtualKey.E || vkCode == VirtualKey.R))
             {
-                switch (vkCode)
+                // Add detailed logging for debugging
+                Logger.Log($"[HOTKEY DEBUG] Video hotkey detected: Key={vkCode}, VideoMode={_isVideoMode}, Controller={_videoController != null}, ConfigEnabled={_config.Kiosk.VideoMode?.Enabled ?? false}");
+                
+                // Ensure video mode is enabled in config
+                bool configVideoModeEnabled = _config.Kiosk.VideoMode?.Enabled ?? false;
+                
+                // Re-check video mode state if config says it should be enabled but our flag says it's not
+                if (configVideoModeEnabled && !_isVideoMode)
                 {
-                    case VirtualKey.D:
-                        handled = true;
-                        Logger.Log("Flic button pressed (Ctrl+Alt+D) via keyboard hook");
-                        DispatcherQueue.TryEnqueue(async () => await _videoController.HandleFlicButtonPressAsync());
-                        break;
-                    case VirtualKey.E:
-                        handled = true;
-                        Logger.Log("Stop video pressed (Ctrl+Alt+E) via keyboard hook");
-                        DispatcherQueue.TryEnqueue(async () => await _videoController.StopAsync());
-                        break;
-                    case VirtualKey.R:
-                        handled = true;
-                        Logger.Log("Restart carescape pressed (Ctrl+Alt+R) via keyboard hook");
-                        DispatcherQueue.TryEnqueue(async () => await _videoController.RestartCarescapeAsync());
-                        break;
+                    Logger.Log("[HOTKEY DEBUG] Config says video mode enabled but _isVideoMode is false, re-initializing...");
+                    _isVideoMode = true;
+                    if (_videoController == null && _config.Kiosk.VideoMode != null)
+                    {
+                        _videoController = new VideoController(_config.Kiosk.VideoMode);
+                        Logger.Log("Video controller created on-demand for hotkey");
+                    }
+                }
+                
+                if (_isVideoMode && _videoController != null)
+                {
+                    switch (vkCode)
+                    {
+                        case VirtualKey.D:
+                            handled = true;
+                            Logger.Log("Flic button pressed (Ctrl+Alt+D) via keyboard hook");
+                            DispatcherQueue.TryEnqueue(async () => await _videoController.HandleFlicButtonPressAsync());
+                            break;
+                        case VirtualKey.E:
+                            handled = true;
+                            Logger.Log("Stop video pressed (Ctrl+Alt+E) via keyboard hook");
+                            DispatcherQueue.TryEnqueue(async () => await _videoController.StopAsync());
+                            break;
+                        case VirtualKey.R:
+                            handled = true;
+                            Logger.Log("Restart carescape pressed (Ctrl+Alt+R) via keyboard hook");
+                            DispatcherQueue.TryEnqueue(async () => await _videoController.RestartCarescapeAsync());
+                            break;
+                    }
+                }
+                else
+                {
+                    Logger.Log($"[HOTKEY WARNING] Video hotkey pressed but video mode not active. VideoMode={_isVideoMode}, Controller={_videoController != null}, ConfigEnabled={configVideoModeEnabled}");
                 }
             }
 
@@ -332,22 +357,50 @@ public sealed partial class MainWindow : Window
                 e.Handled = true;
                 await HandleExitRequest();
             }
-            else if (_isVideoMode && _videoController != null && ctrlPressed && altPressed)
+            else if (ctrlPressed && altPressed && (e.Key == VirtualKey.D || e.Key == VirtualKey.E || e.Key == VirtualKey.R))
             {
-                if (e.Key == VirtualKey.D)
+                // Add detailed logging for debugging
+                Logger.Log($"[HOTKEY DEBUG] Video hotkey detected (PreviewKeyDown): Key={e.Key}, VideoMode={_isVideoMode}, Controller={_videoController != null}, ConfigEnabled={_config.Kiosk.VideoMode?.Enabled ?? false}");
+                
+                // Ensure video mode is enabled in config
+                bool configVideoModeEnabled = _config.Kiosk.VideoMode?.Enabled ?? false;
+                
+                // Re-check video mode state if config says it should be enabled but our flag says it's not
+                if (configVideoModeEnabled && !_isVideoMode)
                 {
-                    e.Handled = true;
-                    await _videoController.HandleFlicButtonPressAsync();
+                    Logger.Log("[HOTKEY DEBUG] Config says video mode enabled but _isVideoMode is false, re-initializing...");
+                    _isVideoMode = true;
+                    if (_videoController == null && _config.Kiosk.VideoMode != null)
+                    {
+                        _videoController = new VideoController(_config.Kiosk.VideoMode);
+                        Logger.Log("Video controller created on-demand for hotkey");
+                    }
                 }
-                else if (e.Key == VirtualKey.E)
+                
+                if (_isVideoMode && _videoController != null)
                 {
-                    e.Handled = true;
-                    await _videoController.StopAsync();
+                    if (e.Key == VirtualKey.D)
+                    {
+                        e.Handled = true;
+                        Logger.Log("Flic button pressed (Ctrl+Alt+D) via PreviewKeyDown");
+                        await _videoController.HandleFlicButtonPressAsync();
+                    }
+                    else if (e.Key == VirtualKey.E)
+                    {
+                        e.Handled = true;
+                        Logger.Log("Stop video pressed (Ctrl+Alt+E) via PreviewKeyDown");
+                        await _videoController.StopAsync();
+                    }
+                    else if (e.Key == VirtualKey.R)
+                    {
+                        e.Handled = true;
+                        Logger.Log("Restart carescape pressed (Ctrl+Alt+R) via PreviewKeyDown");
+                        await _videoController.RestartCarescapeAsync();
+                    }
                 }
-                else if (e.Key == VirtualKey.R)
+                else
                 {
-                    e.Handled = true;
-                    await _videoController.RestartCarescapeAsync();
+                    Logger.Log($"[HOTKEY WARNING] Video hotkey pressed but video mode not active (PreviewKeyDown). VideoMode={_isVideoMode}, Controller={_videoController != null}, ConfigEnabled={configVideoModeEnabled}");
                 }
             }
         }
@@ -952,24 +1005,39 @@ public sealed partial class MainWindow : Window
                         catch { /* Ignore if already closed */ }
                     }
 
-                    // Return to fullscreen
-                    if (_appWindow?.Presenter.Kind == AppWindowPresenterKind.Overlapped)
-                    {
-                        _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                    }
-
-                    // Restore kiosk window configuration
-                    ConfigureAsKioskWindow();
-
-                    // Update window title
-                    this.Title = "OneRoom Health Kiosk";
-                    
-                    // Hide debug navigation panel
+                    // Hide debug navigation panel first
                     DebugPanel.Visibility = Visibility.Collapsed;
                     
                     // Reset WebView margin
                     if (KioskWebView != null)
                         KioskWebView.Margin = new Thickness(0);
+
+                    // Update window title
+                    this.Title = "OneRoom Health Kiosk";
+
+                    // Restore kiosk window configuration (this sets up the window properly)
+                    ConfigureAsKioskWindow();
+
+                    // Ensure we're in fullscreen mode after configuration
+                    if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
+                    {
+                        _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                        Logger.Log("Set presenter to FullScreen after ConfigureAsKioskWindow");
+                    }
+                    
+                    // Wait a moment then ensure fullscreen is properly applied
+                    _ = Task.Delay(100).ContinueWith(_ =>
+                    {
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            // Re-run ConfigureAsKioskWindow to ensure proper sizing after presenter change
+                            if (_appWindow != null && _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
+                            {
+                                ConfigureAsKioskWindow();
+                                Logger.Log("Re-ran ConfigureAsKioskWindow to ensure fullscreen sizing");
+                            }
+                        });
+                    });
                     
                     // In video mode, hide WebView and restart video
                     if (_isVideoMode && _videoController != null)
