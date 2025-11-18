@@ -912,11 +912,17 @@ public sealed partial class MainWindow : Window
                             KioskWebView.Visibility = Visibility.Collapsed;
                         _ = _videoController.InitializeAsync();
                     }
-                    else if (!string.IsNullOrEmpty(_currentUrl))
+                    else if (!string.IsNullOrEmpty(_currentUrl) && KioskWebView?.CoreWebView2 != null)
                     {
                         // Refresh the current URL to ensure proper state
-                        KioskWebView?.Reload();
+                        KioskWebView.Reload();
                         Logger.Log($"Refreshing URL after debug mode: {_currentUrl}");
+                    }
+                    else if (!string.IsNullOrEmpty(_currentUrl))
+                    {
+                        // WebView2 not ready yet, navigate to the URL instead
+                        NavigateToUrl(_currentUrl);
+                        Logger.Log($"Navigating to URL after debug mode (WebView2 not ready for reload): {_currentUrl}");
                     }
 
                     _isDebugMode = false;
@@ -1029,6 +1035,14 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void GoButton_Click(object sender, RoutedEventArgs e)
     {
+        if (KioskWebView?.CoreWebView2 == null)
+        {
+            Logger.Log("Cannot navigate: WebView2 not initialized");
+            ShowStatus("Error", "WebView2 is not ready. Please wait for initialization.");
+            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+            return;
+        }
+
         if (!string.IsNullOrWhiteSpace(UrlTextBox?.Text))
         {
             var url = UrlTextBox.Text;
@@ -1045,9 +1059,13 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void BackButton_Click(object sender, RoutedEventArgs e)
     {
-        if (KioskWebView?.CanGoBack == true)
+        if (KioskWebView?.CoreWebView2 != null && KioskWebView.CanGoBack == true)
         {
             KioskWebView.GoBack();
+        }
+        else
+        {
+            Logger.Log("Cannot go back: WebView2 not initialized or no history");
         }
     }
 
@@ -1056,9 +1074,13 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ForwardButton_Click(object sender, RoutedEventArgs e)
     {
-        if (KioskWebView?.CanGoForward == true)
+        if (KioskWebView?.CoreWebView2 != null && KioskWebView.CanGoForward == true)
         {
             KioskWebView.GoForward();
+        }
+        else
+        {
+            Logger.Log("Cannot go forward: WebView2 not initialized or no history");
         }
     }
 
@@ -1067,7 +1089,16 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
-        KioskWebView?.Reload();
+        if (KioskWebView?.CoreWebView2 != null)
+        {
+            KioskWebView.Reload();
+        }
+        else
+        {
+            Logger.Log("Cannot reload: WebView2 not initialized");
+            ShowStatus("Error", "WebView2 is not ready. Please wait for initialization.");
+            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+        }
     }
 
     /// <summary>
@@ -1075,7 +1106,16 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void DevToolsButton_Click(object sender, RoutedEventArgs e)
     {
-        KioskWebView?.CoreWebView2?.OpenDevToolsWindow();
+        if (KioskWebView?.CoreWebView2 != null)
+        {
+            KioskWebView.CoreWebView2.OpenDevToolsWindow();
+        }
+        else
+        {
+            Logger.Log("Cannot open DevTools: WebView2 not initialized");
+            ShowStatus("Error", "WebView2 is not ready. Please wait for initialization.");
+            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+        }
     }
 
     /// <summary>
@@ -1083,6 +1123,14 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void CameraTestButton_Click(object sender, RoutedEventArgs e)
     {
+        if (KioskWebView?.CoreWebView2 == null)
+        {
+            Logger.Log("Cannot navigate to camera test: WebView2 not initialized");
+            ShowStatus("Error", "WebView2 is not ready. Please wait for initialization.");
+            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+            return;
+        }
+
         // Navigate to WebRTC test pages for camera testing
         NavigateToUrl("https://webrtc.github.io/test-pages/");
     }
