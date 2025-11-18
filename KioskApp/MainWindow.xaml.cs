@@ -51,6 +51,7 @@ public sealed partial class MainWindow : Window
     private bool _isDebugMode = false;
     private Rect _normalWindowBounds;
     private bool _isVideoMode = false;
+    private string? _currentUrl = null;
 
     // Win32 API imports
     [DllImport("user32.dll")]
@@ -133,6 +134,7 @@ public sealed partial class MainWindow : Window
     {
         if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
+            _currentUrl = url;
             DispatcherQueue.TryEnqueue(() =>
             {
                 KioskWebView.Source = uri;
@@ -189,9 +191,9 @@ public sealed partial class MainWindow : Window
             // Log enabled hotkeys for debugging
             Logger.Log("=== ENABLED HOTKEYS ===");
             if (_config.Debug.Enabled)
-                Logger.Log($"  Debug Mode: {_config.Debug.Hotkey} (configured) / Ctrl+Shift+F12 (handled)");
+                Logger.Log($"  Debug Mode: {_config.Debug.Hotkey} (configured) / Ctrl+Shift+I (handled)");
             if (_config.Exit.Enabled)
-                Logger.Log($"  Exit Kiosk: {_config.Exit.Hotkey} (configured) / Ctrl+Shift+Escape (handled)");
+                Logger.Log($"  Exit Kiosk: {_config.Exit.Hotkey} (configured) / Ctrl+Shift+Q (handled)");
             if (_isVideoMode)
             {
                 Logger.Log("  Video Controls:");
@@ -244,7 +246,7 @@ public sealed partial class MainWindow : Window
             bool altPressed = (GetKeyState((int)VirtualKey.Menu) & 0x8000) != 0;
 
             // Log the key press (only log our hotkey combinations to avoid log spam)
-            if ((ctrlPressed && shiftPressed && (vkCode == VirtualKey.F12 || vkCode == VirtualKey.Escape)) ||
+            if ((ctrlPressed && shiftPressed && (vkCode == VirtualKey.I || vkCode == VirtualKey.Q)) ||
                 (ctrlPressed && altPressed && (vkCode == VirtualKey.D || vkCode == VirtualKey.E || vkCode == VirtualKey.R)))
             {
                 Logger.Log($"[HOTKEY] LowLevelKeyboardHook: Key={vkCode}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
@@ -253,18 +255,18 @@ public sealed partial class MainWindow : Window
             // Handle our hotkeys
             bool handled = false;
 
-            // Debug mode: Ctrl+Shift+F12
-            if (_config.Debug.Enabled && ctrlPressed && shiftPressed && vkCode == VirtualKey.F12)
+            // Debug mode: Ctrl+Shift+I
+            if (_config.Debug.Enabled && ctrlPressed && shiftPressed && vkCode == VirtualKey.I)
             {
                 handled = true;
-                Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+F12 (via keyboard hook)");
+                Logger.LogSecurityEvent("DebugModeHotkeyPressed", "User pressed Ctrl+Shift+I (via keyboard hook)");
                 DispatcherQueue.TryEnqueue(async () => await ToggleDebugMode());
             }
-            // Exit: Ctrl+Shift+Escape
-            else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && vkCode == VirtualKey.Escape)
+            // Exit: Ctrl+Shift+Q
+            else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && vkCode == VirtualKey.Q)
             {
                 handled = true;
-                Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Escape (via keyboard hook)");
+                Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Q (via keyboard hook)");
                 DispatcherQueue.TryEnqueue(async () => await HandleExitRequest());
             }
             // Video controls when in video mode
@@ -313,19 +315,19 @@ public sealed partial class MainWindow : Window
             bool altPressed = (GetKeyState((int)VirtualKey.Menu) & 0x8000) != 0;
 
             // Log for debugging (only log our hotkey combinations)
-            if ((ctrlPressed && shiftPressed && (e.Key == VirtualKey.F12 || e.Key == VirtualKey.Escape)) ||
+            if ((ctrlPressed && shiftPressed && (e.Key == VirtualKey.I || e.Key == VirtualKey.Q)) ||
                 (ctrlPressed && altPressed && (e.Key == VirtualKey.D || e.Key == VirtualKey.E || e.Key == VirtualKey.R)))
             {
                 Logger.Log($"[HOTKEY] Content_PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
             }
 
             // Handle hotkeys
-            if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.F12)
+            if (_config.Debug.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.I)
             {
                 e.Handled = true;
                 await ToggleDebugMode();
             }
-            else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.Escape)
+            else if (_config.Exit.Enabled && ctrlPressed && shiftPressed && e.Key == VirtualKey.Q)
             {
                 e.Handled = true;
                 await HandleExitRequest();
@@ -368,10 +370,10 @@ public sealed partial class MainWindow : Window
             // Clear any existing accelerators
             content.KeyboardAccelerators.Clear();
 
-            // Debug mode: Ctrl+Shift+F12
+            // Debug mode: Ctrl+Shift+I
             var debugAccel = new KeyboardAccelerator
             {
-                Key = VirtualKey.F12,
+                Key = VirtualKey.I,
                 Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift
             };
             debugAccel.Invoked += async (s, e) =>
@@ -385,10 +387,10 @@ public sealed partial class MainWindow : Window
             };
             content.KeyboardAccelerators.Add(debugAccel);
 
-            // Exit: Ctrl+Shift+Escape
+            // Exit: Ctrl+Shift+Q
             var exitAccel = new KeyboardAccelerator
             {
-                Key = VirtualKey.Escape,
+                Key = VirtualKey.Q,
                 Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Shift
             };
             exitAccel.Invoked += async (s, e) =>
@@ -596,6 +598,7 @@ public sealed partial class MainWindow : Window
                     SetupWebView();
                     
                     // Navigate to the configured URL
+                    _currentUrl = _config.Kiosk.DefaultUrl;
                     KioskWebView.Source = new Uri(_config.Kiosk.DefaultUrl);
                     Logger.Log($"Navigating to default URL: {_config.Kiosk.DefaultUrl}");
                 }
@@ -664,7 +667,7 @@ public sealed partial class MainWindow : Window
                 string script = @"
                     document.addEventListener('keydown', function(e) {
                         // Check if this is one of our hotkeys
-                        if ((e.ctrlKey && e.shiftKey && (e.key === 'F12' || e.key === 'Escape')) ||
+                        if ((e.ctrlKey && e.shiftKey && (e.key === 'i' || e.key === 'I' || e.key === 'q' || e.key === 'Q')) ||
                             (e.ctrlKey && e.altKey && (e.key === 'd' || e.key === 'D' || e.key === 'e' || e.key === 'E' || e.key === 'r' || e.key === 'R'))) {
                             // Prevent the webpage from handling these keys
                             e.preventDefault();
@@ -709,6 +712,15 @@ public sealed partial class MainWindow : Window
                 var uri = sender.Source.ToString();
                 ShowStatus("Navigation Complete", uri);
                 Logger.Log($"Navigation completed: {uri}");
+                
+                // Update current URL tracking
+                _currentUrl = uri;
+                
+                // Update URL textbox if in debug mode
+                if (_isDebugMode && UrlTextBox != null)
+                {
+                    UrlTextBox.Text = _currentUrl;
+                }
                 
                 // Update title
                 var title = sender.CoreWebView2.DocumentTitle;
@@ -768,7 +780,7 @@ public sealed partial class MainWindow : Window
     private async Task EnterDebugMode()
     {
         Logger.LogSecurityEvent("EnterDebugMode", "Entering debug mode");
-        ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+F12 to exit.");
+        ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+I to exit.");
 
         await Task.Run(() =>
         {
@@ -783,6 +795,18 @@ public sealed partial class MainWindow : Window
                         KioskWebView.Visibility = Visibility.Visible;
                     }
 
+                    // Show debug navigation panel
+                    DebugPanel.Visibility = Visibility.Visible;
+                    
+                    // Adjust WebView margin to make room for navigation panel
+                    KioskWebView.Margin = new Thickness(0, 80, 0, 0);
+                    
+                    // Update URL textbox with current URL
+                    if (!string.IsNullOrEmpty(_currentUrl))
+                    {
+                        UrlTextBox.Text = _currentUrl;
+                    }
+                    
                     // Enable WebView2 developer features
                     if (KioskWebView?.CoreWebView2?.Settings != null)
                     {
@@ -874,12 +898,24 @@ public sealed partial class MainWindow : Window
                     // Update window title
                     this.Title = "OneRoom Health Kiosk";
                     
+                    // Hide debug navigation panel
+                    DebugPanel.Visibility = Visibility.Collapsed;
+                    
+                    // Reset WebView margin
+                    KioskWebView.Margin = new Thickness(0);
+                    
                     // In video mode, hide WebView and restart video
                     if (_isVideoMode && _videoController != null)
                     {
                         if (KioskWebView != null)
                             KioskWebView.Visibility = Visibility.Collapsed;
                         _ = _videoController.InitializeAsync();
+                    }
+                    else if (!string.IsNullOrEmpty(_currentUrl))
+                    {
+                        // Refresh the current URL to ensure proper state
+                        KioskWebView?.Reload();
+                        Logger.Log($"Refreshing URL after debug mode: {_currentUrl}");
                     }
 
                     _isDebugMode = false;
@@ -970,6 +1006,84 @@ public sealed partial class MainWindow : Window
         {
             Logger.Log($"Error during cleanup: {ex.Message}");
         }
+    }
+
+    #endregion
+
+    #region Navigation Handlers
+
+    /// <summary>
+    /// Handles URL textbox Enter key press
+    /// </summary>
+    private void UrlTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Enter)
+        {
+            GoButton_Click(sender, null!);
+        }
+    }
+
+    /// <summary>
+    /// Navigates to the URL in the textbox
+    /// </summary>
+    private void GoButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrWhiteSpace(UrlTextBox?.Text))
+        {
+            var url = UrlTextBox.Text;
+            if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+            {
+                url = "https://" + url;
+            }
+            NavigateToUrl(url);
+        }
+    }
+
+    /// <summary>
+    /// Navigate back
+    /// </summary>
+    private void BackButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (KioskWebView?.CanGoBack == true)
+        {
+            KioskWebView.GoBack();
+        }
+    }
+
+    /// <summary>
+    /// Navigate forward
+    /// </summary>
+    private void ForwardButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (KioskWebView?.CanGoForward == true)
+        {
+            KioskWebView.GoForward();
+        }
+    }
+
+    /// <summary>
+    /// Refresh the current page
+    /// </summary>
+    private void RefreshButton_Click(object sender, RoutedEventArgs e)
+    {
+        KioskWebView?.Reload();
+    }
+
+    /// <summary>
+    /// Open developer tools
+    /// </summary>
+    private void DevToolsButton_Click(object sender, RoutedEventArgs e)
+    {
+        KioskWebView?.CoreWebView2?.OpenDevToolsWindow();
+    }
+
+    /// <summary>
+    /// Navigate to camera test page
+    /// </summary>
+    private void CameraTestButton_Click(object sender, RoutedEventArgs e)
+    {
+        // Navigate to WebRTC test pages for camera testing
+        NavigateToUrl("https://webrtc.github.io/test-pages/");
     }
 
     #endregion

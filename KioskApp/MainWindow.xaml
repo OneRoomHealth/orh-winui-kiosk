@@ -8,9 +8,61 @@
     mc:Ignorable="d">
 
     <Grid>
+        <!-- Debug Navigation Panel (Hidden by default) -->
+        <Grid x:Name="DebugPanel" 
+              Height="80" 
+              VerticalAlignment="Top" 
+              Background="#2B2B2B"
+              Visibility="Collapsed">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="40"/>
+                <RowDefinition Height="40"/>
+            </Grid.RowDefinitions>
+            
+            <!-- URL Bar -->
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                
+                <TextBlock Text="URL:" 
+                           Foreground="White" 
+                           VerticalAlignment="Center" 
+                           Margin="10,0,5,0"/>
+                
+                <TextBox x:Name="UrlTextBox" 
+                         Grid.Column="1" 
+                         Margin="5"
+                         VerticalAlignment="Center"
+                         KeyDown="UrlTextBox_KeyDown"/>
+                
+                <Button x:Name="GoButton"
+                        Grid.Column="2" 
+                        Content="Go" 
+                        Width="50"
+                        Margin="5"
+                        Click="GoButton_Click"/>
+            </Grid>
+            
+            <!-- Debug Tools -->
+            <StackPanel Grid.Row="1" 
+                        Orientation="Horizontal" 
+                        Margin="10,0">
+                <Button x:Name="BackButton" Content="← Back" Margin="2" Click="BackButton_Click"/>
+                <Button x:Name="ForwardButton" Content="→ Forward" Margin="2" Click="ForwardButton_Click"/>
+                <Button x:Name="RefreshButton" Content="⟳ Refresh" Margin="2" Click="RefreshButton_Click"/>
+                <Button x:Name="DevToolsButton" Content="DevTools (F12)" Margin="2" Click="DevToolsButton_Click"/>
+                <Button x:Name="CameraTestButton" Content="Camera Test" Margin="2" Click="CameraTestButton_Click"/>
+            </StackPanel>
+        </Grid>
+        
+        <!-- WebView -->
         <controls:WebView2 x:Name="KioskWebView"
                   HorizontalAlignment="Stretch"
                   VerticalAlignment="Stretch"
+                  Margin="0,0,0,0"
                   DefaultBackgroundColor="Transparent" />
 
         <!-- Status overlay shown during loading/errors -->
