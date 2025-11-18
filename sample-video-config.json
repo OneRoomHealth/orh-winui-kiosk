@@ -23,7 +23,7 @@
     "enabled": true,
     "hotkey": "Ctrl+Shift+Escape",
     "requirePassword": true,
-    "passwordHash": "",
+    "passwordHash": "admin123",
     "timeout": 5000
   },
   "logging": {

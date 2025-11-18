@@ -135,9 +135,14 @@ See [Video Mode Guide](VIDEO_MODE_GUIDE.md) for details.
 
 ### `passwordHash`
 - **Type:** String
-- **Default:** `""` (auto-generated on first run)
-- **Description:** SHA256 hash of the exit password
-- **Note:** Default password is `admin123` if not set
+- **Default:** `""` (defaults to "admin123")
+- **Description:** Exit password - can be plain text or SHA256 hash
+- **Modes:**
+  - **Empty/null**: Uses default password "admin123"
+  - **Plain text**: Any string less than 64 characters (e.g., "admin123", "mypassword")
+  - **SHA256 hash**: 64-character hex string (e.g., "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9")
+- **Security Note:** Plain text passwords are easier to manage but less secure. For production use, consider using SHA256 hashes.
+- **Example:** `"passwordHash": "admin123"` for plain text password
 
 ### `timeout`
 - **Type:** Integer

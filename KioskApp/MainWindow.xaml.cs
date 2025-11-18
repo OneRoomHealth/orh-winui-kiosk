@@ -591,6 +591,41 @@ public sealed partial class MainWindow : Window
                 SetWindowPos(_hwnd, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
                 Debug.WriteLine($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
                 Logger.Log($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
+                
+                // Add verification step to ensure window moved to correct monitor
+                // This helps fix issues where window doesn't initially appear on the target screen
+                if (targetMonitorIndex > 0)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        await Task.Delay(200);  // Give window time to move
+                        
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            try
+                            {
+                                // Double-check window position and force move again if needed
+                                var currentDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.None);
+                                if (currentDisplay == null || currentDisplay.DisplayId != targetDisplay.DisplayId)
+                                {
+                                    Logger.Log("Window didn't move to target display, attempting again...");
+                                    SetWindowPos(_hwnd, IntPtr.Zero, 
+                                        bounds.X, bounds.Y, bounds.Width, bounds.Height,
+                                        SWP_SHOWWINDOW | SWP_NOZORDER);
+                                    Logger.Log("Window repositioning retry complete");
+                                }
+                                else
+                                {
+                                    Logger.Log("Window successfully positioned on target display");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Log($"Error during window position verification: {ex.Message}");
+                            }
+                        });
+                    });
+                }
             }
             else
             {
@@ -654,6 +689,20 @@ public sealed partial class MainWindow : Window
                     _currentUrl = _config.Kiosk.DefaultUrl;
                     KioskWebView.Source = new Uri(_config.Kiosk.DefaultUrl);
                     Logger.Log($"Navigating to default URL: {_config.Kiosk.DefaultUrl}");
+                    
+                    // Add a fallback to hide status after a timeout in case navigation doesn't complete
+                    _ = Task.Delay(3000).ContinueWith(_ => 
+                    {
+                        DispatcherQueue.TryEnqueue(() => 
+                        {
+                            // Only hide if still showing initialization status
+                            if (StatusTitle.Text == "Initializing")
+                            {
+                                Logger.Log("Forcing status overlay to hide after timeout");
+                                HideStatus();
+                            }
+                        });
+                    });
                 }
                 catch (Exception ex)
                 {
@@ -695,6 +744,10 @@ public sealed partial class MainWindow : Window
 
         // Navigation event handlers
         KioskWebView.NavigationCompleted += OnNavigationCompleted;
+        
+        // Ensure status overlay is hidden when WebView is ready
+        Logger.Log("WebView2 setup complete, ensuring status overlay is hidden");
+        DispatcherQueue.TryEnqueue(() => HideStatus());
         
         // Disable new window requests
         KioskWebView.CoreWebView2.NewWindowRequested += (sender, args) =>
@@ -1104,7 +1157,31 @@ public sealed partial class MainWindow : Window
         if (result == ContentDialogResult.Primary)
         {
             var passwordBox = (PasswordBox)dialog.Content;
-            if (SecurityHelper.ValidatePassword(passwordBox.Password, _config.Exit.PasswordHash))
+            var enteredPassword = passwordBox.Password;
+            
+            bool isValid = false;
+            
+            // Support both plain text passwords and SHA256 hashes for backward compatibility
+            if (string.IsNullOrEmpty(_config.Exit.PasswordHash))
+            {
+                // Default to admin123 if no password is set
+                Logger.Log("Password hash is empty, using default password");
+                isValid = enteredPassword == "admin123";
+            }
+            else if (_config.Exit.PasswordHash.Length < 64)  // SHA256 hashes are 64 hex characters
+            {
+                // Treat as plain text password
+                Logger.Log("Treating password as plain text");
+                isValid = enteredPassword == _config.Exit.PasswordHash;
+            }
+            else
+            {
+                // Treat as SHA256 hash
+                Logger.Log("Treating password as SHA256 hash");
+                isValid = SecurityHelper.ValidatePassword(enteredPassword, _config.Exit.PasswordHash);
+            }
+            
+            if (isValid)
             {
                 Logger.LogSecurityEvent("ExitAuthorized", "Correct password provided, exiting application");
                 await CleanupAndExit();
