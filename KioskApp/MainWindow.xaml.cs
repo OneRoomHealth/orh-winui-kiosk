@@ -120,7 +120,7 @@ public sealed partial class MainWindow : Window
         // Initialize video controller if video mode is enabled
         if (_isVideoMode && _config.Kiosk.VideoMode != null)
         {
-            _videoController = new VideoController(_config.Kiosk.VideoMode);
+            _videoController = new VideoController(_config.Kiosk.VideoMode, _config.Kiosk.TargetMonitorIndex);
         }
 
         // Hook Activated event - do all initialization there when window is fully ready
@@ -285,7 +285,7 @@ public sealed partial class MainWindow : Window
                     _isVideoMode = true;
                     if (_videoController == null && _config.Kiosk.VideoMode != null)
                     {
-                        _videoController = new VideoController(_config.Kiosk.VideoMode);
+                        _videoController = new VideoController(_config.Kiosk.VideoMode, _config.Kiosk.TargetMonitorIndex);
                         Logger.Log("Video controller created on-demand for hotkey");
                     }
                 }
@@ -372,7 +372,7 @@ public sealed partial class MainWindow : Window
                     _isVideoMode = true;
                     if (_videoController == null && _config.Kiosk.VideoMode != null)
                     {
-                        _videoController = new VideoController(_config.Kiosk.VideoMode);
+                        _videoController = new VideoController(_config.Kiosk.VideoMode, _config.Kiosk.TargetMonitorIndex);
                         Logger.Log("Video controller created on-demand for hotkey");
                     }
                 }
@@ -631,11 +631,11 @@ public sealed partial class MainWindow : Window
                 KioskWebView.Visibility = Visibility.Collapsed;
                 Logger.Log("WebView hidden for video mode");
                 
-                // Initialize video controller
+                // Initialize video controller (validates paths, doesn't start video)
                 if (_videoController != null)
                 {
                     await _videoController.InitializeAsync();
-                    Logger.Log("Video controller initialized");
+                    Logger.Log("Video controller ready (waiting for Flic button or trigger)");
                 }
             }
             else

@@ -65,9 +65,6 @@ public class VideoModeSettings
     [JsonPropertyName("demoVolume")]
     public double DemoVolume { get; set; } = 75;
 
-    [JsonPropertyName("targetMonitor")]
-    public int TargetMonitor { get; set; } = 1; // Default to second monitor (same as main window)
-
     [JsonPropertyName("flicButtonEnabled")]
     public bool FlicButtonEnabled { get; set; } = true;
 }

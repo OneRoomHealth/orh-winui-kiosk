@@ -19,6 +19,7 @@ namespace KioskApp
         private CancellationTokenSource _cancellationSource;
         private Task? _monitoringTask;
         private readonly VideoModeSettings _settings;
+        private readonly int _targetMonitorIndex;
 
         // Volume control via Windows Core Audio API
         private readonly VolumeController _volumeController;
@@ -26,15 +27,17 @@ namespace KioskApp
         public bool IsVideoModeEnabled => _settings.Enabled;
         public bool IsDemoPlaying => _isDemoPlaying;
 
-        public VideoController(VideoModeSettings settings)
+        public VideoController(VideoModeSettings settings, int targetMonitorIndex)
         {
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _targetMonitorIndex = targetMonitorIndex;
             _cancellationSource = new CancellationTokenSource();
             _volumeController = new VolumeController();
         }
 
         /// <summary>
-        /// Initialize video playback with carescape video
+        /// Initialize video controller (validates paths but does not start playback)
+        /// Video will start when triggered by Flic button or explicit API call
         /// </summary>
         public async Task InitializeAsync()
         {
@@ -50,22 +53,34 @@ namespace KioskApp
                 return;
             }
 
-            Logger.Log("Initializing video controller...");
-            await PlayCarescapeVideoAsync();
+            Logger.Log("Video controller initialized (ready, waiting for trigger)");
+            // Don't start video automatically - wait for Flic button or explicit trigger
         }
 
         /// <summary>
         /// Handle Flic button press (toggle between videos)
+        /// If no video is playing, starts carescape video
         /// </summary>
         public async Task HandleFlicButtonPressAsync()
         {
-            if (_isDemoPlaying)
+            // Check if any video is currently playing
+            bool isVideoPlaying = _mpvProcess != null && !_mpvProcess.HasExited;
+            
+            if (!isVideoPlaying)
             {
+                // No video playing - start carescape video
+                Logger.Log("Flic pressed: Starting carescape video (no video currently playing)");
+                await PlayCarescapeVideoAsync();
+            }
+            else if (_isDemoPlaying)
+            {
+                // Demo is playing - return to carescape
                 Logger.Log("Flic pressed: Returning to carescape video");
                 await PlayCarescapeVideoAsync();
             }
             else
             {
+                // Carescape is playing - switch to demo
                 Logger.Log("Flic pressed: Playing demo video");
                 await PlayDemoVideoAsync();
             }
@@ -74,7 +89,7 @@ namespace KioskApp
         /// <summary>
         /// Play carescape video (loops indefinitely)
         /// </summary>
-        private async Task PlayCarescapeVideoAsync()
+        public async Task PlayCarescapeVideoAsync()
         {
             try
             {
@@ -190,8 +205,8 @@ namespace KioskApp
                     "--no-osc",
                     "--no-border",
                     "--ontop",
-                    $"--screen={_settings.TargetMonitor - 1}", // MPV uses 0-based index
-                    $"--fs-screen={_settings.TargetMonitor - 1}",
+                    $"--screen={_targetMonitorIndex - 1}", // MPV uses 0-based index
+                    $"--fs-screen={_targetMonitorIndex - 1}",
                     "--quiet"
                 };
 
