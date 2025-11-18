@@ -55,7 +55,14 @@ public partial class App : Application
 		
 		try
 		{
+			// First thing - try to initialize logger and report its path
+			Debug.WriteLine($"Logger path: {Logger.LogFilePath}");
+			
 			Logger.Log("=== OneRoom Health Kiosk App Starting ===");
+			Logger.Log($"Log file location: {Logger.LogFilePath}");
+			Logger.Log($"Current user: {Environment.UserName}");
+			Logger.Log($"App directory: {Directory.GetCurrentDirectory()}");
+			
 			Debug.WriteLine("Loading configuration...");
 			
 			// Load configuration

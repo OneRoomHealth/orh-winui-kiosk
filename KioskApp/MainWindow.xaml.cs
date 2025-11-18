@@ -112,6 +112,7 @@ public sealed partial class MainWindow : Window
         this.InitializeComponent();
         _config = config;
         Logger.Log("MainWindow constructor called");
+        Logger.Log($"Log file is being written to: {Logger.LogFilePath}");
         
         // Determine if we're in video mode based on config
         _isVideoMode = _config.Kiosk.VideoMode?.Enabled ?? false;
@@ -152,8 +153,12 @@ public sealed partial class MainWindow : Window
         // Only initialize once on first activation
         if (e.WindowActivationState != WindowActivationState.Deactivated && _appWindow == null)
         {
+            Debug.WriteLine("==================== WINDOW ACTIVATION START ====================");
+            Logger.Log("==================== WINDOW ACTIVATION START ====================");
             Debug.WriteLine("MainWindow_Activated event fired (first activation)");
             Logger.Log("MainWindow.Activated event fired");
+            Logger.Log($"Video mode: {_isVideoMode}");
+            Logger.Log($"Target monitor index: {_config.Kiosk.TargetMonitorIndex}");
             
             // Configure kiosk window after it's activated
             ConfigureAsKioskWindow();
@@ -163,6 +168,8 @@ public sealed partial class MainWindow : Window
             
             // Initialize WebView2 asynchronously without blocking the Activated event
             _ = InitializeWebViewAsync();
+            
+            Logger.Log("==================== WINDOW ACTIVATION COMPLETE ====================");
         }
     }
 
@@ -526,9 +533,12 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ConfigureAsKioskWindow()
     {
+        Logger.Log("========== ConfigureAsKioskWindow START ==========");
         _hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
+        Logger.Log($"Window ID: {windowId.Value}");
         _appWindow = AppWindow.GetFromWindowId(windowId);
+        Logger.Log($"AppWindow retrieved: {_appWindow != null}");
 
         // Remove caption/system menu/min/max/resize
         var style = GetWindowLong(_hwnd, GWL_STYLE);
@@ -550,6 +560,7 @@ public sealed partial class MainWindow : Window
             // Get all available displays
             var allDisplays = DisplayArea.FindAll();
             Debug.WriteLine($"Found {allDisplays.Count} display(s)");
+            Logger.Log($"========== DISPLAY DETECTION ==========");
             Logger.Log($"Found {allDisplays.Count} display(s)");
             
             // Log all displays for reference
@@ -564,22 +575,30 @@ public sealed partial class MainWindow : Window
             // Select target display
             DisplayArea targetDisplay;
             int targetMonitorIndex = _config.Kiosk.TargetMonitorIndex;
+            Logger.Log($"========== MONITOR SELECTION ==========");
+            Logger.Log($"Configured target monitor index: {targetMonitorIndex}");
             
             if (targetMonitorIndex >= 0 && targetMonitorIndex < allDisplays.Count)
             {
                 targetDisplay = allDisplays[targetMonitorIndex];
                 Debug.WriteLine($"Using configured monitor index {targetMonitorIndex}");
-                Logger.Log($"Using configured monitor index {targetMonitorIndex}");
+                Logger.Log($"✓ Using configured monitor index {targetMonitorIndex}");
+                Logger.Log($"  Target display ID: {targetDisplay.DisplayId.Value}");
+                Logger.Log($"  Target bounds: {targetDisplay.OuterBounds.X}, {targetDisplay.OuterBounds.Y}, {targetDisplay.OuterBounds.Width}x{targetDisplay.OuterBounds.Height}");
             }
             else
             {
                 // Invalid index, fallback to primary
                 targetDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
                 Debug.WriteLine($"WARNING: Monitor index {targetMonitorIndex} is invalid (only {allDisplays.Count} displays found). Using primary.");
-                Logger.Log($"WARNING: Monitor index {targetMonitorIndex} is invalid. Using primary.");
+                Logger.Log($"✗ WARNING: Monitor index {targetMonitorIndex} is INVALID (only {allDisplays.Count} displays found)");
+                Logger.Log($"  Falling back to primary display");
+                Logger.Log($"  Primary display ID: {targetDisplay.DisplayId.Value}");
             }
             
             var bounds = targetDisplay.OuterBounds; // Use OuterBounds for true fullscreen
+            Logger.Log($"========== WINDOW POSITIONING ==========");
+            Logger.Log($"Target bounds: X={bounds.X}, Y={bounds.Y}, W={bounds.Width}, H={bounds.Height}");
             
             // Set size and position using Win32 API for reliable fullscreen sizing
             if (bounds.Width > 0 && bounds.Height > 0)
@@ -588,40 +607,75 @@ public sealed partial class MainWindow : Window
                 _normalWindowBounds = new Rect(bounds.X, bounds.Y, bounds.Width, bounds.Height);
 
                 // Position window at the display's origin and set its size
+                Logger.Log($"Calling SetWindowPos with: X={bounds.X}, Y={bounds.Y}, W={bounds.Width}, H={bounds.Height}");
                 SetWindowPos(_hwnd, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
                 Debug.WriteLine($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
-                Logger.Log($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
+                Logger.Log($"✓ SetWindowPos called successfully");
                 
                 // Add verification step to ensure window moved to correct monitor
                 // This helps fix issues where window doesn't initially appear on the target screen
+                Logger.Log($"Target monitor index: {targetMonitorIndex}, starting verification task: {targetMonitorIndex > 0}");
                 if (targetMonitorIndex > 0)
                 {
                     _ = Task.Run(async () =>
                     {
+                        Logger.Log("Waiting 200ms before verifying window position...");
                         await Task.Delay(200);  // Give window time to move
                         
                         DispatcherQueue.TryEnqueue(() =>
                         {
                             try
                             {
+                                Logger.Log("========== WINDOW POSITION VERIFICATION ==========");
                                 // Double-check window position and force move again if needed
                                 var currentDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.None);
+                                Logger.Log($"Current display: {(currentDisplay != null ? currentDisplay.DisplayId.Value.ToString() : "NULL")}");
+                                Logger.Log($"Target display: {targetDisplay.DisplayId.Value}");
+                                
                                 if (currentDisplay == null || currentDisplay.DisplayId != targetDisplay.DisplayId)
                                 {
-                                    Logger.Log("Window didn't move to target display, attempting again...");
+                                    Logger.Log("✗ Window is NOT on target display!");
+                                    Logger.Log($"  Expected display ID: {targetDisplay.DisplayId.Value}");
+                                    Logger.Log($"  Actual display ID: {(currentDisplay != null ? currentDisplay.DisplayId.Value.ToString() : "NULL")}");
+                                    Logger.Log("  Attempting to reposition window...");
+                                    
                                     SetWindowPos(_hwnd, IntPtr.Zero, 
                                         bounds.X, bounds.Y, bounds.Width, bounds.Height,
                                         SWP_SHOWWINDOW | SWP_NOZORDER);
-                                    Logger.Log("Window repositioning retry complete");
+                                    Logger.Log("  SetWindowPos called for retry");
+                                    
+                                    // Verify again after retry
+                                    _ = Task.Delay(100).ContinueWith(_ =>
+                                    {
+                                        DispatcherQueue.TryEnqueue(() =>
+                                        {
+                                            var finalDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.None);
+                                            Logger.Log($"  Final position check - Display ID: {(finalDisplay != null ? finalDisplay.DisplayId.Value.ToString() : "NULL")}");
+                                            if (finalDisplay != null && finalDisplay.DisplayId == targetDisplay.DisplayId)
+                                            {
+                                                Logger.Log("  ✓ Window successfully moved on retry!");
+                                            }
+                                            else
+                                            {
+                                                Logger.Log("  ✗ Window STILL not on correct display after retry!");
+                                            }
+                                        });
+                                    });
                                 }
                                 else
                                 {
-                                    Logger.Log("Window successfully positioned on target display");
+                                    Logger.Log("✓ Window successfully positioned on target display");
+                                    if (currentDisplay != null)
+                                    {
+                                        var currentBounds = currentDisplay.OuterBounds;
+                                        Logger.Log($"  Current bounds: X={currentBounds.X}, Y={currentBounds.Y}, W={currentBounds.Width}x{currentBounds.Height}");
+                                    }
                                 }
                             }
                             catch (Exception ex)
                             {
-                                Logger.Log($"Error during window position verification: {ex.Message}");
+                                Logger.Log($"✗ ERROR during window position verification: {ex.Message}");
+                                Logger.Log($"  Stack trace: {ex.StackTrace}");
                             }
                         });
                     });
@@ -642,7 +696,7 @@ public sealed partial class MainWindow : Window
         SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE);
         
         Debug.WriteLine("ConfigureAsKioskWindow completed");
-        Logger.Log("ConfigureAsKioskWindow completed");
+        Logger.Log("========== ConfigureAsKioskWindow COMPLETE ==========");
     }
 
     /// <summary>
@@ -650,6 +704,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task InitializeWebViewAsync()
     {
+        Logger.Log("========== InitializeWebViewAsync START ==========");
         try
         {
             // TODO: Implement API server for remote navigation
@@ -660,9 +715,11 @@ public sealed partial class MainWindow : Window
             // }
             
             // Handle video mode vs web mode
+            Logger.Log($"Video mode: {_isVideoMode}");
             if (_isVideoMode)
             {
                 // Hide the WebView in video mode
+                Logger.Log("VIDEO MODE: Hiding WebView");
                 KioskWebView.Visibility = Visibility.Collapsed;
                 Logger.Log("WebView hidden for video mode");
                 
@@ -676,37 +733,49 @@ public sealed partial class MainWindow : Window
             else
             {
                 // Web mode - ensure WebView2 runtime is available
+                Logger.Log("WEB MODE: Initializing WebView2");
                 try
                 {
                     var version = CoreWebView2Environment.GetAvailableBrowserVersionString();
                     Logger.Log($"WebView2 Runtime version: {version}");
                     ShowStatus("Initializing", "Loading WebView2...");
                     
+                    Logger.Log("Ensuring CoreWebView2 is ready...");
                     await KioskWebView.EnsureCoreWebView2Async();
+                    Logger.Log("CoreWebView2 is ready, setting up WebView...");
+                    
                     SetupWebView();
                     
                     // Navigate to the configured URL
                     _currentUrl = _config.Kiosk.DefaultUrl;
+                    Logger.Log($"Setting WebView source to: {_config.Kiosk.DefaultUrl}");
                     KioskWebView.Source = new Uri(_config.Kiosk.DefaultUrl);
-                    Logger.Log($"Navigating to default URL: {_config.Kiosk.DefaultUrl}");
+                    Logger.Log($"✓ Navigation initiated to: {_config.Kiosk.DefaultUrl}");
                     
                     // Add a fallback to hide status after a timeout in case navigation doesn't complete
+                    Logger.Log("Starting 3-second timeout fallback for status overlay");
                     _ = Task.Delay(3000).ContinueWith(_ => 
                     {
                         DispatcherQueue.TryEnqueue(() => 
                         {
                             // Only hide if still showing initialization status
+                            Logger.Log($"Timeout reached. Current status title: '{StatusTitle.Text}'");
                             if (StatusTitle.Text == "Initializing")
                             {
-                                Logger.Log("Forcing status overlay to hide after timeout");
+                                Logger.Log("✓ Forcing status overlay to hide after timeout");
                                 HideStatus();
+                            }
+                            else
+                            {
+                                Logger.Log($"Status already changed to '{StatusTitle.Text}', not forcing hide");
                             }
                         });
                     });
                 }
                 catch (Exception ex)
                 {
-                    Logger.Log($"WebView2 initialization error: {ex.Message}");
+                    Logger.Log($"✗ WebView2 initialization error: {ex.Message}");
+                    Logger.Log($"Stack trace: {ex.StackTrace}");
                     ShowStatus("WebView2 Error", 
                         "WebView2 Runtime is not installed.\n\n" +
                         "Please install from:\n" +
@@ -716,9 +785,11 @@ public sealed partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Logger.Log($"InitializeWebViewAsync error: {ex.Message}");
+            Logger.Log($"✗ InitializeWebViewAsync error: {ex.Message}");
+            Logger.Log($"Stack trace: {ex.StackTrace}");
             ShowStatus("Initialization Error", ex.Message);
         }
+        Logger.Log("========== InitializeWebViewAsync COMPLETE ==========");
     }
 
     /// <summary>
@@ -811,18 +882,22 @@ public sealed partial class MainWindow : Window
 
     private void OnNavigationCompleted(WebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
+        Logger.Log($"========== NAVIGATION COMPLETED ==========");
+        Logger.Log($"Success: {args.IsSuccess}, Error: {args.WebErrorStatus}");
+        
         DispatcherQueue.TryEnqueue(() =>
         {
             if (args.IsSuccess)
             {
                 var uri = sender.Source.ToString();
+                Logger.Log($"✓ Navigation successful to: {uri}");
                 ShowStatus("Navigation Complete", uri);
-                Logger.Log($"Navigation completed: {uri}");
                 
                 // Update current URL tracking (but don't store about:blank)
                 if (!uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
                 {
                     _currentUrl = uri;
+                    Logger.Log($"Current URL updated to: {_currentUrl}");
                     
                     // Update URL textbox if in debug mode
                     if (_isDebugMode && UrlTextBox != null)
@@ -841,33 +916,41 @@ public sealed partial class MainWindow : Window
                 if (!string.IsNullOrEmpty(title))
                 {
                     this.Title = _isDebugMode ? $"[DEBUG] {title}" : "OneRoom Health Kiosk";
+                    Logger.Log($"Window title updated to: {this.Title}");
                 }
                 
+                Logger.Log("Hiding status overlay after successful navigation");
                 HideStatus();
             }
             else
             {
+                Logger.Log($"✗ Navigation FAILED: {args.WebErrorStatus}");
                 ShowStatus("Navigation Failed", $"Error: {args.WebErrorStatus}");
-                Logger.Log($"Navigation failed: {args.WebErrorStatus}");
             }
         });
     }
 
     private void ShowStatus(string title, string? detail = null)
     {
+        Logger.Log($"[STATUS] SHOWING: {title} - {detail}");
+        Debug.WriteLine($"[STATUS] SHOWING: {title} - {detail}");
         DispatcherQueue.TryEnqueue(() =>
         {
             StatusTitle.Text = title;
             StatusDetail.Text = detail ?? string.Empty;
             StatusOverlay.Visibility = Visibility.Visible;
+            Logger.Log($"[STATUS] StatusOverlay.Visibility set to VISIBLE");
         });
     }
 
     private void HideStatus()
     {
+        Logger.Log("[STATUS] HIDING status overlay");
+        Debug.WriteLine("[STATUS] HIDING status overlay");
         DispatcherQueue.TryEnqueue(() =>
         {
             StatusOverlay.Visibility = Visibility.Collapsed;
+            Logger.Log("[STATUS] StatusOverlay.Visibility set to COLLAPSED");
         });
     }
 
