@@ -780,33 +780,81 @@ public sealed partial class MainWindow : Window
     private async Task EnterDebugMode()
     {
         Logger.LogSecurityEvent("EnterDebugMode", "Entering debug mode");
-        ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+I to exit.");
+        ShowStatus("DEBUG MODE", "Initializing debug mode...");
 
-        await Task.Run(() =>
+        try
         {
+            // In video mode, stop video and show WebView
+            if (_isVideoMode && _videoController != null)
+            {
+                await _videoController.StopAsync();
+                var tcs = new TaskCompletionSource<bool>();
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    KioskWebView.Visibility = Visibility.Visible;
+                    tcs.SetResult(true);
+                });
+                await tcs.Task;
+            }
+
+            // Ensure WebView2 is initialized before showing debug panel
+            if (KioskWebView == null)
+            {
+                Logger.Log("KioskWebView is null, cannot enter debug mode");
+                ShowStatus("Error", "WebView2 control is not available");
+                return;
+            }
+
+            if (KioskWebView.CoreWebView2 == null)
+            {
+                Logger.Log("WebView2 not initialized, initializing now...");
+                ShowStatus("DEBUG MODE", "Initializing WebView2...");
+                
+                try
+                {
+                    await KioskWebView.EnsureCoreWebView2Async();
+                    SetupWebView();
+                    
+                    // Navigate to default URL if we don't have a current URL
+                    if (string.IsNullOrEmpty(_currentUrl))
+                    {
+                        _currentUrl = _config.Kiosk.DefaultUrl;
+                        KioskWebView.Source = new Uri(_currentUrl);
+                    }
+                    
+                    Logger.Log("WebView2 initialized successfully");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Failed to initialize WebView2: {ex.Message}");
+                    ShowStatus("Error", $"Failed to initialize WebView2: {ex.Message}");
+                    return;
+                }
+            }
+
+            // Now WebView2 is guaranteed to be ready - show debug panel and configure window
+            var uiTcs = new TaskCompletionSource<bool>();
             DispatcherQueue.TryEnqueue(() =>
             {
                 try
                 {
-                    // In video mode, stop video and show WebView
-                    if (_isVideoMode && _videoController != null)
-                    {
-                        _ = _videoController.StopAsync();
-                        KioskWebView.Visibility = Visibility.Visible;
-                    }
-
                     // Show debug navigation panel
                     DebugPanel.Visibility = Visibility.Visible;
                     
                     // Adjust WebView margin to make room for navigation panel
-                    KioskWebView.Margin = new Thickness(0, 80, 0, 0);
+                    if (KioskWebView != null)
+                        KioskWebView.Margin = new Thickness(0, 80, 0, 0);
                     
                     // Update URL textbox with current URL
                     if (!string.IsNullOrEmpty(_currentUrl))
                     {
                         UrlTextBox.Text = _currentUrl;
                     }
-                    
+                    else if (KioskWebView?.Source != null)
+                    {
+                        UrlTextBox.Text = KioskWebView.Source.ToString();
+                    }
+
                     // Enable WebView2 developer features
                     if (KioskWebView?.CoreWebView2?.Settings != null)
                     {
@@ -846,15 +894,25 @@ public sealed partial class MainWindow : Window
                     _isDebugMode = true;
                     Logger.Log("Debug mode enabled");
                     
-                    _ = Task.Delay(2000).ContinueWith(_ => HideStatus());
+                    ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+I to exit.");
+                    _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+                    
+                    uiTcs.SetResult(true);
                 }
                 catch (Exception ex)
                 {
-                    Logger.Log($"Error entering debug mode: {ex.Message}");
+                    Logger.Log($"Error configuring debug mode UI: {ex.Message}");
                     ShowStatus("Debug Mode Error", ex.Message);
+                    uiTcs.SetException(ex);
                 }
             });
-        });
+            await uiTcs.Task;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error entering debug mode: {ex.Message}");
+            ShowStatus("Error", $"Failed to enter debug mode: {ex.Message}");
+        }
     }
 
     /// <summary>
