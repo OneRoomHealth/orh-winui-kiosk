@@ -1,9 +1,31 @@
-# Critical Fixes - November 18, 2025
+# Critical Fixes - November 18-19, 2025
 
 ## Overview
 This document describes critical fixes applied to resolve major issues with the OneRoom Health Kiosk application.
 
-## Latest Fix - Dynamic Mode Switching (v1.0.40)
+## Latest Fix - Monitor Indexing and Switching (v1.0.41)
+
+### Issue
+- Monitor indexing mismatch: The main window used 1-based indexing directly while MPV video player converted to 0-based
+- This caused the screensaver and video to appear on different monitors
+- No way to switch monitors at runtime without restarting the app
+
+### Solution
+- Fixed monitor indexing to properly convert from 1-based config values to 0-based display array indices
+- Added "Switch Monitor" button in debug mode to cycle through available displays
+- Video controller is recreated when switching monitors to ensure proper playback
+
+### Changes Made
+1. Added `_currentMonitorIndex` field to track the active monitor
+2. Updated `ConfigureAsKioskWindow` to convert from 1-based to 0-based indexing
+3. Added `SwitchMonitorButton` to debug panel
+4. Implemented `SwitchMonitorButton_Click` handler that:
+   - Cycles through available monitors
+   - Recreates video controller with new monitor index
+   - Moves window to selected monitor
+   - Restarts video if it was playing
+
+## Previous Fix - Dynamic Mode Switching (v1.0.40)
 
 ### Issue
 - The app was starting based on config.videoMode.enabled, but user wanted it to always start in screensaver mode
@@ -13,7 +35,9 @@ This document describes critical fixes applied to resolve major issues with the 
 - App now **always** starts in screensaver mode (WebView visible) regardless of config
 - Video controller is initialized if video configuration is present
 - New hotkey functionality:
-  - **Ctrl+Alt+D**: Switch to video mode (hides WebView, starts video)
+  - **Ctrl+Alt+D**: 
+    - From screensaver mode: Switches to video mode (hides WebView, starts carescape video)
+    - From video mode: Toggles between carescape and demo videos
   - **Ctrl+Alt+E**: Switch to screensaver mode (stops video, shows WebView)
   - **Ctrl+Alt+R**: Restart carescape video (only works in video mode)
 
@@ -23,6 +47,9 @@ This document describes critical fixes applied to resolve major issues with the 
 3. Added `SwitchToVideoMode()` and `SwitchToScreensaverMode()` methods
 4. Updated all hotkey handlers to use the new mode switching methods
 5. Updated logging to reflect the new "Mode Toggle Controls"
+6. Modified `SwitchToVideoMode()` to handle dual functionality:
+   - When not in video mode: switches to video mode and starts carescape
+   - When already in video mode: toggles between carescape and demo videos
 
 ## Previous Issues Fixed
 

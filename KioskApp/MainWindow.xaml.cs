@@ -54,6 +54,7 @@ public sealed partial class MainWindow : Window
     private bool _isVideoMode = false;
     private string? _currentUrl = null;
     private bool _logsVisible = false;
+    private int _currentMonitorIndex = 0;
 
     // Win32 API imports
     [DllImport("user32.dll")]
@@ -123,10 +124,13 @@ public sealed partial class MainWindow : Window
         _isVideoMode = false;
         Logger.Log("Starting in screensaver mode (default)");
         
+        // Initialize current monitor index from config
+        _currentMonitorIndex = _config.Kiosk.TargetMonitorIndex;
+        
         // Initialize video controller if video configuration exists (even if not enabled)
         if (_config.Kiosk.VideoMode != null)
         {
-            _videoController = new VideoController(_config.Kiosk.VideoMode, _config.Kiosk.TargetMonitorIndex);
+            _videoController = new VideoController(_config.Kiosk.VideoMode, _currentMonitorIndex);
             Logger.Log("Video controller initialized (available for hotkey activation)");
         }
 
@@ -164,7 +168,7 @@ public sealed partial class MainWindow : Window
             Debug.WriteLine("MainWindow_Activated event fired (first activation)");
             Logger.Log("MainWindow.Activated event fired");
             Logger.Log($"Video mode: {_isVideoMode}");
-            Logger.Log($"Target monitor index: {_config.Kiosk.TargetMonitorIndex}");
+            Logger.Log($"Target monitor index: {_currentMonitorIndex} (1-based)");
             
             // Configure kiosk window after it's activated
             ConfigureAsKioskWindow();
@@ -210,9 +214,9 @@ public sealed partial class MainWindow : Window
             if (_videoController != null)
             {
                 Logger.Log("  Mode Toggle Controls:");
-                Logger.Log("    Switch to VIDEO MODE: Ctrl+Alt+D");
-                Logger.Log("    Switch to SCREENSAVER MODE: Ctrl+Alt+E");
-                Logger.Log("    Restart Carescape (video mode only): Ctrl+Alt+R");
+                Logger.Log("    Ctrl+Alt+D: Switch to VIDEO MODE / Toggle between videos");
+                Logger.Log("    Ctrl+Alt+E: Switch to SCREENSAVER MODE");
+                Logger.Log("    Ctrl+Alt+R: Restart Carescape video (video mode only)");
             }
             Logger.Log("======================");
         }
@@ -295,7 +299,10 @@ public sealed partial class MainWindow : Window
                     {
                         case VirtualKey.D:
                             handled = true;
-                            Logger.Log("Switch to VIDEO MODE (Ctrl+Alt+D) via keyboard hook");
+                            if (_isVideoMode)
+                                Logger.Log("Toggle video source (Ctrl+Alt+D) via keyboard hook");
+                            else
+                                Logger.Log("Switch to VIDEO MODE (Ctrl+Alt+D) via keyboard hook");
                             DispatcherQueue.TryEnqueue(async () => await SwitchToVideoMode());
                             break;
                         case VirtualKey.E:
@@ -374,7 +381,10 @@ public sealed partial class MainWindow : Window
                     if (e.Key == VirtualKey.D)
                     {
                         e.Handled = true;
-                        Logger.Log("Switch to VIDEO MODE (Ctrl+Alt+D) via PreviewKeyDown");
+                        if (_isVideoMode)
+                            Logger.Log("Toggle video source (Ctrl+Alt+D) via PreviewKeyDown");
+                        else
+                            Logger.Log("Switch to VIDEO MODE (Ctrl+Alt+D) via PreviewKeyDown");
                         await SwitchToVideoMode();
                     }
                     else if (e.Key == VirtualKey.E)
@@ -468,7 +478,10 @@ public sealed partial class MainWindow : Window
                 videoModeAccel.Invoked += async (s, e) =>
                 {
                     e.Handled = true;
-                    Logger.Log("Video mode accelerator invoked");
+                    if (_isVideoMode)
+                        Logger.Log("Toggle video source accelerator invoked");
+                    else
+                        Logger.Log("Switch to video mode accelerator invoked");
                     await SwitchToVideoMode();
                 };
                 content.KeyboardAccelerators.Add(videoModeAccel);
@@ -580,15 +593,18 @@ public sealed partial class MainWindow : Window
             
             // Select target display
             DisplayArea targetDisplay;
-            int targetMonitorIndex = _config.Kiosk.TargetMonitorIndex;
+            int targetMonitorIndex = _currentMonitorIndex > 0 ? _currentMonitorIndex : _config.Kiosk.TargetMonitorIndex;
             Logger.Log($"========== MONITOR SELECTION ==========");
-            Logger.Log($"Configured target monitor index: {targetMonitorIndex}");
+            Logger.Log($"Configured target monitor index: {targetMonitorIndex} (1-based)");
             
-            if (targetMonitorIndex >= 0 && targetMonitorIndex < allDisplays.Count)
+            // Convert from 1-based config index to 0-based display index
+            int displayIndex = targetMonitorIndex > 0 ? targetMonitorIndex - 1 : 0;
+            
+            if (displayIndex >= 0 && displayIndex < allDisplays.Count)
             {
-                targetDisplay = allDisplays[targetMonitorIndex];
-                Debug.WriteLine($"Using configured monitor index {targetMonitorIndex}");
-                Logger.Log($"✓ Using configured monitor index {targetMonitorIndex}");
+                targetDisplay = allDisplays[displayIndex];
+                Debug.WriteLine($"Using monitor index {targetMonitorIndex} (display array index {displayIndex})");
+                Logger.Log($"✓ Using monitor index {targetMonitorIndex} (display array index {displayIndex})");
                 Logger.Log($"  Target display ID: {targetDisplay.DisplayId.Value}");
                 Logger.Log($"  Target bounds: {targetDisplay.OuterBounds.X}, {targetDisplay.OuterBounds.Y}, {targetDisplay.OuterBounds.Width}x{targetDisplay.OuterBounds.Height}");
             }
@@ -1230,13 +1246,18 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Switches from screensaver mode to video mode.
+    /// Switches from screensaver mode to video mode or toggles videos if already in video mode.
     /// </summary>
     private async Task SwitchToVideoMode()
     {
         if (_isVideoMode)
         {
-            Logger.Log("Already in video mode");
+            // Already in video mode - toggle between videos
+            Logger.Log("Already in video mode - toggling video source");
+            if (_videoController != null)
+            {
+                await _videoController.HandleFlicButtonPressAsync();
+            }
             return;
         }
 
@@ -1567,6 +1588,90 @@ public sealed partial class MainWindow : Window
     private void ViewLogsButton_Click(object sender, RoutedEventArgs e)
     {
         ToggleLogViewer();
+    }
+
+    private async void SwitchMonitorButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            // Get available displays
+            var allDisplays = DisplayArea.FindAll().ToList();
+            if (allDisplays.Count <= 1)
+            {
+                Logger.Log("Only one display available, cannot switch monitors");
+                var singleDisplayDialog = new ContentDialog
+                {
+                    Title = "Single Display",
+                    Content = "Only one display is available. Cannot switch monitors.",
+                    CloseButtonText = "OK",
+                    XamlRoot = this.Content.XamlRoot
+                };
+                await singleDisplayDialog.ShowAsync();
+                return;
+            }
+
+            // Cycle to next monitor (1-based indexing)
+            _currentMonitorIndex++;
+            if (_currentMonitorIndex > allDisplays.Count)
+            {
+                _currentMonitorIndex = 1;
+            }
+
+            Logger.Log($"========== SWITCHING TO MONITOR {_currentMonitorIndex} ==========");
+            
+            // Update video controller if it exists
+            if (_videoController != null)
+            {
+                // Store current video state
+                bool wasInVideoMode = _isVideoMode;
+                
+                // Stop current video if playing
+                if (wasInVideoMode)
+                {
+                    await _videoController.StopAsync();
+                }
+                
+                // Dispose old controller
+                _videoController.Dispose();
+                
+                // Create new video controller with updated monitor index
+                _videoController = new VideoController(_config.Kiosk.VideoMode, _currentMonitorIndex);
+                await _videoController.InitializeAsync();
+                Logger.Log($"Video controller recreated for monitor {_currentMonitorIndex}");
+                
+                // If was in video mode, restart video on new monitor
+                if (wasInVideoMode)
+                {
+                    await _videoController.HandleFlicButtonPressAsync();
+                    Logger.Log("Restarted video on new monitor");
+                }
+            }
+            
+            // Move window to new monitor
+            ConfigureAsKioskWindow();
+            
+            // Show confirmation
+            var dialog = new ContentDialog
+            {
+                Title = "Monitor Switched",
+                Content = $"Moved to monitor {_currentMonitorIndex} of {allDisplays.Count}",
+                CloseButtonText = "OK",
+                XamlRoot = this.Content.XamlRoot
+            };
+            await dialog.ShowAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error switching monitors: {ex.Message}");
+            var errorDialog = new ContentDialog
+            {
+                Title = "Error",
+                Content = $"Failed to switch monitors: {ex.Message}",
+                CloseButtonText = "OK",
+                XamlRoot = this.Content.XamlRoot
+            };
+            await errorDialog.ShowAsync();
+        }
     }
 
     private void ToggleLogViewer()
