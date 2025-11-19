@@ -3,23 +3,31 @@
 ## Overview
 This document describes critical fixes applied to resolve major issues with the OneRoom Health Kiosk application.
 
-## Latest Fix - Window Sizing Issues (v1.0.45)
+## Latest Fix - Window Sizing Issues (v1.0.46)
 
 ### Issues
 1. When pressing Ctrl+Alt+E to return to screensaver mode, the window was not properly entering fullscreen - taskbar was visible
 2. After exiting debug mode, the screensaver was displaying at quarter screen size in the upper left corner
 
+### Root Cause
+The window presenter needs to be set to FullScreen BEFORE calling `ConfigureAsKioskWindow()`. When configuring the window while it's still in Overlapped mode, the sizing doesn't apply correctly.
+
 ### Solution
-1. Added explicit fullscreen presenter setting in `SwitchToScreensaverMode()` after calling `ConfigureAsKioskWindow()`
-2. Removed redundant `ConfigureAsKioskWindow()` call in `ExitDebugMode()` delayed task that was causing sizing conflicts
+1. Modified `SwitchToScreensaverMode()` to:
+   - Set AppWindow presenter to FullScreen FIRST
+   - Wait 100ms for presenter change to take effect
+   - Then call `ConfigureAsKioskWindow()` to properly size the window
+   - Re-verify fullscreen after configuration
+2. Modified `ExitDebugMode()` to:
+   - Restructure to set fullscreen presenter FIRST
+   - Wait 100ms before configuring
+   - Then call `ConfigureAsKioskWindow()` to properly size the window
+   - Re-verify fullscreen after configuration
 
 ### Changes Made
-1. Modified `SwitchToScreensaverMode()` to:
-   - Set AppWindow presenter to FullScreen after ConfigureAsKioskWindow
-   - Ensures proper fullscreen mode when returning from video mode
-2. Modified `ExitDebugMode()` delayed task to:
-   - Only verify fullscreen mode instead of reconfiguring
-   - Prevents window sizing conflicts that caused quarter-screen issue
+1. Modified `SwitchToScreensaverMode()` to set fullscreen before configuring
+2. Restructured `ExitDebugMode()` to properly sequence fullscreen setting and window configuration
+3. Added proper async/await handling for the delayed operations
 
 ## Previous Fix - Video Stop Cancellation Error (v1.0.44)
 

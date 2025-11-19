@@ -1142,8 +1142,10 @@ public sealed partial class MainWindow : Window
     {
         Logger.LogSecurityEvent("ExitDebugMode", "Exiting debug mode");
 
+        // First, do UI cleanup on the dispatcher thread
         await Task.Run(() =>
         {
+            var uiTcs = new TaskCompletionSource<bool>();
             DispatcherQueue.TryEnqueue(() =>
             {
                 try
@@ -1181,14 +1183,41 @@ public sealed partial class MainWindow : Window
                     // Update window title
                     this.Title = "OneRoom Health Kiosk";
 
-                    // Restore kiosk window configuration (this sets up the window properly)
+                    // Set fullscreen presenter FIRST before configuring
+                    if (_appWindow != null)
+                    {
+                        _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                        Logger.Log("Set presenter to FullScreen before configuration");
+                    }
+
+                    uiTcs.SetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Error in ExitDebugMode UI cleanup: {ex.Message}");
+                    uiTcs.SetException(ex);
+                }
+            });
+            return uiTcs.Task;
+        });
+
+        // Wait a moment for presenter change to take effect
+        await Task.Delay(100);
+
+        // Now restore kiosk window configuration (this will properly size it)
+        await Task.Run(() =>
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
                     ConfigureAsKioskWindow();
 
-                    // Ensure we're in fullscreen mode after configuration
+                    // Verify fullscreen is still set
                     if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
                     {
                         _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                        Logger.Log("Set presenter to FullScreen after ConfigureAsKioskWindow");
+                        Logger.Log("Re-ensured fullscreen mode after ConfigureAsKioskWindow");
                     }
                     
                     // Wait a moment then verify fullscreen is properly applied
@@ -1316,15 +1345,28 @@ public sealed partial class MainWindow : Window
                 Logger.Log("Video stopped");
             }
 
-            // Ensure window is in fullscreen kiosk mode
+            // Set fullscreen presenter FIRST before configuring
+            if (_appWindow != null)
+            {
+                if (_appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
+                {
+                    _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                    Logger.Log("Set presenter to FullScreen mode");
+                }
+                
+                // Wait a moment for presenter change to take effect
+                await Task.Delay(100);
+            }
+
+            // Now configure the window (this will properly size it for fullscreen)
             ConfigureAsKioskWindow();
             Logger.Log("Window configured for fullscreen kiosk mode");
 
-            // Ensure we're in fullscreen mode
+            // Ensure fullscreen is still set (in case ConfigureAsKioskWindow changed something)
             if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
             {
                 _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                Logger.Log("Set presenter to FullScreen mode");
+                Logger.Log("Re-ensured fullscreen mode after configuration");
             }
 
             // Show the WebView and navigate to screensaver URL
