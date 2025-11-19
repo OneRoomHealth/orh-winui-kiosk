@@ -3,7 +3,25 @@
 ## Overview
 This document describes critical fixes applied to resolve major issues with the OneRoom Health Kiosk application.
 
-## Latest Fix - Monitor Indexing and Switching (v1.0.41)
+## Latest Fix - Screensaver Navigation and Tooltip (v1.0.42)
+
+### Issues
+1. When pressing Ctrl+Alt+E to return to screensaver mode, the WebView was shown but not navigated to any URL, resulting in a blank screen
+2. The window wasn't ensuring fullscreen mode when returning to screensaver
+3. A "Ctrl+Shift+I" tooltip was appearing on startup
+
+### Solution
+1. Modified `SwitchToScreensaverMode` to navigate back to the screensaver URL when switching modes
+2. Added `ConfigureAsKioskWindow()` call to ensure fullscreen when returning to screensaver
+3. Added `KeyboardAcceleratorPlacementMode="Hidden"` to the main Grid to disable accelerator tooltips
+
+### Changes Made
+1. Updated `SwitchToScreensaverMode` method to:
+   - Call `ConfigureAsKioskWindow()` to ensure fullscreen
+   - Navigate WebView to current or default URL
+2. Modified `MainWindow.xaml` to hide keyboard accelerator tooltips
+
+## Previous Fix - Monitor Indexing and Switching (v1.0.41)
 
 ### Issue
 - Monitor indexing mismatch: The main window used 1-based indexing directly while MPV video player converted to 0-based

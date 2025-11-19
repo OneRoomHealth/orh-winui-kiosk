@@ -1316,7 +1316,11 @@ public sealed partial class MainWindow : Window
                 Logger.Log("Video stopped");
             }
 
-            // Show the WebView
+            // Ensure window is in fullscreen kiosk mode
+            ConfigureAsKioskWindow();
+            Logger.Log("Window configured for fullscreen kiosk mode");
+
+            // Show the WebView and navigate to screensaver URL
             await Task.Run(() =>
             {
                 DispatcherQueue.TryEnqueue(() =>
@@ -1325,6 +1329,19 @@ public sealed partial class MainWindow : Window
                     {
                         KioskWebView.Visibility = Visibility.Visible;
                         Logger.Log("WebView shown for screensaver mode");
+                        
+                        // Navigate to the screensaver URL
+                        if (!string.IsNullOrEmpty(_currentUrl))
+                        {
+                            KioskWebView.Source = new Uri(_currentUrl);
+                            Logger.Log($"Navigating back to: {_currentUrl}");
+                        }
+                        else if (!string.IsNullOrEmpty(_config.Kiosk.DefaultUrl))
+                        {
+                            _currentUrl = _config.Kiosk.DefaultUrl;
+                            KioskWebView.Source = new Uri(_currentUrl);
+                            Logger.Log($"Navigating to default URL: {_currentUrl}");
+                        }
                     }
                 });
             });
