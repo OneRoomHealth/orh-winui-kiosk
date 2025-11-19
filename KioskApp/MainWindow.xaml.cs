@@ -1191,16 +1191,16 @@ public sealed partial class MainWindow : Window
                         Logger.Log("Set presenter to FullScreen after ConfigureAsKioskWindow");
                     }
                     
-                    // Wait a moment then ensure fullscreen is properly applied
+                    // Wait a moment then verify fullscreen is properly applied
                     _ = Task.Delay(100).ContinueWith(_ =>
                     {
                         DispatcherQueue.TryEnqueue(() =>
                         {
-                            // Re-run ConfigureAsKioskWindow to ensure proper sizing after presenter change
-                            if (_appWindow != null && _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
+                            // Just verify we're still in fullscreen, don't reconfigure (reconfiguring causes sizing issues)
+                            if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
                             {
-                                ConfigureAsKioskWindow();
-                                Logger.Log("Re-ran ConfigureAsKioskWindow to ensure fullscreen sizing");
+                                _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                                Logger.Log("Ensured fullscreen mode after delay");
                             }
                         });
                     });
@@ -1319,6 +1319,13 @@ public sealed partial class MainWindow : Window
             // Ensure window is in fullscreen kiosk mode
             ConfigureAsKioskWindow();
             Logger.Log("Window configured for fullscreen kiosk mode");
+
+            // Ensure we're in fullscreen mode
+            if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
+            {
+                _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+                Logger.Log("Set presenter to FullScreen mode");
+            }
 
             // Show the WebView and navigate to screensaver URL
             await Task.Run(() =>
