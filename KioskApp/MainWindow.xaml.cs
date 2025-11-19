@@ -1423,16 +1423,22 @@ public sealed partial class MainWindow : Window
     {
         try
         {
+            Logger.Log("========== APPLICATION EXIT START ==========");
+            
             // Stop video controller if active
             if (_videoController != null)
             {
+                Logger.Log("Stopping video controller...");
                 await _videoController.StopAsync();
+                _videoController.Dispose();
+                Logger.Log("Video controller stopped");
             }
             
             // TODO: Stop API server when implemented
             // _apiServer?.Dispose();
             
             // Stop command server if running
+            Logger.Log("Stopping command server...");
             LocalCommandServer.Stop();
             
             // Unhook keyboard hook
@@ -1443,15 +1449,27 @@ public sealed partial class MainWindow : Window
                 Logger.Log("Keyboard hook removed");
             }
             
-            // Close the window
-            this.Close();
+            Logger.Log("Closing application window...");
             
-            // Exit the application
-            Microsoft.UI.Xaml.Application.Current.Exit();
+            // Use dispatcher to ensure we're on the UI thread
+            await Task.Run(() =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    // First close the window
+                    this.Close();
+                    
+                    // Then exit the application - use Environment.Exit for reliable shutdown
+                    Logger.Log("Exiting application process...");
+                    Environment.Exit(0);
+                });
+            });
         }
         catch (Exception ex)
         {
             Logger.Log($"Error during cleanup: {ex.Message}");
+            // Force exit even if cleanup fails
+            Environment.Exit(1);
         }
     }
 

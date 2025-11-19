@@ -3,7 +3,27 @@
 ## Overview
 This document describes critical fixes applied to resolve major issues with the OneRoom Health Kiosk application.
 
-## Latest Fix - Screensaver Navigation and Tooltip (v1.0.42)
+## Latest Fix - Application Exit (v1.0.43)
+
+### Issue
+- After entering the correct password with Ctrl+Shift+Q, the application was not properly exiting
+- The window close and application exit calls were not working reliably in WinUI 3
+
+### Solution
+- Replaced `Application.Current.Exit()` with `Environment.Exit(0)` for reliable process termination
+- Added proper disposal of video controller
+- Enhanced logging to track the exit process
+- Added fallback exit in error handler
+
+### Changes Made
+1. Modified `CleanupAndExit()` method to:
+   - Add comprehensive logging of exit steps
+   - Properly dispose video controller
+   - Use dispatcher for UI thread operations
+   - Replace unreliable WinUI exit with `Environment.Exit(0)`
+   - Add fallback `Environment.Exit(1)` in catch block
+
+## Previous Fix - Screensaver Navigation and Tooltip (v1.0.42)
 
 ### Issues
 1. When pressing Ctrl+Alt+E to return to screensaver mode, the WebView was shown but not navigated to any URL, resulting in a blank screen
