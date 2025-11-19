@@ -5,6 +5,7 @@ using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
 using WinRT.Interop;
@@ -63,7 +64,10 @@ public sealed partial class MainWindow : Window
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-
+    
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+    
     [StructLayout(LayoutKind.Sequential)]
     private struct RECT
     {
@@ -72,9 +76,6 @@ public sealed partial class MainWindow : Window
         public int Right;
         public int Bottom;
     }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
     [DllImport("user32.dll")]
     private static extern short GetKeyState(int nVirtKey);
@@ -540,6 +541,7 @@ public sealed partial class MainWindow : Window
         Logger.Log("========== ConfigureAsKioskWindow START ==========");
         _hwnd = WindowNative.GetWindowHandle(this);
         var windowId = Win32Interop.GetWindowIdFromWindow(_hwnd);
+        Logger.Log($"Window HWND: {_hwnd}");
         Logger.Log($"Window ID: {windowId.Value}");
         _appWindow = AppWindow.GetFromWindowId(windowId);
         Logger.Log($"AppWindow retrieved: {_appWindow != null}");
@@ -572,8 +574,23 @@ public sealed partial class MainWindow : Window
             {
                 var display = allDisplays[i];
                 var dispBounds = display.OuterBounds;
+                var workArea = display.WorkArea;
                 Debug.WriteLine($"  Display {i}: {dispBounds.Width}x{dispBounds.Height} at ({dispBounds.X}, {dispBounds.Y})");
                 Logger.Log($"  Display {i}: {dispBounds.Width}x{dispBounds.Height} at ({dispBounds.X}, {dispBounds.Y})");
+                Logger.Log($"    Display ID: {display.DisplayId.Value}");
+                Logger.Log($"    Work Area: {workArea.Width}x{workArea.Height} at ({workArea.X}, {workArea.Y})");
+                Logger.Log($"    Is Primary: {display.IsPrimary}");
+                
+                // Try to get additional monitor info
+                try
+                {
+                    var currentWindowDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.None);
+                    if (currentWindowDisplay != null && currentWindowDisplay.DisplayId == display.DisplayId)
+                    {
+                        Logger.Log($"    *** CURRENT WINDOW IS ON THIS DISPLAY ***");
+                    }
+                }
+                catch { }
             }
             
             // Select target display
@@ -636,10 +653,18 @@ public sealed partial class MainWindow : Window
                                 Logger.Log($"Current display: {(currentDisplay != null ? currentDisplay.DisplayId.Value.ToString() : "NULL")}");
                                 Logger.Log($"Target display: {targetDisplay.DisplayId.Value}");
                                 
+                                // Also check actual window position
+                                RECT windowRect;
+                                if (GetWindowRect(_hwnd, out windowRect))
+                                {
+                                    Logger.Log($"  Actual window position: X={windowRect.Left}, Y={windowRect.Top}, W={windowRect.Right - windowRect.Left}, H={windowRect.Bottom - windowRect.Top}");
+                                }
+                                
                                 if (currentDisplay == null || currentDisplay.DisplayId != targetDisplay.DisplayId)
                                 {
                                     Logger.Log("✗ Window is NOT on target display!");
                                     Logger.Log($"  Expected display ID: {targetDisplay.DisplayId.Value}");
+                                    Logger.Log($"  Expected position: X={bounds.X}, Y={bounds.Y}");
                                     Logger.Log($"  Actual display ID: {(currentDisplay != null ? currentDisplay.DisplayId.Value.ToString() : "NULL")}");
                                     Logger.Log("  Attempting to reposition window...");
                                     
@@ -895,7 +920,8 @@ public sealed partial class MainWindow : Window
             {
                 var uri = sender.Source.ToString();
                 Logger.Log($"✓ Navigation successful to: {uri}");
-                ShowStatus("Navigation Complete", uri);
+                // Don't show status overlay for successful navigation - it blocks the content
+                // ShowStatus("Navigation Complete", uri);
                 
                 // Update current URL tracking (but don't store about:blank)
                 if (!uri.Equals("about:blank", StringComparison.OrdinalIgnoreCase))
