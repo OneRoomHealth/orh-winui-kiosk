@@ -1,9 +1,30 @@
 # Critical Fixes - November 18, 2025
 
 ## Overview
-This document describes critical fixes applied to resolve three major issues with the OneRoom Health Kiosk application.
+This document describes critical fixes applied to resolve major issues with the OneRoom Health Kiosk application.
 
-## Issues Fixed
+## Latest Fix - Dynamic Mode Switching (v1.0.40)
+
+### Issue
+- The app was starting based on config.videoMode.enabled, but user wanted it to always start in screensaver mode
+- User needed the ability to switch between screensaver and video modes dynamically using hotkeys
+
+### Solution
+- App now **always** starts in screensaver mode (WebView visible) regardless of config
+- Video controller is initialized if video configuration is present
+- New hotkey functionality:
+  - **Ctrl+Alt+D**: Switch to video mode (hides WebView, starts video)
+  - **Ctrl+Alt+E**: Switch to screensaver mode (stops video, shows WebView)
+  - **Ctrl+Alt+R**: Restart carescape video (only works in video mode)
+
+### Changes Made
+1. Modified constructor to always start with `_isVideoMode = false`
+2. Updated `InitializeWebViewAsync` to always show WebView and initialize video controller if available
+3. Added `SwitchToVideoMode()` and `SwitchToScreensaverMode()` methods
+4. Updated all hotkey handlers to use the new mode switching methods
+5. Updated logging to reflect the new "Mode Toggle Controls"
+
+## Previous Issues Fixed
 
 ### 1. Blank White Screen on Startup
 

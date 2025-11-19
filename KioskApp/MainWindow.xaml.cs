@@ -119,14 +119,15 @@ public sealed partial class MainWindow : Window
         // Subscribe to log events for real-time updates
         Logger.LogAdded += OnLogAdded;
         
-        // Determine if we're in video mode based on config
-        _isVideoMode = _config.Kiosk.VideoMode?.Enabled ?? false;
-        Logger.Log($"Video mode enabled: {_isVideoMode}");
+        // Always start in screensaver mode (WebView visible)
+        _isVideoMode = false;
+        Logger.Log("Starting in screensaver mode (default)");
         
-        // Initialize video controller if video mode is enabled
-        if (_isVideoMode && _config.Kiosk.VideoMode != null)
+        // Initialize video controller if video configuration exists (even if not enabled)
+        if (_config.Kiosk.VideoMode != null)
         {
             _videoController = new VideoController(_config.Kiosk.VideoMode, _config.Kiosk.TargetMonitorIndex);
+            Logger.Log("Video controller initialized (available for hotkey activation)");
         }
 
         // Hook Activated event - do all initialization there when window is fully ready
@@ -206,12 +207,12 @@ public sealed partial class MainWindow : Window
                 Logger.Log($"  Debug Mode: {_config.Debug.Hotkey} (configured) / Ctrl+Shift+I (handled)");
             if (_config.Exit.Enabled)
                 Logger.Log($"  Exit Kiosk: {_config.Exit.Hotkey} (configured) / Ctrl+Shift+Q (handled)");
-            if (_isVideoMode)
+            if (_videoController != null)
             {
-                Logger.Log("  Video Controls:");
-                Logger.Log("    Toggle Video: Ctrl+Alt+D");
-                Logger.Log("    Stop Video: Ctrl+Alt+E");
-                Logger.Log("    Restart Carescape: Ctrl+Alt+R");
+                Logger.Log("  Mode Toggle Controls:");
+                Logger.Log("    Switch to VIDEO MODE: Ctrl+Alt+D");
+                Logger.Log("    Switch to SCREENSAVER MODE: Ctrl+Alt+E");
+                Logger.Log("    Restart Carescape (video mode only): Ctrl+Alt+R");
             }
             Logger.Log("======================");
         }
@@ -281,51 +282,44 @@ public sealed partial class MainWindow : Window
                 Logger.LogSecurityEvent("ExitHotkeyPressed", "User pressed Ctrl+Shift+Q (via keyboard hook)");
                 DispatcherQueue.TryEnqueue(async () => await HandleExitRequest());
             }
-            // Video controls when in video mode
+            // Video/Screensaver mode toggle controls
             else if (ctrlPressed && altPressed && (vkCode == VirtualKey.D || vkCode == VirtualKey.E || vkCode == VirtualKey.R))
             {
                 // Add detailed logging for debugging
-                Logger.Log($"[HOTKEY DEBUG] Video hotkey detected: Key={vkCode}, VideoMode={_isVideoMode}, Controller={_videoController != null}, ConfigEnabled={_config.Kiosk.VideoMode?.Enabled ?? false}");
+                Logger.Log($"[HOTKEY DEBUG] Mode toggle hotkey detected: Key={vkCode}, CurrentVideoMode={_isVideoMode}, Controller={_videoController != null}");
                 
-                // Ensure video mode is enabled in config
-                bool configVideoModeEnabled = _config.Kiosk.VideoMode?.Enabled ?? false;
-                
-                // Re-check video mode state if config says it should be enabled but our flag says it's not
-                if (configVideoModeEnabled && !_isVideoMode)
-                {
-                    Logger.Log("[HOTKEY DEBUG] Config says video mode enabled but _isVideoMode is false, re-initializing...");
-                    _isVideoMode = true;
-                    if (_videoController == null && _config.Kiosk.VideoMode != null)
-                    {
-                        _videoController = new VideoController(_config.Kiosk.VideoMode, _config.Kiosk.TargetMonitorIndex);
-                        Logger.Log("Video controller created on-demand for hotkey");
-                    }
-                }
-                
-                if (_isVideoMode && _videoController != null)
+                // Check if video controller is available
+                if (_videoController != null)
                 {
                     switch (vkCode)
                     {
                         case VirtualKey.D:
                             handled = true;
-                            Logger.Log("Flic button pressed (Ctrl+Alt+D) via keyboard hook");
-                            DispatcherQueue.TryEnqueue(async () => await _videoController.HandleFlicButtonPressAsync());
+                            Logger.Log("Switch to VIDEO MODE (Ctrl+Alt+D) via keyboard hook");
+                            DispatcherQueue.TryEnqueue(async () => await SwitchToVideoMode());
                             break;
                         case VirtualKey.E:
                             handled = true;
-                            Logger.Log("Stop video pressed (Ctrl+Alt+E) via keyboard hook");
-                            DispatcherQueue.TryEnqueue(async () => await _videoController.StopAsync());
+                            Logger.Log("Switch to SCREENSAVER MODE (Ctrl+Alt+E) via keyboard hook");
+                            DispatcherQueue.TryEnqueue(async () => await SwitchToScreensaverMode());
                             break;
                         case VirtualKey.R:
                             handled = true;
-                            Logger.Log("Restart carescape pressed (Ctrl+Alt+R) via keyboard hook");
-                            DispatcherQueue.TryEnqueue(async () => await _videoController.RestartCarescapeAsync());
+                            if (_isVideoMode)
+                            {
+                                Logger.Log("Restart carescape pressed (Ctrl+Alt+R) via keyboard hook");
+                                DispatcherQueue.TryEnqueue(async () => await _videoController.RestartCarescapeAsync());
+                            }
+                            else
+                            {
+                                Logger.Log("[HOTKEY WARNING] Ctrl+Alt+R pressed but not in video mode");
+                            }
                             break;
                     }
                 }
                 else
                 {
-                    Logger.Log($"[HOTKEY WARNING] Video hotkey pressed but video mode not active. VideoMode={_isVideoMode}, Controller={_videoController != null}, ConfigEnabled={configVideoModeEnabled}");
+                    Logger.Log($"[HOTKEY WARNING] Video hotkey pressed but no video controller available");
                 }
             }
 
@@ -372,47 +366,40 @@ public sealed partial class MainWindow : Window
             else if (ctrlPressed && altPressed && (e.Key == VirtualKey.D || e.Key == VirtualKey.E || e.Key == VirtualKey.R))
             {
                 // Add detailed logging for debugging
-                Logger.Log($"[HOTKEY DEBUG] Video hotkey detected (PreviewKeyDown): Key={e.Key}, VideoMode={_isVideoMode}, Controller={_videoController != null}, ConfigEnabled={_config.Kiosk.VideoMode?.Enabled ?? false}");
+                Logger.Log($"[HOTKEY DEBUG] Mode toggle hotkey detected (PreviewKeyDown): Key={e.Key}, CurrentVideoMode={_isVideoMode}, Controller={_videoController != null}");
                 
-                // Ensure video mode is enabled in config
-                bool configVideoModeEnabled = _config.Kiosk.VideoMode?.Enabled ?? false;
-                
-                // Re-check video mode state if config says it should be enabled but our flag says it's not
-                if (configVideoModeEnabled && !_isVideoMode)
-                {
-                    Logger.Log("[HOTKEY DEBUG] Config says video mode enabled but _isVideoMode is false, re-initializing...");
-                    _isVideoMode = true;
-                    if (_videoController == null && _config.Kiosk.VideoMode != null)
-                    {
-                        _videoController = new VideoController(_config.Kiosk.VideoMode, _config.Kiosk.TargetMonitorIndex);
-                        Logger.Log("Video controller created on-demand for hotkey");
-                    }
-                }
-                
-                if (_isVideoMode && _videoController != null)
+                // Check if video controller is available
+                if (_videoController != null)
                 {
                     if (e.Key == VirtualKey.D)
                     {
                         e.Handled = true;
-                        Logger.Log("Flic button pressed (Ctrl+Alt+D) via PreviewKeyDown");
-                        await _videoController.HandleFlicButtonPressAsync();
+                        Logger.Log("Switch to VIDEO MODE (Ctrl+Alt+D) via PreviewKeyDown");
+                        await SwitchToVideoMode();
                     }
                     else if (e.Key == VirtualKey.E)
                     {
                         e.Handled = true;
-                        Logger.Log("Stop video pressed (Ctrl+Alt+E) via PreviewKeyDown");
-                        await _videoController.StopAsync();
+                        Logger.Log("Switch to SCREENSAVER MODE (Ctrl+Alt+E) via PreviewKeyDown");
+                        await SwitchToScreensaverMode();
                     }
                     else if (e.Key == VirtualKey.R)
                     {
                         e.Handled = true;
-                        Logger.Log("Restart carescape pressed (Ctrl+Alt+R) via PreviewKeyDown");
-                        await _videoController.RestartCarescapeAsync();
+                        if (_isVideoMode)
+                        {
+                            Logger.Log("Restart carescape pressed (Ctrl+Alt+R) via PreviewKeyDown");
+                            await _videoController.RestartCarescapeAsync();
+                        }
+                        else
+                        {
+                            Logger.Log("[HOTKEY WARNING] Ctrl+Alt+R pressed but not in video mode");
+                        }
                     }
                 }
                 else
                 {
-                    Logger.Log($"[HOTKEY WARNING] Video hotkey pressed but video mode not active (PreviewKeyDown). VideoMode={_isVideoMode}, Controller={_videoController != null}, ConfigEnabled={configVideoModeEnabled}");
+                    Logger.Log($"[HOTKEY WARNING] Video hotkey pressed but no video controller available (PreviewKeyDown)");
                 }
             }
         }
@@ -469,42 +456,36 @@ public sealed partial class MainWindow : Window
             };
             content.KeyboardAccelerators.Add(exitAccel);
 
-            // Video mode accelerators
-            if (_isVideoMode)
+            // Video/Screensaver mode toggle accelerators
+            if (_videoController != null)
             {
-                // Flic button: Ctrl+Alt+D
-                var flicAccel = new KeyboardAccelerator
+                // Switch to video mode: Ctrl+Alt+D
+                var videoModeAccel = new KeyboardAccelerator
                 {
                     Key = VirtualKey.D,
                     Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
                 };
-                flicAccel.Invoked += async (s, e) =>
+                videoModeAccel.Invoked += async (s, e) =>
                 {
                     e.Handled = true;
-                    if (_videoController != null)
-                    {
-                        Logger.Log("Flic accelerator invoked");
-                        await _videoController.HandleFlicButtonPressAsync();
-                    }
+                    Logger.Log("Video mode accelerator invoked");
+                    await SwitchToVideoMode();
                 };
-                content.KeyboardAccelerators.Add(flicAccel);
+                content.KeyboardAccelerators.Add(videoModeAccel);
 
-                // Stop: Ctrl+Alt+E
-                var stopAccel = new KeyboardAccelerator
+                // Switch to screensaver mode: Ctrl+Alt+E
+                var screensaverModeAccel = new KeyboardAccelerator
                 {
                     Key = VirtualKey.E,
                     Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
                 };
-                stopAccel.Invoked += async (s, e) =>
+                screensaverModeAccel.Invoked += async (s, e) =>
                 {
                     e.Handled = true;
-                    if (_videoController != null)
-                    {
-                        Logger.Log("Stop accelerator invoked");
-                        await _videoController.StopAsync();
-                    }
+                    Logger.Log("Screensaver mode accelerator invoked");
+                    await SwitchToScreensaverMode();
                 };
-                content.KeyboardAccelerators.Add(stopAccel);
+                content.KeyboardAccelerators.Add(screensaverModeAccel);
 
                 // Restart: Ctrl+Alt+R
                 var restartAccel = new KeyboardAccelerator
@@ -515,10 +496,14 @@ public sealed partial class MainWindow : Window
                 restartAccel.Invoked += async (s, e) =>
                 {
                     e.Handled = true;
-                    if (_videoController != null)
+                    if (_isVideoMode)
                     {
                         Logger.Log("Restart accelerator invoked");
                         await _videoController.RestartCarescapeAsync();
+                    }
+                    else
+                    {
+                        Logger.Log("[HOTKEY WARNING] Ctrl+Alt+R pressed but not in video mode");
                     }
                 };
                 content.KeyboardAccelerators.Add(restartAccel);
@@ -729,7 +714,7 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Initializes WebView2 and navigates to the configured URL or starts video mode.
+    /// Initializes WebView2 and navigates to the configured URL. Also prepares video controller if available.
     /// </summary>
     private async Task InitializeWebViewAsync()
     {
@@ -743,73 +728,65 @@ public sealed partial class MainWindow : Window
             //     await _apiServer.StartAsync();
             // }
             
-            // Handle video mode vs web mode
-            Logger.Log($"Video mode: {_isVideoMode}");
-            if (_isVideoMode)
+            // Always start in screensaver mode (WebView visible)
+            Logger.Log("Starting in SCREENSAVER MODE (default)");
+            KioskWebView.Visibility = Visibility.Visible;
+            
+            // Initialize WebView2
+            Logger.Log("Initializing WebView2");
+            try
             {
-                // Hide the WebView in video mode
-                Logger.Log("VIDEO MODE: Hiding WebView");
-                KioskWebView.Visibility = Visibility.Collapsed;
-                Logger.Log("WebView hidden for video mode");
+                var version = CoreWebView2Environment.GetAvailableBrowserVersionString();
+                Logger.Log($"WebView2 Runtime version: {version}");
+                ShowStatus("Initializing", "Loading WebView2...");
                 
-                // Initialize video controller (validates paths, doesn't start video)
-                if (_videoController != null)
+                Logger.Log("Ensuring CoreWebView2 is ready...");
+                await KioskWebView.EnsureCoreWebView2Async();
+                Logger.Log("CoreWebView2 is ready, setting up WebView...");
+                
+                SetupWebView();
+                
+                // Navigate to the configured URL
+                _currentUrl = _config.Kiosk.DefaultUrl;
+                Logger.Log($"Setting WebView source to: {_config.Kiosk.DefaultUrl}");
+                KioskWebView.Source = new Uri(_config.Kiosk.DefaultUrl);
+                Logger.Log($"✓ Navigation initiated to: {_config.Kiosk.DefaultUrl}");
+                
+                // Add a fallback to hide status after a timeout in case navigation doesn't complete
+                Logger.Log("Starting 3-second timeout fallback for status overlay");
+                _ = Task.Delay(3000).ContinueWith(_ => 
                 {
-                    await _videoController.InitializeAsync();
-                    Logger.Log("Video controller ready (waiting for Flic button or trigger)");
-                }
-            }
-            else
-            {
-                // Web mode - ensure WebView2 runtime is available
-                Logger.Log("WEB MODE: Initializing WebView2");
-                try
-                {
-                    var version = CoreWebView2Environment.GetAvailableBrowserVersionString();
-                    Logger.Log($"WebView2 Runtime version: {version}");
-                    ShowStatus("Initializing", "Loading WebView2...");
-                    
-                    Logger.Log("Ensuring CoreWebView2 is ready...");
-                    await KioskWebView.EnsureCoreWebView2Async();
-                    Logger.Log("CoreWebView2 is ready, setting up WebView...");
-                    
-                    SetupWebView();
-                    
-                    // Navigate to the configured URL
-                    _currentUrl = _config.Kiosk.DefaultUrl;
-                    Logger.Log($"Setting WebView source to: {_config.Kiosk.DefaultUrl}");
-                    KioskWebView.Source = new Uri(_config.Kiosk.DefaultUrl);
-                    Logger.Log($"✓ Navigation initiated to: {_config.Kiosk.DefaultUrl}");
-                    
-                    // Add a fallback to hide status after a timeout in case navigation doesn't complete
-                    Logger.Log("Starting 3-second timeout fallback for status overlay");
-                    _ = Task.Delay(3000).ContinueWith(_ => 
+                    DispatcherQueue.TryEnqueue(() => 
                     {
-                        DispatcherQueue.TryEnqueue(() => 
+                        // Only hide if still showing initialization status
+                        Logger.Log($"Timeout reached. Current status title: '{StatusTitle.Text}'");
+                        if (StatusTitle.Text == "Initializing")
                         {
-                            // Only hide if still showing initialization status
-                            Logger.Log($"Timeout reached. Current status title: '{StatusTitle.Text}'");
-                            if (StatusTitle.Text == "Initializing")
-                            {
-                                Logger.Log("✓ Forcing status overlay to hide after timeout");
-                                HideStatus();
-                            }
-                            else
-                            {
-                                Logger.Log($"Status already changed to '{StatusTitle.Text}', not forcing hide");
-                            }
-                        });
+                            Logger.Log("✓ Forcing status overlay to hide after timeout");
+                            HideStatus();
+                        }
+                        else
+                        {
+                            Logger.Log($"Status already changed to '{StatusTitle.Text}', not forcing hide");
+                        }
                     });
-                }
-                catch (Exception ex)
-                {
-                    Logger.Log($"✗ WebView2 initialization error: {ex.Message}");
-                    Logger.Log($"Stack trace: {ex.StackTrace}");
-                    ShowStatus("WebView2 Error", 
-                        "WebView2 Runtime is not installed.\n\n" +
-                        "Please install from:\n" +
-                        "https://go.microsoft.com/fwlink/p/?LinkId=2124703");
-                }
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"✗ WebView2 initialization error: {ex.Message}");
+                Logger.Log($"Stack trace: {ex.StackTrace}");
+                ShowStatus("WebView2 Error", 
+                    "WebView2 Runtime is not installed.\n\n" +
+                    "Please install from:\n" +
+                    "https://go.microsoft.com/fwlink/p/?LinkId=2124703");
+            }
+            
+            // Initialize video controller if available (but don't start video)
+            if (_videoController != null)
+            {
+                await _videoController.InitializeAsync();
+                Logger.Log("Video controller ready (can be activated with Ctrl+Alt+D)");
             }
         }
         catch (Exception ex)
@@ -1250,6 +1227,91 @@ public sealed partial class MainWindow : Window
                 }
             });
         });
+    }
+
+    /// <summary>
+    /// Switches from screensaver mode to video mode.
+    /// </summary>
+    private async Task SwitchToVideoMode()
+    {
+        if (_isVideoMode)
+        {
+            Logger.Log("Already in video mode");
+            return;
+        }
+
+        Logger.Log("========== SWITCHING TO VIDEO MODE ==========");
+        _isVideoMode = true;
+
+        try
+        {
+            // Hide the WebView
+            await Task.Run(() =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (KioskWebView != null)
+                    {
+                        KioskWebView.Visibility = Visibility.Collapsed;
+                        Logger.Log("WebView hidden for video mode");
+                    }
+                });
+            });
+
+            // Start playing the carescape video
+            if (_videoController != null)
+            {
+                await _videoController.HandleFlicButtonPressAsync();
+                Logger.Log("Video playback started");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error switching to video mode: {ex.Message}");
+            _isVideoMode = false;
+        }
+    }
+
+    /// <summary>
+    /// Switches from video mode to screensaver mode.
+    /// </summary>
+    private async Task SwitchToScreensaverMode()
+    {
+        if (!_isVideoMode)
+        {
+            Logger.Log("Already in screensaver mode");
+            return;
+        }
+
+        Logger.Log("========== SWITCHING TO SCREENSAVER MODE ==========");
+        _isVideoMode = false;
+
+        try
+        {
+            // Stop any playing video
+            if (_videoController != null)
+            {
+                await _videoController.StopAsync();
+                Logger.Log("Video stopped");
+            }
+
+            // Show the WebView
+            await Task.Run(() =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (KioskWebView != null)
+                    {
+                        KioskWebView.Visibility = Visibility.Visible;
+                        Logger.Log("WebView shown for screensaver mode");
+                    }
+                });
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error switching to screensaver mode: {ex.Message}");
+        }
     }
 
     /// <summary>
