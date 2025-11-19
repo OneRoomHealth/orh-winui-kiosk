@@ -3,7 +3,29 @@
 ## Overview
 This document describes critical fixes applied to resolve major issues with the OneRoom Health Kiosk application.
 
-## Latest Fix - Application Exit (v1.0.43)
+## Latest Fix - Video Stop Cancellation Error (v1.0.44)
+
+### Issue
+- When pressing Ctrl+Alt+E to switch from video mode to screensaver mode, getting "A task was canceled" error
+- The monitoring task for demo videos was throwing OperationCanceledException when stopped
+- This prevented successful switching back to screensaver mode
+
+### Solution
+- Added try-catch blocks in `StopAsync()` to handle expected OperationCanceledException
+- Added try-catch block in `MonitorDemoCompletionAsync()` to handle cancellation gracefully
+- Added explicit `_isDemoPlaying = false` reset in StopAsync
+- Added logging for expected cancellation scenarios
+
+### Changes Made
+1. Modified `VideoController.StopAsync()` to:
+   - Catch and handle OperationCanceledException when awaiting monitoring task
+   - Reset `_isDemoPlaying` flag
+   - Add completion logging
+2. Modified `MonitorDemoCompletionAsync()` to:
+   - Wrap monitoring loop in try-catch
+   - Handle OperationCanceledException gracefully
+
+## Previous Fix - Application Exit (v1.0.43)
 
 ### Issue
 - After entering the correct password with Ctrl+Shift+Q, the application was not properly exiting

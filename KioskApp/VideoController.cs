@@ -166,21 +166,28 @@ namespace KioskApp
         /// </summary>
         private async Task MonitorDemoCompletionAsync(CancellationToken cancellationToken)
         {
-            Logger.Log("Starting demo video monitoring...");
-
-            while (_isDemoPlaying && !cancellationToken.IsCancellationRequested)
+            try
             {
-                if (_mpvProcess?.HasExited ?? true)
+                Logger.Log("Starting demo video monitoring...");
+
+                while (_isDemoPlaying && !cancellationToken.IsCancellationRequested)
                 {
-                    Logger.Log("Demo video completed, returning to carescape");
-                    await PlayCarescapeVideoAsync();
-                    break;
+                    if (_mpvProcess?.HasExited ?? true)
+                    {
+                        Logger.Log("Demo video completed, returning to carescape");
+                        await PlayCarescapeVideoAsync();
+                        break;
+                    }
+
+                    await Task.Delay(500, cancellationToken);
                 }
 
-                await Task.Delay(500, cancellationToken);
+                Logger.Log("Demo monitoring ended");
             }
-
-            Logger.Log("Demo monitoring ended");
+            catch (OperationCanceledException)
+            {
+                Logger.Log("Demo monitoring canceled");
+            }
         }
 
         /// <summary>
@@ -345,8 +352,19 @@ namespace KioskApp
 
             if (_monitoringTask != null)
             {
-                await _monitoringTask;
+                try
+                {
+                    await _monitoringTask;
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected when cancellation is requested
+                    Logger.Log("Monitoring task canceled as expected");
+                }
             }
+            
+            _isDemoPlaying = false;
+            Logger.Log("Video playback stopped");
         }
 
         /// <summary>
