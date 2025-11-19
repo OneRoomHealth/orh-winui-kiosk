@@ -1220,16 +1220,39 @@ public sealed partial class MainWindow : Window
                         Logger.Log("Re-ensured fullscreen mode after ConfigureAsKioskWindow");
                     }
                     
-                    // Wait a moment then verify fullscreen is properly applied
-                    _ = Task.Delay(100).ContinueWith(_ =>
+                    // Force layout update to ensure WebView resizes properly
+                    this.UpdateLayout();
+                    
+                    // Ensure WebView fills the window
+                    if (KioskWebView != null)
+                    {
+                        KioskWebView.Margin = new Thickness(0);
+                        KioskWebView.UpdateLayout();
+                        Logger.Log("Forced WebView layout update");
+                    }
+                    
+                    // Wait a bit longer, then reconfigure to ensure proper sizing
+                    _ = Task.Delay(200).ContinueWith(_ =>
                     {
                         DispatcherQueue.TryEnqueue(() =>
                         {
-                            // Just verify we're still in fullscreen, don't reconfigure (reconfiguring causes sizing issues)
+                            // Re-run ConfigureAsKioskWindow to ensure window is properly sized
+                            ConfigureAsKioskWindow();
+                            Logger.Log("Re-ran ConfigureAsKioskWindow after delay to ensure proper sizing");
+                            
+                            // Force another layout update
+                            this.UpdateLayout();
+                            if (KioskWebView != null)
+                            {
+                                KioskWebView.UpdateLayout();
+                                Logger.Log("Forced final layout update");
+                            }
+                            
+                            // Verify fullscreen is still set
                             if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
                             {
                                 _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                                Logger.Log("Ensured fullscreen mode after delay");
+                                Logger.Log("Ensured fullscreen mode after final configuration");
                             }
                         });
                     });

@@ -3,7 +3,27 @@
 ## Overview
 This document describes critical fixes applied to resolve major issues with the OneRoom Health Kiosk application.
 
-## Latest Fix - Window Sizing Issues (v1.0.46)
+## Latest Fix - WebView Layout After Debug Mode (v1.0.47)
+
+### Issue
+- After exiting debug mode, the screensaver was displaying as a small window in the upper left corner
+- The window was positioned correctly, but the WebView content wasn't filling the window properly
+- Layout wasn't being recalculated after window configuration
+
+### Solution
+- Added immediate layout update after ConfigureAsKioskWindow
+- Reset WebView margin and force its layout update
+- Re-run ConfigureAsKioskWindow after 200ms delay to ensure proper sizing
+- Force final layout update to ensure WebView fills the entire window
+
+### Changes Made
+1. Modified `ExitDebugMode()` to:
+   - Force immediate layout update with `this.UpdateLayout()`
+   - Reset WebView margin to (0,0,0,0) and update its layout
+   - Re-run ConfigureAsKioskWindow after 200ms delay
+   - Force final layout update to ensure proper sizing
+
+## Previous Fix - Window Sizing Issues (v1.0.46)
 
 ### Issues
 1. When pressing Ctrl+Alt+E to return to screensaver mode, the window was not properly entering fullscreen - taskbar was visible
