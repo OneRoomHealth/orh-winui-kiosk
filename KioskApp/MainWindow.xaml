@@ -55,7 +55,66 @@
                 <Button x:Name="RefreshButton" Content="⟳ Refresh" Margin="2" Click="RefreshButton_Click"/>
                 <Button x:Name="DevToolsButton" Content="DevTools (F12)" Margin="2" Click="DevToolsButton_Click"/>
                 <Button x:Name="CameraTestButton" Content="Camera Test" Margin="2" Click="CameraTestButton_Click"/>
+                <Button x:Name="ViewLogsButton" Content="📋 View Logs" Margin="2" Click="ViewLogsButton_Click"/>
             </StackPanel>
+        </Grid>
+        
+        <!-- Log Viewer Panel (Hidden by default, shown in debug mode) -->
+        <Grid x:Name="LogViewerPanel"
+              Background="#1E1E1E"
+              Visibility="Collapsed"
+              VerticalAlignment="Bottom"
+              Height="300">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            
+            <!-- Log Viewer Header -->
+            <Grid Grid.Row="0" Background="#2B2B2B" Padding="10,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Text="Application Logs" 
+                           Foreground="White" 
+                           FontWeight="Bold"
+                           VerticalAlignment="Center"/>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5">
+                    <Button x:Name="ClearLogsButton" 
+                            Content="Clear" 
+                            Click="ClearLogsButton_Click"
+                            Padding="10,5"
+                            Margin="0,0,5,0"/>
+                    <Button x:Name="CloseLogsButton" 
+                            Content="Close" 
+                            Click="CloseLogsButton_Click"
+                            Padding="10,5"/>
+                </StackPanel>
+            </Grid>
+            
+            <!-- Log Content -->
+            <ScrollViewer x:Name="LogScrollViewer"
+                          Grid.Row="1" 
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto">
+                <TextBlock x:Name="LogContentTextBlock"
+                           FontFamily="Consolas"
+                           FontSize="11"
+                           Foreground="#D4D4D4"
+                           TextWrapping="NoWrap"
+                           IsTextSelectionEnabled="True"
+                           Padding="10"/>
+            </ScrollViewer>
+            
+            <!-- Log Footer -->
+            <Grid Grid.Row="2" Background="#2B2B2B" Padding="10,5">
+                <TextBlock x:Name="LogCountTextBlock"
+                           Text="0 log entries"
+                           Foreground="#888888"
+                           FontSize="10"/>
+            </Grid>
         </Grid>
         
         <!-- WebView -->

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -12,6 +13,11 @@ namespace KioskApp
 		private static readonly object Sync = new object();
 		private static string _logFilePath = null;
 		private static bool _initializationFailed = false;
+		
+		// In-memory log buffer for UI display (circular buffer, max 1000 entries)
+		private static readonly List<string> _logBuffer = new List<string>();
+		private static readonly int MaxBufferSize = 1000;
+		public static event Action<string>? LogAdded; // Event for UI updates
 
 		// Win32 MessageBox for critical logging errors
 		[DllImport("user32.dll", CharSet = CharSet.Unicode)]
@@ -21,6 +27,29 @@ namespace KioskApp
 		/// Gets the current log file path.
 		/// </summary>
 		public static string LogFilePath => _logFilePath ?? InitializeLogPath();
+		
+		/// <summary>
+		/// Gets all logs from the in-memory buffer.
+		/// </summary>
+		public static IReadOnlyList<string> GetLogs()
+		{
+			lock (Sync)
+			{
+				return _logBuffer.ToArray();
+			}
+		}
+		
+		/// <summary>
+		/// Gets the last N log entries.
+		/// </summary>
+		public static IReadOnlyList<string> GetRecentLogs(int count = 100)
+		{
+			lock (Sync)
+			{
+				int start = Math.Max(0, _logBuffer.Count - count);
+				return _logBuffer.GetRange(start, _logBuffer.Count - start).ToArray();
+			}
+		}
 
 		private static string InitializeLogPath()
 		{
@@ -83,14 +112,35 @@ namespace KioskApp
 					InitializeLogPath();
 
 				var timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff 'UTC'");
-				var line = $"[{timestamp}] {message}{Environment.NewLine}";
+				var line = $"[{timestamp}] {message}";
+				var lineWithNewline = $"{line}{Environment.NewLine}";
 				
 				// Also write to Debug output for immediate visibility
 				Debug.WriteLine($"LOG: {message}");
 				
+				// Add to in-memory buffer
 				lock (Sync)
 				{
-					File.AppendAllText(LogFilePath, line, Encoding.UTF8);
+					_logBuffer.Add(line);
+					
+					// Maintain circular buffer
+					if (_logBuffer.Count > MaxBufferSize)
+					{
+						_logBuffer.RemoveAt(0);
+					}
+				}
+				
+				// Notify UI if anyone is listening
+				LogAdded?.Invoke(line);
+				
+				// Try to write to file (but don't fail if it doesn't work)
+				try
+				{
+					File.AppendAllText(LogFilePath, lineWithNewline, Encoding.UTF8);
+				}
+				catch
+				{
+					// File logging failed, but we still have in-memory logs
 				}
 			}
 			catch (Exception ex)

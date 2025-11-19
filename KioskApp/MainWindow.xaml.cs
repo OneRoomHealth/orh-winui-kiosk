@@ -52,6 +52,7 @@ public sealed partial class MainWindow : Window
     private Rect _normalWindowBounds;
     private bool _isVideoMode = false;
     private string? _currentUrl = null;
+    private bool _logsVisible = false;
 
     // Win32 API imports
     [DllImport("user32.dll")]
@@ -113,6 +114,9 @@ public sealed partial class MainWindow : Window
         _config = config;
         Logger.Log("MainWindow constructor called");
         Logger.Log($"Log file is being written to: {Logger.LogFilePath}");
+        
+        // Subscribe to log events for real-time updates
+        Logger.LogAdded += OnLogAdded;
         
         // Determine if we're in video mode based on config
         _isVideoMode = _config.Kiosk.VideoMode?.Enabled ?? false;
@@ -1141,6 +1145,13 @@ public sealed partial class MainWindow : Window
                         catch { /* Ignore if already closed */ }
                     }
 
+                    // Hide log viewer if visible
+                    if (_logsVisible)
+                    {
+                        LogViewerPanel.Visibility = Visibility.Collapsed;
+                        _logsVisible = false;
+                    }
+                    
                     // Hide debug navigation panel first
                     DebugPanel.Visibility = Visibility.Collapsed;
                     
@@ -1463,6 +1474,120 @@ public sealed partial class MainWindow : Window
 
         // Navigate to WebRTC test pages for camera testing
         NavigateToUrl("https://webrtc.github.io/test-pages/");
+    }
+
+    private void ViewLogsButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleLogViewer();
+    }
+
+    private void ToggleLogViewer()
+    {
+        _logsVisible = !_logsVisible;
+        
+        if (_logsVisible)
+        {
+            LogViewerPanel.Visibility = Visibility.Visible;
+            RefreshLogDisplay();
+            
+            // Adjust WebView margin to make room for log viewer
+            if (KioskWebView != null)
+            {
+                KioskWebView.Margin = new Thickness(0, 80, 0, 300);
+            }
+        }
+        else
+        {
+            LogViewerPanel.Visibility = Visibility.Collapsed;
+            
+            // Restore WebView margin (accounting for debug panel)
+            if (KioskWebView != null)
+            {
+                KioskWebView.Margin = new Thickness(0, 80, 0, 0);
+            }
+        }
+    }
+
+    private void RefreshLogDisplay()
+    {
+        try
+        {
+            var logs = Logger.GetRecentLogs(500); // Get last 500 entries
+            var logText = string.Join(Environment.NewLine, logs);
+            
+            LogContentTextBlock.Text = logText;
+            LogCountTextBlock.Text = $"{logs.Count} log entries (showing last 500 of {Logger.GetLogs().Count} total)";
+            
+            // Auto-scroll to bottom
+            if (LogViewerPanel.Visibility == Visibility.Visible)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    ScrollToBottom();
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            LogContentTextBlock.Text = $"Error loading logs: {ex.Message}";
+            Logger.Log($"Error in RefreshLogDisplay: {ex.Message}");
+        }
+    }
+
+    private void ScrollToBottom()
+    {
+        try
+        {
+            if (LogScrollViewer != null)
+            {
+                LogScrollViewer.ChangeView(null, double.MaxValue, null);
+            }
+        }
+        catch { }
+    }
+
+    private void OnLogAdded(string logEntry)
+    {
+        // Update log display in real-time if viewer is visible
+        if (_logsVisible && LogViewerPanel.Visibility == Visibility.Visible)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    // Append new log entry
+                    if (!string.IsNullOrEmpty(LogContentTextBlock.Text))
+                    {
+                        LogContentTextBlock.Text += Environment.NewLine;
+                    }
+                    LogContentTextBlock.Text += logEntry;
+                    
+                    // Update count
+                    var totalLogs = Logger.GetLogs().Count;
+                    var displayedLogs = LogContentTextBlock.Text.Split(new[] { Environment.NewLine }, StringSplitOptions.None).Length;
+                    LogCountTextBlock.Text = $"{displayedLogs} log entries (showing last 500 of {totalLogs} total)";
+                    
+                    // Auto-scroll to bottom
+                    ScrollToBottom();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Error in OnLogAdded: {ex.Message}");
+                }
+            });
+        }
+    }
+
+    private void ClearLogsButton_Click(object sender, RoutedEventArgs e)
+    {
+        LogContentTextBlock.Text = "";
+        LogCountTextBlock.Text = "0 log entries";
+        Logger.Log("Log viewer cleared by user");
+    }
+
+    private void CloseLogsButton_Click(object sender, RoutedEventArgs e)
+    {
+        ToggleLogViewer();
     }
 
     #endregion
