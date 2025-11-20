@@ -1142,10 +1142,9 @@ public sealed partial class MainWindow : Window
     {
         Logger.LogSecurityEvent("ExitDebugMode", "Exiting debug mode");
 
-        // First, do UI cleanup on the dispatcher thread
-        await Task.Run(async () => // Made this async to await Task.Delay
+        await Task.Run(async () =>
         {
-            await DispatcherQueue.EnqueueAsync(async () => // Use EnqueueAsync for awaitable DispatcherQueue operations
+            await DispatcherQueue.EnqueueAsync(() =>
             {
                 try
                 {
@@ -1172,10 +1171,8 @@ public sealed partial class MainWindow : Window
                         _logsVisible = false;
                     }
                     
-                    // Hide debug navigation panel first
+                    // Hide debug panel and reset margin FIRST
                     DebugPanel.Visibility = Visibility.Collapsed;
-                    
-                    // Reset WebView margin
                     if (KioskWebView != null)
                         KioskWebView.Margin = new Thickness(0);
 
@@ -1188,7 +1185,6 @@ public sealed partial class MainWindow : Window
                         _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
                         Logger.Log("Set presenter to FullScreen before configuration");
                     }
-
                 }
                 catch (Exception ex)
                 {
@@ -1197,6 +1193,10 @@ public sealed partial class MainWindow : Window
             });
         });
 
+        // Wait longer for presenter change to take effect
+        await Task.Delay(200);
+
+        // Now configure window and explicitly size WebView
         // Wait a moment for presenter change to take effect
         await Task.Delay(100);
 
@@ -1212,6 +1212,16 @@ public sealed partial class MainWindow : Window
                     {
                         _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
                         Logger.Log("Re-ensured fullscreen mode after ConfigureAsKioskWindow");
+                    }
+                    
+                    // Get the actual window size and explicitly set WebView dimensions
+                    if (_appWindow != null && KioskWebView != null)
+                    {
+                        var bounds = _appWindow.Size;
+                        KioskWebView.Width = bounds.Width;
+                        KioskWebView.Height = bounds.Height;
+                        KioskWebView.Margin = new Thickness(0);
+                        Logger.Log($"Explicitly set WebView size to {bounds.Width}x{bounds.Height}");
                     }
                     
                     // Force layout update to ensure WebView resizes properly
@@ -1276,6 +1286,19 @@ public sealed partial class MainWindow : Window
                                 {
                                     KioskWebView.Source = uri;
                                     Logger.Log($"Navigating to URL after debug mode: {_currentUrl}");
+                                    
+                                    // Force a refresh to ensure content fills the WebView
+                                    _ = Task.Delay(500).ContinueWith(_ =>
+                                    {
+                                        DispatcherQueue.TryEnqueue(() =>
+                                        {
+                                            if (KioskWebView?.CoreWebView2 != null)
+                                            {
+                                                _ = KioskWebView.CoreWebView2.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));").AsTask();
+                                                Logger.Log("Triggered resize event in web content");
+                                            }
+                                        });
+                                    });
                                 }
                                 else if (!string.IsNullOrEmpty(_currentUrl))
                                 {
@@ -1390,6 +1413,15 @@ public sealed partial class MainWindow : Window
                 _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
                 Logger.Log("Re-ensured fullscreen mode after configuration");
             }
+            
+            // Get the actual window size and explicitly set WebView dimensions
+            if (_appWindow != null && KioskWebView != null)
+            {
+                var bounds = _appWindow.Size;
+                KioskWebView.Width = bounds.Width;
+                KioskWebView.Height = bounds.Height;
+                Logger.Log($"Set WebView size to window bounds: {bounds.Width}x{bounds.Height}");
+            }
 
             // Show the WebView and navigate to screensaver URL
             await Task.Run(() =>
@@ -1413,6 +1445,19 @@ public sealed partial class MainWindow : Window
                             KioskWebView.Source = new Uri(_currentUrl);
                             Logger.Log($"Navigating to default URL: {_currentUrl}");
                         }
+                        
+                        // Force a refresh to ensure content fills the WebView
+                        _ = Task.Delay(500).ContinueWith(_ =>
+                        {
+                            DispatcherQueue.TryEnqueue(() =>
+                            {
+                                if (KioskWebView?.CoreWebView2 != null)
+                                {
+                                    _ = KioskWebView.CoreWebView2.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));").AsTask();
+                                    Logger.Log("Triggered resize event in screensaver content");
+                                }
+                            });
+                        });
                     }
                 });
             });
