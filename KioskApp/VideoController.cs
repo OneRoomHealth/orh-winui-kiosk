@@ -39,22 +39,23 @@ namespace KioskApp
         /// Initialize video controller (validates paths but does not start playback)
         /// Video will start when triggered by Flic button or explicit API call
         /// </summary>
-        public async Task InitializeAsync()
+        public Task InitializeAsync()
         {
             if (!_settings.Enabled)
             {
                 Logger.Log("Video mode is disabled in configuration");
-                return;
+                return Task.CompletedTask;
             }
 
             if (!ValidateVideoPaths())
             {
                 Logger.Log("Video paths validation failed");
-                return;
+                return Task.CompletedTask;
             }
 
             Logger.Log("Video controller initialized (ready, waiting for trigger)");
             // Don't start video automatically - wait for Flic button or explicit trigger
+            return Task.CompletedTask;
         }
 
         /// <summary>

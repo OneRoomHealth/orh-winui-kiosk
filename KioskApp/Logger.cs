@@ -11,7 +11,7 @@ namespace KioskApp
 	public static class Logger
 	{
 		private static readonly object Sync = new object();
-		private static string _logFilePath = null;
+        private static string _logFilePath = null!;
 		private static bool _initializationFailed = false;
 		
 		// In-memory log buffer for UI display (circular buffer, max 1000 entries)

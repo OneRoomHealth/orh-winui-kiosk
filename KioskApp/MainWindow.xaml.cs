@@ -1143,10 +1143,9 @@ public sealed partial class MainWindow : Window
         Logger.LogSecurityEvent("ExitDebugMode", "Exiting debug mode");
 
         // First, do UI cleanup on the dispatcher thread
-        await Task.Run(() =>
+        await Task.Run(async () => // Made this async to await Task.Delay
         {
-            var uiTcs = new TaskCompletionSource<bool>();
-            DispatcherQueue.TryEnqueue(() =>
+            await DispatcherQueue.EnqueueAsync(async () => // Use EnqueueAsync for awaitable DispatcherQueue operations
             {
                 try
                 {
@@ -1190,24 +1189,19 @@ public sealed partial class MainWindow : Window
                         Logger.Log("Set presenter to FullScreen before configuration");
                     }
 
-                    uiTcs.SetResult(true);
                 }
                 catch (Exception ex)
                 {
                     Logger.Log($"Error in ExitDebugMode UI cleanup: {ex.Message}");
-                    uiTcs.SetException(ex);
                 }
             });
-            return uiTcs.Task;
         });
 
         // Wait a moment for presenter change to take effect
         await Task.Delay(100);
 
         // Now restore kiosk window configuration (this will properly size it)
-        await Task.Run(() =>
-        {
-            DispatcherQueue.TryEnqueue(() =>
+        await DispatcherQueue.EnqueueAsync(() =>
             {
                 try
                 {
@@ -1221,7 +1215,10 @@ public sealed partial class MainWindow : Window
                     }
                     
                     // Force layout update to ensure WebView resizes properly
-                    this.UpdateLayout();
+                    if (this.Content is UIElement content)
+                    {
+                        content.UpdateLayout();
+                    }
                     
                     // Ensure WebView fills the window
                     if (KioskWebView != null)
@@ -1232,16 +1229,19 @@ public sealed partial class MainWindow : Window
                     }
                     
                     // Wait a bit longer, then reconfigure to ensure proper sizing
-                    _ = Task.Delay(200).ContinueWith(_ =>
+                    _ = Task.Delay(200).ContinueWith(async _ => // Made this async to await DispatcherQueue.EnqueueAsync
                     {
-                        DispatcherQueue.TryEnqueue(() =>
+                        await DispatcherQueue.EnqueueAsync(() => // Use EnqueueAsync for awaitable DispatcherQueue operations
                         {
                             // Re-run ConfigureAsKioskWindow to ensure window is properly sized
                             ConfigureAsKioskWindow();
                             Logger.Log("Re-ran ConfigureAsKioskWindow after delay to ensure proper sizing");
                             
                             // Force another layout update
-                            this.UpdateLayout();
+                            if (this.Content is UIElement content2)
+                            {
+                                content2.UpdateLayout();
+                            }
                             if (KioskWebView != null)
                             {
                                 KioskWebView.UpdateLayout();
@@ -1268,9 +1268,9 @@ public sealed partial class MainWindow : Window
                     {
                         // Wait a moment for window configuration to complete, then navigate
                         // Use explicit navigation instead of Reload() to ensure proper page load
-                        _ = Task.Delay(100).ContinueWith(_ =>
+                        _ = Task.Delay(100).ContinueWith(async _ => // Made this async to await DispatcherQueue.EnqueueAsync
                         {
-                            DispatcherQueue.TryEnqueue(() =>
+                            await DispatcherQueue.EnqueueAsync(() => // Use EnqueueAsync for awaitable DispatcherQueue operations
                             {
                                 if (KioskWebView?.CoreWebView2 != null && Uri.TryCreate(_currentUrl, UriKind.Absolute, out var uri))
                                 {
@@ -1294,7 +1294,6 @@ public sealed partial class MainWindow : Window
                     Logger.Log($"Error exiting debug mode: {ex.Message}");
                 }
             });
-        });
     }
 
     /// <summary>
