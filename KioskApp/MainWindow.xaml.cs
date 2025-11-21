@@ -1800,6 +1800,28 @@ public sealed partial class MainWindow : Window
             
             // Move window to new monitor
             ConfigureAsKioskWindow();
+
+            // If in debug mode, we need to restore the window frame and remove topmost
+            // because ConfigureAsKioskWindow forces kiosk styling (borderless topmost)
+            if (_isDebugMode)
+            {
+                // Restore window frame
+                var style = GetWindowLong(_hwnd, GWL_STYLE);
+                style |= WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_SYSMENU;
+                SetWindowLong(_hwnd, GWL_STYLE, style);
+
+                // Remove topmost
+                var exStyle = GetWindowLong(_hwnd, GWL_EXSTYLE);
+                exStyle &= ~WS_EX_TOPMOST;
+                SetWindowLong(_hwnd, GWL_EXSTYLE, exStyle);
+
+                // Apply changes
+                const uint SWP_NOSIZE = 0x0001;
+                SetWindowPos(_hwnd, IntPtr.Zero, 0, 0, 0, 0, 
+                    SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE);
+                    
+                Logger.Log("Restored debug mode window styling after monitor switch");
+            }
             
             // Show confirmation
             var dialog = new ContentDialog

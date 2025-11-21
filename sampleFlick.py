@@ -31,10 +31,49 @@ class FlicMPVController:
         except Exception as e:
             print(f"⚠️  Warning: Could not initialize audio control: {e}")
             print("   Volume control will be disabled")
+            
+        # Load configuration
+        self.config = self.load_config()
+        
+    def load_config(self):
+        """Load configuration from config.json"""
+        config_paths = [
+            "config.json",
+            r"C:\ProgramData\OneRoomHealth\Kiosk\config.json"
+        ]
+        
+        for path in config_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as f:
+                        config = json.load(f)
+                        print(f"✅ Loaded configuration from {path}")
+                        return config
+                except Exception as e:
+                    print(f"⚠️  Error loading config from {path}: {e}")
+        
+        return None
         
     def find_mpv(self):
         """Find MPV executable in common locations"""
-        mpv_paths = [
+        mpv_paths = []
+        
+        # Check config first
+        if self.config:
+            try:
+                # Check nested structure matching C# app: kiosk.videoMode.mpvPath
+                mpv_path = self.config.get('kiosk', {}).get('videoMode', {}).get('mpvPath')
+                
+                # Also check simple structure: mpv_path
+                if not mpv_path:
+                    mpv_path = self.config.get('mpv_path')
+                    
+                if mpv_path:
+                    mpv_paths.append(mpv_path)
+            except:
+                pass
+        
+        mpv_paths.extend([
             "mpv",
             r"C:\Users\CareWall\Downloads\mpv-x86_64-v3-20251012-git-ad59ff1",
             r"C:\Users\CareWall\Downloads\mpv-x86_64-v3-20251012-git-ad59ff1\mpv-x86_64-v3-20251012-git-ad59ff1\mpv.exe",

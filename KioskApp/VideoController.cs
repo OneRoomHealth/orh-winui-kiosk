@@ -269,7 +269,16 @@ namespace KioskApp
         /// </summary>
         private string? FindMpvExecutable()
         {
-            var mpvPaths = new[]
+            var mpvPaths = new List<string>();
+
+            // Add configured path if available
+            if (!string.IsNullOrEmpty(_settings.MpvPath))
+            {
+                mpvPaths.Add(_settings.MpvPath);
+            }
+
+            // Add standard paths
+            mpvPaths.AddRange(new[]
             {
                 "mpv", // In PATH
                 @"C:\mpv\mpv.exe",
@@ -278,7 +287,7 @@ namespace KioskApp
                 Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "mpv", "mpv.exe"),
                 // Add same paths from Python script
                 @"C:\Users\CareWall\Downloads\mpv-x86_64-v3-20251012-git-ad59ff1\mpv.exe"
-            };
+            });
 
             foreach (var path in mpvPaths)
             {

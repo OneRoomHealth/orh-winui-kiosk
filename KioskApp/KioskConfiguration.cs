@@ -65,6 +65,9 @@ public class VideoModeSettings
     [JsonPropertyName("demoVolume")]
     public double DemoVolume { get; set; } = 75;
 
+    [JsonPropertyName("mpvPath")]
+    public string? MpvPath { get; set; }
+
     [JsonPropertyName("flicButtonEnabled")]
     public bool FlicButtonEnabled { get; set; } = true;
 }
