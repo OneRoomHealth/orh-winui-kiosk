@@ -1179,11 +1179,13 @@ public sealed partial class MainWindow : Window
                     // Update window title
                     this.Title = "OneRoom Health Kiosk";
 
-                    // Set fullscreen presenter FIRST before configuring
+                    // Set presenter to Overlapped (standard window) instead of FullScreen
+                    // This ensures our manual kiosk styling/sizing in ConfigureAsKioskWindow works correctly
+                    // (FullScreen presenter can conflict with manual SetWindowPos sizing)
                     if (_appWindow != null)
                     {
-                        _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                        Logger.Log("Set presenter to FullScreen before configuration");
+                        _appWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+                        Logger.Log("Set presenter to Overlapped before configuration");
                     }
                 }
                 catch (Exception ex)
@@ -1207,21 +1209,16 @@ public sealed partial class MainWindow : Window
                 {
                     ConfigureAsKioskWindow();
 
-                    // Verify fullscreen is still set
-                    if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
-                    {
-                        _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                        Logger.Log("Re-ensured fullscreen mode after ConfigureAsKioskWindow");
-                    }
-                    
-                    // Get the actual window size and explicitly set WebView dimensions
+                    // Get the actual window size and reset WebView to fill window
                     if (_appWindow != null && KioskWebView != null)
                     {
-                        var bounds = _appWindow.Size;
-                        KioskWebView.Width = bounds.Width;
-                        KioskWebView.Height = bounds.Height;
+                        // Don't hardcode size, use Stretch alignment to ensure it adapts to window
+                        KioskWebView.Width = double.NaN;
+                        KioskWebView.Height = double.NaN;
+                        KioskWebView.HorizontalAlignment = HorizontalAlignment.Stretch;
+                        KioskWebView.VerticalAlignment = VerticalAlignment.Stretch;
                         KioskWebView.Margin = new Thickness(0);
-                        Logger.Log($"Explicitly set WebView size to {bounds.Width}x{bounds.Height}");
+                        Logger.Log("Reset WebView size to Auto/Stretch");
                     }
                     
                     // Force layout update to ensure WebView resizes properly
@@ -1256,13 +1253,6 @@ public sealed partial class MainWindow : Window
                             {
                                 KioskWebView.UpdateLayout();
                                 Logger.Log("Forced final layout update");
-                            }
-                            
-                            // Verify fullscreen is still set
-                            if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
-                            {
-                                _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                                Logger.Log("Ensured fullscreen mode after final configuration");
                             }
                         });
                     });
@@ -1390,13 +1380,14 @@ public sealed partial class MainWindow : Window
                 Logger.Log("Video stopped");
             }
 
-            // Set fullscreen presenter FIRST before configuring
+            // Set presenter to Overlapped (standard window) before configuring
+            // This matches startup behavior and avoids FullScreen presenter conflicts
             if (_appWindow != null)
             {
-                if (_appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
+                if (_appWindow.Presenter.Kind != AppWindowPresenterKind.Overlapped)
                 {
-                    _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                    Logger.Log("Set presenter to FullScreen mode");
+                    _appWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
+                    Logger.Log("Set presenter to Overlapped mode");
                 }
                 
                 // Wait a moment for presenter change to take effect
@@ -1407,20 +1398,14 @@ public sealed partial class MainWindow : Window
             ConfigureAsKioskWindow();
             Logger.Log("Window configured for fullscreen kiosk mode");
 
-            // Ensure fullscreen is still set (in case ConfigureAsKioskWindow changed something)
-            if (_appWindow != null && _appWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
-            {
-                _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                Logger.Log("Re-ensured fullscreen mode after configuration");
-            }
-            
-            // Get the actual window size and explicitly set WebView dimensions
+            // Reset WebView dimensions to auto/stretch
             if (_appWindow != null && KioskWebView != null)
             {
-                var bounds = _appWindow.Size;
-                KioskWebView.Width = bounds.Width;
-                KioskWebView.Height = bounds.Height;
-                Logger.Log($"Set WebView size to window bounds: {bounds.Width}x{bounds.Height}");
+                KioskWebView.Width = double.NaN;
+                KioskWebView.Height = double.NaN;
+                KioskWebView.HorizontalAlignment = HorizontalAlignment.Stretch;
+                KioskWebView.VerticalAlignment = VerticalAlignment.Stretch;
+                Logger.Log("Set WebView sizing to Auto/Stretch");
             }
 
             // Show the WebView and navigate to screensaver URL
@@ -1431,6 +1416,7 @@ public sealed partial class MainWindow : Window
                     if (KioskWebView != null)
                     {
                         KioskWebView.Visibility = Visibility.Visible;
+                        KioskWebView.UpdateLayout();
                         Logger.Log("WebView shown for screensaver mode");
                         
                         // Navigate to the screensaver URL
@@ -1446,6 +1432,20 @@ public sealed partial class MainWindow : Window
                             Logger.Log($"Navigating to default URL: {_currentUrl}");
                         }
                         
+                        // Re-run ConfigureAsKioskWindow after delay to ensure proper sizing
+                        _ = Task.Delay(200).ContinueWith(async _ =>
+                        {
+                            await DispatcherQueue.EnqueueAsync(() =>
+                            {
+                                ConfigureAsKioskWindow();
+                                Logger.Log("Re-ran ConfigureAsKioskWindow after delay (screensaver transition)");
+                                if (KioskWebView != null)
+                                {
+                                    KioskWebView.UpdateLayout();
+                                }
+                            });
+                        });
+
                         // Force a refresh to ensure content fills the WebView
                         _ = Task.Delay(500).ContinueWith(_ =>
                         {
