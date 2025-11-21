@@ -756,8 +756,12 @@ public sealed partial class MainWindow : Window
                 Logger.Log($"WebView2 Runtime version: {version}");
                 ShowStatus("Initializing", "Loading WebView2...");
                 
+                Logger.Log("Creating WebView2 environment with autoplay enabled...");
+                var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
+                var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
+
                 Logger.Log("Ensuring CoreWebView2 is ready...");
-                await KioskWebView.EnsureCoreWebView2Async();
+                await KioskWebView.EnsureCoreWebView2Async(environment);
                 Logger.Log("CoreWebView2 is ready, setting up WebView...");
                 
                 SetupWebView();
@@ -829,6 +833,19 @@ public sealed partial class MainWindow : Window
         settings.IsZoomControlEnabled = false;
         settings.IsStatusBarEnabled = false;
         
+        // Camera and microphone access
+        // By default, WebView2 prompts for permission. For a kiosk, we likely want to auto-allow or configure this.
+        // For now, we'll handle the PermissionRequested event to auto-allow camera/mic if needed for testing.
+        KioskWebView.CoreWebView2.PermissionRequested += (sender, args) =>
+        {
+            if (args.PermissionKind == CoreWebView2PermissionKind.Camera || 
+                args.PermissionKind == CoreWebView2PermissionKind.Microphone)
+            {
+                args.State = CoreWebView2PermissionState.Allow;
+                Logger.Log($"Auto-allowed permission: {args.PermissionKind}");
+            }
+        };
+
         // Developer tools are initially disabled (unless debug mode is active)
         settings.AreDevToolsEnabled = _isDebugMode;
         settings.AreDefaultContextMenusEnabled = _isDebugMode;
