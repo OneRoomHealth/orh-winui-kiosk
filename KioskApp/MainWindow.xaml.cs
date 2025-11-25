@@ -835,17 +835,13 @@ public sealed partial class MainWindow : Window
         settings.IsZoomControlEnabled = false;
         settings.IsStatusBarEnabled = false;
         
-        // Camera and microphone access
-        // By default, WebView2 prompts for permission. For a kiosk, we likely want to auto-allow or configure this.
-        // For now, we'll handle the PermissionRequested event to auto-allow camera/mic if needed for testing.
+        // Auto-allow all permissions for kiosk mode (camera, microphone, autoplay, etc.)
+        // This ensures the kiosk application works seamlessly without permission prompts
         KioskWebView.CoreWebView2.PermissionRequested += (sender, args) =>
         {
-            if (args.PermissionKind == CoreWebView2PermissionKind.Camera || 
-                args.PermissionKind == CoreWebView2PermissionKind.Microphone)
-            {
-                args.State = CoreWebView2PermissionState.Allow;
-                Logger.Log($"Auto-allowed permission: {args.PermissionKind}");
-            }
+            // Auto-allow all permission types for kiosk mode
+            args.State = CoreWebView2PermissionState.Allow;
+            Logger.Log($"Auto-allowed permission: {args.PermissionKind}");
         };
 
         // Developer tools are initially disabled (unless debug mode is active)
@@ -881,8 +877,11 @@ public sealed partial class MainWindow : Window
         {
             try
             {
-                // Inject JavaScript to prevent WebView from consuming our hotkeys
+                // Inject JavaScript to:
+                // 1. Prevent WebView from consuming our hotkeys
+                // 2. Enable autoplay for all media elements
                 string script = @"
+                    // Keyboard hotkey handling
                     document.addEventListener('keydown', function(e) {
                         // Check if this is one of our hotkeys
                         if ((e.ctrlKey && e.shiftKey && (e.key === 'i' || e.key === 'I' || e.key === 'q' || e.key === 'Q')) ||
@@ -893,12 +892,37 @@ public sealed partial class MainWindow : Window
                             console.log('Kiosk hotkey detected:', e.key);
                         }
                     }, true);
+
+                    // Enable autoplay for all video and audio elements
+                    function enableAutoplay() {
+                        document.querySelectorAll('video, audio').forEach(function(media) {
+                            media.autoplay = true;
+                            media.muted = false;
+                            if (media.paused) {
+                                media.play().catch(function(e) {
+                                    // If unmuted autoplay fails, try muted
+                                    media.muted = true;
+                                    media.play().catch(function() {});
+                                });
+                            }
+                        });
+                    }
+                    
+                    // Run immediately and watch for new media elements
+                    enableAutoplay();
+                    
+                    // MutationObserver to handle dynamically added media
+                    var observer = new MutationObserver(function(mutations) {
+                        enableAutoplay();
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
                 ";
                 await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
+                Logger.Log("Injected kiosk scripts (hotkeys + autoplay)");
             }
             catch (Exception ex)
             {
-                Logger.Log($"Error injecting keyboard handling script: {ex.Message}");
+                Logger.Log($"Error injecting kiosk scripts: {ex.Message}");
             }
         };
 
@@ -1764,9 +1788,11 @@ public sealed partial class MainWindow : Window
     {
         try
         {
-            // Get available displays
-            var allDisplays = DisplayArea.FindAll().ToList();
-            if (allDisplays.Count <= 1)
+            // Get available displays - use IReadOnlyList directly to avoid cast issues
+            var allDisplays = DisplayArea.FindAll();
+            int displayCount = allDisplays.Count;
+            
+            if (displayCount <= 1)
             {
                 Logger.Log("Only one display available, cannot switch monitors");
                 var singleDisplayDialog = new ContentDialog
@@ -1782,7 +1808,7 @@ public sealed partial class MainWindow : Window
 
             // Cycle to next monitor (1-based indexing)
             _currentMonitorIndex++;
-            if (_currentMonitorIndex > allDisplays.Count)
+            if (_currentMonitorIndex > displayCount)
             {
                 _currentMonitorIndex = 1;
             }
@@ -1846,7 +1872,7 @@ public sealed partial class MainWindow : Window
             var dialog = new ContentDialog
             {
                 Title = "Monitor Switched",
-                Content = $"Moved to monitor {_currentMonitorIndex} of {allDisplays.Count}",
+                Content = $"Moved to monitor {_currentMonitorIndex} of {displayCount}",
                 CloseButtonText = "OK",
                 XamlRoot = this.Content.XamlRoot
             };
