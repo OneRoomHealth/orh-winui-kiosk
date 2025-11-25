@@ -756,10 +756,12 @@ public sealed partial class MainWindow : Window
                 Logger.Log($"WebView2 Runtime version: {version}");
                 ShowStatus("Initializing", "Loading WebView2...");
                 
-                Logger.Log("Creating WebView2 environment with autoplay enabled...");
-                var options = new CoreWebView2EnvironmentOptions("--autoplay-policy=no-user-gesture-required");
-                var environment = await CoreWebView2Environment.CreateAsync(null, null, options);
-
+                Logger.Log("Creating WebView2 environment...");
+                // Note: In WinUI 3, WebView2 uses default environment. Autoplay is typically 
+                // allowed for muted videos by default. For unmuted autoplay, the web content
+                // should handle user interaction requirements.
+                var environment = await CoreWebView2Environment.CreateAsync();
+                
                 Logger.Log("Ensuring CoreWebView2 is ready...");
                 await KioskWebView.EnsureCoreWebView2Async(environment);
                 Logger.Log("CoreWebView2 is ready, setting up WebView...");
