@@ -1806,13 +1806,63 @@ public sealed partial class MainWindow : Window
                 return;
             }
 
-            // Cycle to next monitor (1-based indexing)
-            _currentMonitorIndex++;
-            if (_currentMonitorIndex > displayCount)
+            // In debug mode, show a selection dialog instead of auto-cycling
+            int selectedMonitor;
+            if (_isDebugMode)
             {
-                _currentMonitorIndex = 1;
+                // Build monitor list with display info
+                var monitorListPanel = new StackPanel { Spacing = 8 };
+                var monitorComboBox = new ComboBox { Width = 300 };
+                
+                for (int i = 0; i < displayCount; i++)
+                {
+                    var display = allDisplays[i];
+                    var bounds = display.OuterBounds;
+                    string displayInfo = $"Monitor {i + 1}: {bounds.Width}x{bounds.Height} at ({bounds.X}, {bounds.Y})";
+                    if (i + 1 == _currentMonitorIndex)
+                    {
+                        displayInfo += " (current)";
+                    }
+                    monitorComboBox.Items.Add(displayInfo);
+                }
+                
+                // Pre-select the next monitor in sequence as default
+                int nextMonitor = _currentMonitorIndex % displayCount;
+                monitorComboBox.SelectedIndex = nextMonitor;
+                
+                monitorListPanel.Children.Add(new TextBlock { Text = "Select which monitor to switch to:" });
+                monitorListPanel.Children.Add(monitorComboBox);
+
+                var selectDialog = new ContentDialog
+                {
+                    Title = "Select Monitor",
+                    Content = monitorListPanel,
+                    PrimaryButtonText = "Switch",
+                    CloseButtonText = "Cancel",
+                    XamlRoot = this.Content.XamlRoot
+                };
+
+                var result = await selectDialog.ShowAsync();
+                if (result != ContentDialogResult.Primary)
+                {
+                    Logger.Log("Monitor switch cancelled by user");
+                    return;
+                }
+
+                selectedMonitor = monitorComboBox.SelectedIndex + 1; // Convert to 1-based indexing
+                Logger.Log($"User selected monitor {selectedMonitor} from dialog");
+            }
+            else
+            {
+                // Non-debug mode: cycle to next monitor (1-based indexing)
+                selectedMonitor = _currentMonitorIndex + 1;
+                if (selectedMonitor > displayCount)
+                {
+                    selectedMonitor = 1;
+                }
             }
 
+            _currentMonitorIndex = selectedMonitor;
             Logger.Log($"========== SWITCHING TO MONITOR {_currentMonitorIndex} ==========");
             
             // Update video controller if it exists
