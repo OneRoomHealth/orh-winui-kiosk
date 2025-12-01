@@ -3,13 +3,35 @@
   Provision Windows 11 Enterprise device for kiosk mode using Shell Launcher v2.
 
 .DESCRIPTION
-  - Creates/updates a local user (default: orhKiosk)
+  - Enables the Shell Launcher Windows feature (if not already enabled)
+  - Creates/updates a local user (default: CareWall)
   - Enables auto-logon for that user (stores password in registry by design)
   - Configures Shell Launcher so our WinUI 3 kiosk app runs as the shell (replaces Explorer.exe)
 
 .REQUIREMENTS
-  - Run as Administrator on Windows 11 Enterprise
-  - Shell Launcher feature available (Enterprise/Education SKUs)
+  - Run as Administrator on Windows 11 Enterprise/Education
+  - Shell Launcher feature available (Enterprise/Education SKUs only)
+
+.PARAMETER KioskUser
+  The local username to create for the kiosk. Default: CareWall
+
+.PARAMETER KioskPassword
+  The password for the kiosk user. Default: CareWallORH
+
+.PARAMETER KioskExePath
+  Full path to the kiosk application executable.
+
+.EXAMPLE
+  .\provision_kiosk_user.ps1
+  Uses default values for user (CareWall) and password (CareWallORH)
+
+.EXAMPLE
+  .\provision_kiosk_user.ps1 -KioskUser "MyKiosk" -KioskPassword "SecurePass123!"
+  Uses custom username and password
+
+.EXAMPLE
+  .\provision_kiosk_user.ps1 -KioskExePath "D:\Apps\OneRoomHealthKioskApp.exe"
+  Uses custom executable path
 
 .NOTES
   - Update $KioskExePath to the installed EXE path or MSIX app executable alias.
@@ -17,119 +39,237 @@
 #>
 
 param(
-  [string]$KioskUser = "orhKiosk",
-  [string]$KioskPassword = "OrhKiosk!2025",
-  [string]$KioskExePath = "C:\\Program Files\\OneRoomHealth\\OneRoomHealthKioskApp\\OneRoomHealthKioskApp.exe"
+  [string]$KioskUser = "CareWall",
+  [string]$KioskPassword = "CareWallORH",
+  [string]$KioskExePath = "C:\Program Files\OneRoomHealth\OneRoomHealthKioskApp\OneRoomHealthKioskApp.exe"
 )
 
-function Ensure-Admin {
-  if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
-    throw "This script must be run as Administrator."
-  }
+$ErrorActionPreference = "Stop"
+
+function Test-Administrator {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = [Security.Principal.WindowsPrincipal]$identity
+  return $principal.IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 }
 
-function Ensure-LocalUser($UserName, $Password) {
+function Enable-ShellLauncherFeature {
+  Write-Host "Checking Shell Launcher feature status..." -ForegroundColor Cyan
+  
+  # Check if the feature is available and enabled
+  $feature = Get-WindowsOptionalFeature -Online -FeatureName "Client-EmbeddedShellLauncher" -ErrorAction SilentlyContinue
+  
+  if (-not $feature) {
+    throw "Shell Launcher feature is not available. This requires Windows 11 Enterprise or Education edition."
+  }
+  
+  if ($feature.State -ne "Enabled") {
+    Write-Host "Enabling Shell Launcher feature (requires reboot)..." -ForegroundColor Yellow
+    Enable-WindowsOptionalFeature -Online -FeatureName "Client-EmbeddedShellLauncher" -All -NoRestart
+    Write-Host "WARNING: Shell Launcher feature enabled. A REBOOT is required before running this script again." -ForegroundColor Yellow
+    return $false
+  }
+  
+  Write-Host "[OK] Shell Launcher feature is enabled" -ForegroundColor Green
+  return $true
+}
+
+function New-KioskLocalUser {
+  param([string]$UserName, [string]$Password)
+  
   $user = Get-LocalUser -Name $UserName -ErrorAction SilentlyContinue
+  $secure = ConvertTo-SecureString $Password -AsPlainText -Force
+  
   if (-not $user) {
-    Write-Host "Creating local user '$UserName'" -ForegroundColor Cyan
-    $secure = ConvertTo-SecureString $Password -AsPlainText -Force
-    New-LocalUser -Name $UserName -Password $secure -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
+    Write-Host "Creating local user '$UserName'..." -ForegroundColor Cyan
+    New-LocalUser -Name $UserName -Password $secure -PasswordNeverExpires -UserMayNotChangePassword -Description "OneRoom Health Kiosk User" | Out-Null
+    Write-Host "[OK] User '$UserName' created" -ForegroundColor Green
   } else {
-    Write-Host "Local user '$UserName' exists; updating password" -ForegroundColor Yellow
-    $secure = ConvertTo-SecureString $Password -AsPlainText -Force
+    Write-Host "Local user '$UserName' exists; updating password..." -ForegroundColor Yellow
     Set-LocalUser -Name $UserName -Password $secure
+    Write-Host "[OK] Password updated for '$UserName'" -ForegroundColor Green
   }
-  # Ensure in Users group only
-  Add-LocalGroupMember -Group "Users" -Member $UserName -ErrorAction SilentlyContinue | Out-Null
+  
+  # Ensure user is in Users group (not Administrators)
+  try {
+    Add-LocalGroupMember -Group "Users" -Member $UserName -ErrorAction SilentlyContinue
+  } catch {
+    # User may already be a member
+  }
 }
 
-function Enable-AutoLogon($UserName, $Password) {
-  $regPath = "HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Winlogon"
-  Write-Host "Configuring auto-logon for $UserName" -ForegroundColor Cyan
-  New-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1" -PropertyType String -Force | Out-Null
-  New-ItemProperty -Path $regPath -Name "DefaultUserName" -Value $UserName -PropertyType String -Force | Out-Null
-  New-ItemProperty -Path $regPath -Name "DefaultPassword" -Value $Password -PropertyType String -Force | Out-Null
-  New-ItemProperty -Path $regPath -Name "DefaultDomainName" -Value $env:COMPUTERNAME -PropertyType String -Force | Out-Null
-  <#
-    WARNING: Password is stored in registry for kiosk auto-logon. This is standard for kiosk accounts;
-    restrict device access and network scope accordingly.
-  #>
+function Set-AutoLogon {
+  param([string]$UserName, [string]$Password)
+  
+  $regPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+  Write-Host "Configuring auto-logon for '$UserName'..." -ForegroundColor Cyan
+  
+  Set-ItemProperty -Path $regPath -Name "AutoAdminLogon" -Value "1" -Type String -Force
+  Set-ItemProperty -Path $regPath -Name "DefaultUserName" -Value $UserName -Type String -Force
+  Set-ItemProperty -Path $regPath -Name "DefaultPassword" -Value $Password -Type String -Force
+  Set-ItemProperty -Path $regPath -Name "DefaultDomainName" -Value $env:COMPUTERNAME -Type String -Force
+  
+  # Remove any existing auto-logon count limit
+  Remove-ItemProperty -Path $regPath -Name "AutoLogonCount" -ErrorAction SilentlyContinue
+  
+  Write-Host "[OK] Auto-logon configured" -ForegroundColor Green
+  Write-Host "     Note: Password is stored in registry (standard for kiosk accounts)" -ForegroundColor Yellow
 }
 
-function Get-UserSid($UserName) {
+function Get-UserSID {
+  param([string]$UserName)
+  
   try {
     $ntAccount = New-Object System.Security.Principal.NTAccount($env:COMPUTERNAME, $UserName)
     $sid = $ntAccount.Translate([System.Security.Principal.SecurityIdentifier])
     return $sid.Value
   } catch {
-    throw "Unable to get SID for $UserName: $_"
+    throw "Unable to get SID for user '$UserName': $_"
   }
 }
 
-function Set-ShellLauncher($UserSid, $ShellCommand) {
-  <#
-    Shell Launcher v2 configuration via WMI Bridge provider (MDM_Policy_Config01_ShellLauncher)
-    Docs: https://learn.microsoft.com/windows/configuration/kiosk-shelllauncher
-
-    We assign a custom shell for the kiosk user SID. On login, Windows launches our EXE as the shell.
-  #>
-  Write-Host "Configuring Shell Launcher for SID $UserSid" -ForegroundColor Cyan
-
-  $namespace = "root\\cimv2\\mdm\\dmmap"
-  $className = "MDM_Policy_Config01_ShellLauncher01"
-
-  $session = New-CimSession -Namespace $namespace
-
-  # Enable Shell Launcher globally
-  $propsEnable = @{ InstanceID = "ShellLauncher"; ParentID = "./Vendor/MSFT/Policy/Config"; Enable = 1 }
-  New-CimInstance -CimSession $session -Namespace $namespace -ClassName $className -Property $propsEnable -ErrorAction SilentlyContinue | Out-Null
-
-  # Assign custom shell for the user SID
-  $propsUserShell = @{
-    InstanceID = "ShellLauncher/User/$UserSid"
-    ParentID  = "./Vendor/MSFT/Policy/Config/ShellLauncher"
-    UserSID   = $UserSid
-    Shell     = $ShellCommand
+function Set-ShellLauncherConfiguration {
+  param(
+    [string]$UserSID,
+    [string]$ShellPath
+  )
+  
+  Write-Host "Configuring Shell Launcher for SID: $UserSID" -ForegroundColor Cyan
+  
+  $namespace = "root\standardcimv2\embedded"
+  
+  # Check if WMI namespace exists (Shell Launcher feature must be enabled)
+  $wmiCheck = Get-CimClass -Namespace $namespace -ClassName "WESL_UserSetting" -ErrorAction SilentlyContinue
+  if (-not $wmiCheck) {
+    throw "Shell Launcher WMI classes not found. Ensure the Shell Launcher feature is enabled and reboot if recently enabled."
   }
-  New-CimInstance -CimSession $session -Namespace $namespace -ClassName $className -Property $propsUserShell -ErrorAction SilentlyContinue | Out-Null
-
-  # Recommended: set default shell for other users to Explorer for troubleshooting
-  $propsDefault = @{
-    InstanceID = "ShellLauncher/DefaultShell"
-    ParentID  = "./Vendor/MSFT/Policy/Config/ShellLauncher"
-    DefaultShell = "explorer.exe"
+  
+  # Remove existing configuration for this user (if any)
+  $existing = Get-CimInstance -Namespace $namespace -ClassName "WESL_UserSetting" -Filter "Sid='$UserSID'" -ErrorAction SilentlyContinue
+  if ($existing) {
+    Write-Host "Removing existing shell configuration for user..." -ForegroundColor Yellow
+    Remove-CimInstance -InputObject $existing
   }
-  New-CimInstance -CimSession $session -Namespace $namespace -ClassName $className -Property $propsDefault -ErrorAction SilentlyContinue | Out-Null
-
-  Remove-CimSession $session
+  
+  # Create new shell configuration for the kiosk user
+  $shellConfig = @{
+    Sid = $UserSID
+    Shell = $ShellPath
+    DefaultAction = 0  # 0 = Restart shell, 1 = Restart device, 2 = Shut down device
+  }
+  
+  New-CimInstance -Namespace $namespace -ClassName "WESL_UserSetting" -Property $shellConfig | Out-Null
+  Write-Host "[OK] Custom shell configured for kiosk user" -ForegroundColor Green
+  
+  # Note about default shell
+  Write-Host "     Note: Other users will continue to use Explorer.exe as their shell" -ForegroundColor Gray
+  
+  # Enable Shell Launcher
+  Write-Host "Enabling Shell Launcher..." -ForegroundColor Cyan
+  $ShellLauncherClass = [wmiclass]"\\.\${namespace}:WESL_UserSetting"
+  $ShellLauncherClass.SetEnabled($true) | Out-Null
+  Write-Host "[OK] Shell Launcher enabled" -ForegroundColor Green
 }
+
+# ============== MAIN SCRIPT ==============
 
 try {
-  Ensure-Admin
-  Ensure-LocalUser -UserName $KioskUser -Password $KioskPassword
-  Enable-AutoLogon -UserName $KioskUser -Password $KioskPassword
-
-  $sid = Get-UserSid -UserName $KioskUser
-
-  if (-not (Test-Path $KioskExePath)) {
-    Write-Warning "The kiosk executable was not found at: $KioskExePath"
-    Write-Warning "Update -KioskExePath to the installed path of the app EXE (MSIX install folder or unpackaged)."
+  Write-Host ""
+  Write-Host "========================================" -ForegroundColor Cyan
+  Write-Host "  OneRoom Health Kiosk Provisioning" -ForegroundColor Cyan
+  Write-Host "========================================" -ForegroundColor Cyan
+  Write-Host ""
+  Write-Host "Configuration:" -ForegroundColor White
+  Write-Host "  User:       $KioskUser" -ForegroundColor Gray
+  Write-Host "  Executable: $KioskExePath" -ForegroundColor Gray
+  Write-Host ""
+  
+  # 1. Check for admin rights
+  if (-not (Test-Administrator)) {
+    throw "This script must be run as Administrator. Right-click PowerShell and select 'Run as administrator'."
   }
-
-  # Shell command: full path to EXE. If packaged MSIX, update to appropriate InstallLocation path.
-  $shellCmd = '"' + $KioskExePath + '"'
-  Set-ShellLauncher -UserSid $sid -ShellCommand $shellCmd
-
-  Write-Host "Kiosk provisioning complete." -ForegroundColor Green
-  Write-Host "Reboot to apply Shell Launcher and auto-logon." -ForegroundColor Green
-
-  <# Revert instructions
-    To revert the shell for this user to Explorer:
-      - Set-ShellLauncher -UserSid $sid -ShellCommand "explorer.exe"
-    Or disable Shell Launcher by setting Enable=0 in the policy class above.
-  #>
+  Write-Host "[OK] Running as Administrator" -ForegroundColor Green
+  
+  # 2. Enable Shell Launcher feature if needed
+  $featureReady = Enable-ShellLauncherFeature
+  if (-not $featureReady) {
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Yellow
+    Write-Host "  REBOOT REQUIRED" -ForegroundColor Yellow
+    Write-Host "============================================" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "The Shell Launcher feature has been enabled." -ForegroundColor White
+    Write-Host "Please REBOOT the computer and run this script again." -ForegroundColor White
+    Write-Host ""
+    exit 0
+  }
+  
+  # 3. Create/update local user
+  New-KioskLocalUser -UserName $KioskUser -Password $KioskPassword
+  
+  # 4. Configure auto-logon
+  Set-AutoLogon -UserName $KioskUser -Password $KioskPassword
+  
+  # 5. Get user SID
+  $userSID = Get-UserSID -UserName $KioskUser
+  Write-Host "     User SID: $userSID" -ForegroundColor Gray
+  
+  # 6. Validate kiosk executable path
+  if (-not (Test-Path $KioskExePath)) {
+    Write-Host ""
+    Write-Host "WARNING: The kiosk executable was NOT found at:" -ForegroundColor Yellow
+    Write-Host "         $KioskExePath" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Make sure to install the kiosk app before rebooting, or update" -ForegroundColor Yellow
+    Write-Host "the -KioskExePath parameter to the correct installed path." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Continuing with configuration anyway..." -ForegroundColor Yellow
+    Write-Host ""
+  } else {
+    Write-Host "[OK] Kiosk executable found: $KioskExePath" -ForegroundColor Green
+  }
+  
+  # 7. Configure Shell Launcher
+  Set-ShellLauncherConfiguration -UserSID $userSID -ShellPath $KioskExePath
+  
+  # Success!
+  Write-Host ""
+  Write-Host "========================================" -ForegroundColor Green
+  Write-Host "  Kiosk Provisioning Complete!" -ForegroundColor Green
+  Write-Host "========================================" -ForegroundColor Green
+  Write-Host ""
+  Write-Host "Next steps:" -ForegroundColor Cyan
+  Write-Host "  1. Install the OneRoom Health Kiosk app (if not already installed)" -ForegroundColor White
+  Write-Host "  2. REBOOT the computer to apply Shell Launcher settings" -ForegroundColor White
+  Write-Host "  3. The system will auto-login as '$KioskUser'" -ForegroundColor White
+  Write-Host "  4. The kiosk app will launch as the shell (replacing Explorer)" -ForegroundColor White
+  Write-Host ""
+  Write-Host "To access Windows normally:" -ForegroundColor Cyan
+  Write-Host "  - Log in as a different user (e.g., Administrator account)" -ForegroundColor White
+  Write-Host "  - That user will get the normal Explorer desktop" -ForegroundColor White
+  Write-Host ""
+  Write-Host "========================================" -ForegroundColor Yellow
+  Write-Host "  HOW TO REVERT (if needed)" -ForegroundColor Yellow
+  Write-Host "========================================" -ForegroundColor Yellow
+  Write-Host ""
+  Write-Host "Run the following commands as Administrator:" -ForegroundColor White
+  Write-Host ""
+  Write-Host '  $ns = "root\standardcimv2\embedded"' -ForegroundColor Gray
+  Write-Host '  Get-CimInstance -Namespace $ns -ClassName "WESL_UserSetting" | Remove-CimInstance' -ForegroundColor Gray
+  Write-Host '  ([wmiclass]"\\.\$ns:WESL_UserSetting").SetEnabled($false)' -ForegroundColor Gray
+  Write-Host ""
+  Write-Host "Then reboot to restore normal Explorer shell for all users." -ForegroundColor White
+  Write-Host ""
 }
 catch {
-  Write-Error $_
+  Write-Host ""
+  Write-Host "========================================" -ForegroundColor Red
+  Write-Host "  ERROR" -ForegroundColor Red
+  Write-Host "========================================" -ForegroundColor Red
+  Write-Host ""
+  Write-Host $_.Exception.Message -ForegroundColor Red
+  Write-Host ""
+  Write-Host "Stack trace:" -ForegroundColor Gray
+  Write-Host $_.ScriptStackTrace -ForegroundColor Gray
+  Write-Host ""
   exit 1
 }
