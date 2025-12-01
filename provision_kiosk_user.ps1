@@ -20,10 +20,13 @@
 
 .PARAMETER KioskExePath
   Full path to the kiosk application executable.
+  If not specified, the script will auto-detect the installation from:
+  - MSIX package in WindowsApps folder
+  - Common installation paths in Program Files
 
 .EXAMPLE
   .\provision_kiosk_user.ps1
-  Uses default values for user (CareWall) and password (CareWallORH)
+  Uses default user (CareWall), password (CareWallORH), and auto-detects the kiosk app location
 
 .EXAMPLE
   .\provision_kiosk_user.ps1 -KioskUser "MyKiosk" -KioskPassword "SecurePass123!"
@@ -41,10 +44,66 @@
 param(
   [string]$KioskUser = "CareWall",
   [string]$KioskPassword = "CareWallORH",
-  [string]$KioskExePath = "C:\Program Files\OneRoomHealth\OneRoomHealthKioskApp\OneRoomHealthKioskApp.exe"
+  [string]$KioskExePath = ""  # Auto-detected if not specified
 )
 
 $ErrorActionPreference = "Stop"
+
+function Find-KioskExecutable {
+  <#
+  .SYNOPSIS
+    Finds the kiosk app executable, checking MSIX install location first, then common paths.
+  #>
+  
+  # 1. Check if installed as MSIX package
+  Write-Host "Searching for installed kiosk application..." -ForegroundColor Cyan
+  
+  $appxPackage = Get-AppxPackage -Name "*OneRoomHealth*" -ErrorAction SilentlyContinue
+  if (-not $appxPackage) {
+    $appxPackage = Get-AppxPackage -Name "*Kiosk*" -ErrorAction SilentlyContinue | Where-Object { $_.Publisher -like "*OneRoom*" }
+  }
+  
+  if ($appxPackage) {
+    $msixExePath = Join-Path $appxPackage.InstallLocation "OneRoomHealthKioskApp.exe"
+    if (Test-Path $msixExePath) {
+      Write-Host "[OK] Found MSIX installation: $msixExePath" -ForegroundColor Green
+      return $msixExePath
+    }
+    
+    # Try to find any .exe in the package folder
+    $exeFiles = Get-ChildItem -Path $appxPackage.InstallLocation -Filter "*.exe" -ErrorAction SilentlyContinue
+    if ($exeFiles) {
+      $foundExe = $exeFiles[0].FullName
+      Write-Host "[OK] Found MSIX installation: $foundExe" -ForegroundColor Green
+      return $foundExe
+    }
+  }
+  
+  # 2. Check common installation paths
+  $commonPaths = @(
+    "C:\Program Files\OneRoomHealth\OneRoomHealthKioskApp\OneRoomHealthKioskApp.exe",
+    "C:\Program Files\OneRoomHealth\KioskApp\OneRoomHealthKioskApp.exe",
+    "C:\Program Files (x86)\OneRoomHealth\OneRoomHealthKioskApp\OneRoomHealthKioskApp.exe"
+  )
+  
+  foreach ($path in $commonPaths) {
+    if (Test-Path $path) {
+      Write-Host "[OK] Found at common path: $path" -ForegroundColor Green
+      return $path
+    }
+  }
+  
+  # 3. Search WindowsApps folder directly (slower but thorough)
+  Write-Host "     Searching WindowsApps folder..." -ForegroundColor Gray
+  $windowsAppsSearch = Get-ChildItem -Path "C:\Program Files\WindowsApps" -Filter "OneRoomHealthKioskApp.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($windowsAppsSearch) {
+    Write-Host "[OK] Found in WindowsApps: $($windowsAppsSearch.FullName)" -ForegroundColor Green
+    return $windowsAppsSearch.FullName
+  }
+  
+  # 4. Not found
+  return $null
+}
 
 function Test-Administrator {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -180,7 +239,11 @@ try {
   Write-Host ""
   Write-Host "Configuration:" -ForegroundColor White
   Write-Host "  User:       $KioskUser" -ForegroundColor Gray
-  Write-Host "  Executable: $KioskExePath" -ForegroundColor Gray
+  if ([string]::IsNullOrEmpty($KioskExePath)) {
+    Write-Host "  Executable: (will auto-detect)" -ForegroundColor Gray
+  } else {
+    Write-Host "  Executable: $KioskExePath" -ForegroundColor Gray
+  }
   Write-Host ""
   
   # 1. Check for admin rights
@@ -213,19 +276,57 @@ try {
   $userSID = Get-UserSID -UserName $KioskUser
   Write-Host "     User SID: $userSID" -ForegroundColor Gray
   
-  # 6. Validate kiosk executable path
-  if (-not (Test-Path $KioskExePath)) {
-    Write-Host ""
-    Write-Host "WARNING: The kiosk executable was NOT found at:" -ForegroundColor Yellow
-    Write-Host "         $KioskExePath" -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Make sure to install the kiosk app before rebooting, or update" -ForegroundColor Yellow
-    Write-Host "the -KioskExePath parameter to the correct installed path." -ForegroundColor Yellow
-    Write-Host ""
-    Write-Host "Continuing with configuration anyway..." -ForegroundColor Yellow
-    Write-Host ""
+  # 6. Find or validate kiosk executable path
+  if ([string]::IsNullOrEmpty($KioskExePath)) {
+    # Auto-detect the executable
+    $KioskExePath = Find-KioskExecutable
+    
+    if (-not $KioskExePath) {
+      Write-Host ""
+      Write-Host "========================================" -ForegroundColor Yellow
+      Write-Host "  KIOSK APP NOT FOUND" -ForegroundColor Yellow
+      Write-Host "========================================" -ForegroundColor Yellow
+      Write-Host ""
+      Write-Host "The kiosk application was not found on this system." -ForegroundColor Yellow
+      Write-Host ""
+      Write-Host "Please either:" -ForegroundColor White
+      Write-Host "  1. Install the kiosk app first (from GitHub releases or MSIX package)" -ForegroundColor White
+      Write-Host "  2. Specify the path manually with -KioskExePath parameter" -ForegroundColor White
+      Write-Host ""
+      Write-Host "Example:" -ForegroundColor Gray
+      Write-Host '  .\provision_kiosk_user.ps1 -KioskExePath "C:\Path\To\OneRoomHealthKioskApp.exe"' -ForegroundColor Gray
+      Write-Host ""
+      throw "Kiosk executable not found. Install the app first or specify -KioskExePath."
+    }
   } else {
-    Write-Host "[OK] Kiosk executable found: $KioskExePath" -ForegroundColor Green
+    # User specified a path - validate it
+    if (-not (Test-Path $KioskExePath)) {
+      Write-Host ""
+      Write-Host "WARNING: The specified kiosk executable was NOT found at:" -ForegroundColor Yellow
+      Write-Host "         $KioskExePath" -ForegroundColor Yellow
+      Write-Host ""
+      
+      # Try to auto-detect as fallback
+      Write-Host "Attempting to auto-detect installation..." -ForegroundColor Cyan
+      $detectedPath = Find-KioskExecutable
+      
+      if ($detectedPath) {
+        Write-Host ""
+        Write-Host "Found kiosk app at: $detectedPath" -ForegroundColor Green
+        $useDetected = Read-Host "Use this path instead? (Y/N)"
+        if ($useDetected -eq 'Y' -or $useDetected -eq 'y') {
+          $KioskExePath = $detectedPath
+        } else {
+          Write-Host "Continuing with specified path (app may need to be installed before reboot)..." -ForegroundColor Yellow
+        }
+      } else {
+        Write-Host "Make sure to install the kiosk app before rebooting." -ForegroundColor Yellow
+        Write-Host "Continuing with configuration anyway..." -ForegroundColor Yellow
+      }
+      Write-Host ""
+    } else {
+      Write-Host "[OK] Kiosk executable found: $KioskExePath" -ForegroundColor Green
+    }
   }
   
   # 7. Configure Shell Launcher
