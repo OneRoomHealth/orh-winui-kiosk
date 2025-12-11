@@ -12,7 +12,8 @@ This application provides a secure, full-screen browser experience for Windows 1
 - ✅ **WebView2 browser** filling the entire screen
 - ✅ **Automatic navigation** to default URL on startup
 - ✅ **Video Mode** - MPV player integration with Flic button support
-- ✅ **Local HTTP API** on `http://127.0.0.1:8787` for runtime navigation control
+- ✅ **Hardware Control API** on `http://localhost:8081` - RESTful API for AV equipment control
+- ✅ **Integrated Hardware Modules** - Display (Novastar LED), Chromium browser control
 - ✅ **Shell Launcher v2 integration** - replaces Explorer.exe as the Windows shell
 - ✅ **Security hardened** - disables dev tools, context menus, and browser shortcuts
 - ✅ **Debug Mode** - Ctrl+Shift+F12 for developer access
@@ -218,28 +219,65 @@ Add-AppxPackage -Path "OneRoomHealthKioskApp_1.0.10.0_x64.msix"
 
 ---
 
-## 🌐 Runtime Navigation Control
+## 🎛️ Hardware Control API
 
-The app exposes a local HTTP endpoint for remote navigation:
+The app integrates hardware control capabilities with a comprehensive RESTful API on **port 8081**.
 
-**Endpoint:** `http://127.0.0.1:8787/navigate`  
-**Method:** POST  
-**Content-Type:** application/json
+**Base URL:** `http://localhost:8081/api/v1`
+**Swagger UI:** `http://localhost:8081/swagger`
 
-**Example:**
+### Implemented Modules (Phase 2 Complete)
+
+#### Display Module - Novastar LED Controllers
+Control LED displays via HTTP API:
 ```powershell
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/navigate `
-  -Body '{"url": "https://example.com"}' `
-  -ContentType "application/json"
+# Set brightness (0-100)
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/displays/0/brightness `
+  -Body '{"brightness": 75}' -ContentType "application/json"
+
+# Disable display (blackout)
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/displays/0/enable `
+  -Body '{"enabled": false}' -ContentType "application/json"
 ```
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Navigating to https://example.com"
-}
+**Endpoints:**
+- `GET /api/v1/displays` - List all displays
+- `GET /api/v1/displays/{id}` - Display status
+- `PUT /api/v1/displays/{id}/brightness` - Set brightness (0-100)
+- `PUT /api/v1/displays/{id}/enable` - Enable/disable
+
+#### Chromium Module - Browser Control
+Manage embedded Chromium browser instances:
+```powershell
+# Open browser
+Invoke-RestMethod -Method POST -Uri http://localhost:8081/api/v1/chromium/0/open
+
+# Navigate to URL
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/chromium/0/url `
+  -Body '{"url": "https://example.com"}' -ContentType "application/json"
+
+# Close browser
+Invoke-RestMethod -Method POST -Uri http://localhost:8081/api/v1/chromium/0/close
 ```
+
+**Endpoints:**
+- `GET /api/v1/chromium` - List browser instances
+- `GET /api/v1/chromium/{id}` - Browser status
+- `POST /api/v1/chromium/{id}/open` - Start browser
+- `POST /api/v1/chromium/{id}/close` - Stop browser
+- `PUT /api/v1/chromium/{id}/url` - Navigate to URL
+
+### Coming Soon (Phase 3-4)
+
+- **System Audio** - Windows audio volume/mute control
+- **Microphones** - Per-device microphone control
+- **Speakers** - Per-device speaker control
+- **Camera** - Huddly PTZ camera control (auto-tracking, auto-framing)
+- **Lighting** - DMX512 RGB lighting control
+
+For complete API documentation, visit:
+- **Swagger UI:** http://localhost:8081/swagger
+- **Integration Guide:** [HARDWARE_INTEGRATION_ANALYSIS.md](HARDWARE_INTEGRATION_ANALYSIS.md)
 
 ---
 

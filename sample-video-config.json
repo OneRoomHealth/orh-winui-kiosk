@@ -37,5 +37,75 @@
     "enabled": true,
     "port": 8787,
     "allowRemote": false
+  },
+  "hardware": {
+    "displays": {
+      "enabled": true,
+      "monitorInterval": 5.0,
+      "devices": [
+        {
+          "id": "0",
+          "name": "Main LED Display",
+          "model": "Novastar KU20",
+          "ipAddresses": ["10.1.1.40", "10.1.1.217"],
+          "port": 8001
+        }
+      ]
+    },
+    "cameras": {
+      "enabled": true,
+      "monitorInterval": 5.0,
+      "devices": [
+        {
+          "id": "0",
+          "name": "Huddly L1",
+          "model": "Huddly L1",
+          "deviceId": "52446F0141-52508A0230"
+        },
+        {
+          "id": "1",
+          "name": "Huddly L1 Secondary",
+          "model": "Huddly L1",
+          "deviceId": "52448F0244-52508A0175"
+        }
+      ]
+    },
+    "lighting": {
+      "enabled": true,
+      "monitorInterval": 5.0,
+      "fps": 25,
+      "devices": [
+        {
+          "id": "0",
+          "name": "Main Light",
+          "model": "DMX Decoder",
+          "channelMapping": {
+            "red": 17,
+            "green": 18,
+            "blue": 19,
+            "white": 20
+          }
+        }
+      ]
+    },
+    "systemAudio": {
+      "enabled": true,
+      "monitorInterval": 1.0
+    },
+    "microphones": {
+      "enabled": false,
+      "monitorInterval": 5.0,
+      "devices": []
+    },
+    "speakers": {
+      "enabled": false,
+      "monitorInterval": 5.0,
+      "devices": []
+    },
+    "chromium": {
+      "enabled": false,
+      "monitorInterval": 5.0,
+      "devices": []
+    }
   }
 }

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using OneRoomHealth.Hardware.Configuration;
 
 namespace KioskApp;
 
@@ -22,6 +23,9 @@ public class KioskConfiguration
 
     [JsonPropertyName("httpApi")]
     public HttpApiSettings HttpApi { get; set; } = new();
+
+    [JsonPropertyName("hardware")]
+    public HardwareConfiguration Hardware { get; set; } = new();
 }
 
 /// <summary>
@@ -133,7 +137,7 @@ public class LoggingSettings
 }
 
 /// <summary>
-/// HTTP API settings for remote navigation control.
+/// HTTP API settings for hardware control API.
 /// </summary>
 public class HttpApiSettings
 {
@@ -141,8 +145,8 @@ public class HttpApiSettings
     public bool Enabled { get; set; } = true;
 
     [JsonPropertyName("port")]
-    public int Port { get; set; } = 8787;
+    public int Port { get; set; } = 8081;
 
     [JsonPropertyName("allowRemote")]
-    public bool AllowRemote { get; set; } = false;
+    public bool AllowRemote { get; set; } = true;
 }

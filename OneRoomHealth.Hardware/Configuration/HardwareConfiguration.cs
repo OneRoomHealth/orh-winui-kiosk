@@ -1,0 +1,243 @@
+using System.Text.Json.Serialization;
+
+namespace OneRoomHealth.Hardware.Configuration;
+
+/// <summary>
+/// Root hardware configuration containing all hardware module settings.
+/// </summary>
+public class HardwareConfiguration
+{
+    [JsonPropertyName("cameras")]
+    public CameraConfiguration? Cameras { get; set; }
+
+    [JsonPropertyName("displays")]
+    public DisplayConfiguration? Displays { get; set; }
+
+    [JsonPropertyName("lighting")]
+    public LightingConfiguration? Lighting { get; set; }
+
+    [JsonPropertyName("systemAudio")]
+    public SystemAudioConfiguration? SystemAudio { get; set; }
+
+    [JsonPropertyName("microphones")]
+    public MicrophoneConfiguration? Microphones { get; set; }
+
+    [JsonPropertyName("speakers")]
+    public SpeakerConfiguration? Speakers { get; set; }
+
+    [JsonPropertyName("chromium")]
+    public ChromiumConfiguration? Chromium { get; set; }
+}
+
+/// <summary>
+/// Base configuration for hardware modules.
+/// </summary>
+public abstract class ModuleConfigurationBase
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = true;
+
+    [JsonPropertyName("monitorInterval")]
+    public double MonitorInterval { get; set; } = 5.0;
+}
+
+/// <summary>
+/// Camera module configuration.
+/// </summary>
+public class CameraConfiguration : ModuleConfigurationBase
+{
+    [JsonPropertyName("controllerApiPort")]
+    public int ControllerApiPort { get; set; } = 5000;
+
+    [JsonPropertyName("controllerExePath")]
+    public string ControllerExePath { get; set; } = "hardware\\huddly\\CameraController.exe";
+
+    [JsonPropertyName("autoStartController")]
+    public bool AutoStartController { get; set; } = true;
+
+    [JsonPropertyName("maxRestartAttempts")]
+    public int MaxRestartAttempts { get; set; } = 5;
+
+    [JsonPropertyName("devices")]
+    public List<CameraDeviceConfig> Devices { get; set; } = new();
+}
+
+public class CameraDeviceConfig
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("deviceId")]
+    public string? DeviceId { get; set; }
+
+    [JsonPropertyName("name")]
+    public required string Name { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+}
+
+/// <summary>
+/// Display module configuration.
+/// </summary>
+public class DisplayConfiguration : ModuleConfigurationBase
+{
+    [JsonPropertyName("devices")]
+    public List<DisplayDeviceConfig> Devices { get; set; } = new();
+}
+
+public class DisplayDeviceConfig
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public required string Name { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("ipAddresses")]
+    public List<string> IpAddresses { get; set; } = new();
+
+    [JsonPropertyName("port")]
+    public int Port { get; set; } = 8001;
+}
+
+/// <summary>
+/// Lighting module configuration.
+/// </summary>
+public class LightingConfiguration : ModuleConfigurationBase
+{
+    [JsonPropertyName("dmxUrl")]
+    public string DmxUrl { get; set; } = "ftdi:///1";
+
+    [JsonPropertyName("fps")]
+    public int Fps { get; set; } = 25;
+
+    [JsonPropertyName("devices")]
+    public List<LightingDeviceConfig> Devices { get; set; } = new();
+}
+
+public class LightingDeviceConfig
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public required string Name { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("channelMapping")]
+    public DmxChannelMapping? ChannelMapping { get; set; }
+}
+
+public class DmxChannelMapping
+{
+    [JsonPropertyName("red")]
+    public int Red { get; set; }
+
+    [JsonPropertyName("green")]
+    public int Green { get; set; }
+
+    [JsonPropertyName("blue")]
+    public int Blue { get; set; }
+
+    [JsonPropertyName("white")]
+    public int White { get; set; }
+}
+
+/// <summary>
+/// System audio configuration.
+/// </summary>
+public class SystemAudioConfiguration : ModuleConfigurationBase
+{
+    public SystemAudioConfiguration()
+    {
+        MonitorInterval = 1.0;
+    }
+}
+
+/// <summary>
+/// Microphone module configuration.
+/// </summary>
+public class MicrophoneConfiguration : ModuleConfigurationBase
+{
+    [JsonPropertyName("devices")]
+    public List<AudioDeviceConfig> Devices { get; set; } = new();
+
+    public MicrophoneConfiguration()
+    {
+        MonitorInterval = 1.0;
+    }
+}
+
+/// <summary>
+/// Speaker module configuration.
+/// </summary>
+public class SpeakerConfiguration : ModuleConfigurationBase
+{
+    [JsonPropertyName("devices")]
+    public List<AudioDeviceConfig> Devices { get; set; } = new();
+
+    public SpeakerConfiguration()
+    {
+        MonitorInterval = 1.0;
+    }
+}
+
+public class AudioDeviceConfig
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public required string Name { get; set; }
+
+    [JsonPropertyName("deviceId")]
+    public string? DeviceId { get; set; }
+}
+
+/// <summary>
+/// Chromium browser module configuration.
+/// </summary>
+public class ChromiumConfiguration : ModuleConfigurationBase
+{
+    [JsonPropertyName("devices")]
+    public List<ChromiumInstanceConfig> Devices { get; set; } = new();
+}
+
+public class ChromiumInstanceConfig
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public required string Name { get; set; }
+
+    [JsonPropertyName("chromiumPath")]
+    public string? ChromiumPath { get; set; }
+
+    [JsonPropertyName("userDataDir")]
+    public string? UserDataDir { get; set; }
+
+    [JsonPropertyName("defaultUrl")]
+    public string? DefaultUrl { get; set; }
+
+    [JsonPropertyName("displayMode")]
+    public string DisplayMode { get; set; } = "kiosk";
+
+    [JsonPropertyName("targetDisplay")]
+    public string TargetDisplay { get; set; } = "primary";
+
+    [JsonPropertyName("windowSize")]
+    public int[]? WindowSize { get; set; }
+
+    [JsonPropertyName("muteAudio")]
+    public bool MuteAudio { get; set; } = false;
+
+    [JsonPropertyName("autoStart")]
+    public bool AutoStart { get; set; } = false;
+}
