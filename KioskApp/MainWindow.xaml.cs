@@ -2,7 +2,10 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
@@ -109,6 +112,22 @@ public sealed partial class MainWindow : Window
     private const int WM_KEYDOWN = 0x0100;
     private LowLevelKeyboardProc? _keyboardProc;
     private IntPtr _hookID = IntPtr.Zero;
+
+    // Media device selection for debug mode
+    private List<MediaDeviceInfo> _cameras = new();
+    private List<MediaDeviceInfo> _microphones = new();
+    private string? _selectedCameraId = null;
+    private string? _selectedMicrophoneId = null;
+
+    /// <summary>
+    /// Represents a media device (camera or microphone) for the selector dropdowns.
+    /// </summary>
+    private class MediaDeviceInfo
+    {
+        public string DeviceId { get; set; } = "";
+        public string Label { get; set; } = "";
+        public override string ToString() => Label;
+    }
 
     public MainWindow(KioskConfiguration config)
     {
@@ -1129,6 +1148,9 @@ public sealed partial class MainWindow : Window
                         // Open developer tools
                         KioskWebView.CoreWebView2.OpenDevToolsWindow();
                     }
+                    
+                    // Load available cameras and microphones for the dropdowns
+                    _ = LoadAllMediaDevicesAsync();
 
                     // Window the application
                     if (_appWindow?.Presenter.Kind == AppWindowPresenterKind.FullScreen)
@@ -1762,22 +1784,291 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    #region Media Device Selection (Camera & Microphone)
+
     /// <summary>
-    /// Navigate to camera test page
+    /// Refresh the camera list from WebView2
     /// </summary>
-    private void CameraTestButton_Click(object sender, RoutedEventArgs e)
+    private async void RefreshCamerasButton_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadCamerasAsync();
+    }
+
+    /// <summary>
+    /// Refresh the microphone list from WebView2
+    /// </summary>
+    private async void RefreshMicrophonesButton_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadMicrophonesAsync();
+    }
+
+    /// <summary>
+    /// Load all media devices (cameras and microphones)
+    /// </summary>
+    private async Task LoadAllMediaDevicesAsync()
+    {
+        await LoadCamerasAsync();
+        await LoadMicrophonesAsync();
+    }
+
+    /// <summary>
+    /// Load available cameras via JavaScript
+    /// </summary>
+    private async Task LoadCamerasAsync()
     {
         if (KioskWebView?.CoreWebView2 == null)
         {
-            Logger.Log("Cannot navigate to camera test: WebView2 not initialized");
-            ShowStatus("Error", "WebView2 is not ready. Please wait for initialization.");
-            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+            Logger.Log("Cannot load cameras: WebView2 not initialized");
             return;
         }
 
-        // Navigate to WebRTC test pages for camera testing
-        NavigateToUrl("https://webrtc.github.io/test-pages/");
+        try
+        {
+            Logger.Log("Loading available cameras...");
+            
+            // JavaScript to get camera list (requests permission if needed)
+            var script = @"
+                (async () => {
+                    try {
+                        // Request permission first
+                        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+                        tempStream.getTracks().forEach(track => track.stop());
+                        
+                        // Get devices
+                        const devices = await navigator.mediaDevices.enumerateDevices();
+                        const cameras = devices
+                            .filter(d => d.kind === 'videoinput')
+                            .map(d => ({ deviceId: d.deviceId, label: d.label || 'Camera ' + d.deviceId.substring(0, 8) }));
+                        return JSON.stringify(cameras);
+                    } catch (e) {
+                        console.error('Failed to enumerate cameras:', e);
+                        return JSON.stringify([]);
+                    }
+                })();
+            ";
+
+            var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
+            
+            // Parse the JSON result (it comes wrapped in quotes from ExecuteScriptAsync)
+            var json = JsonSerializer.Deserialize<string>(result);
+            if (!string.IsNullOrEmpty(json))
+            {
+                var cameras = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(json, new JsonSerializerOptions 
+                { 
+                    PropertyNameCaseInsensitive = true 
+                });
+                
+                if (cameras != null)
+                {
+                    _cameras = cameras;
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        CameraSelector.Items.Clear();
+                        foreach (var cam in _cameras)
+                        {
+                            CameraSelector.Items.Add(cam);
+                        }
+                        Logger.Log($"Loaded {_cameras.Count} camera(s)");
+                        
+                        // Restore previous selection if available
+                        if (_selectedCameraId != null)
+                        {
+                            var selected = _cameras.FirstOrDefault(c => c.DeviceId == _selectedCameraId);
+                            if (selected != null)
+                            {
+                                CameraSelector.SelectedItem = selected;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to load cameras: {ex.Message}");
+        }
     }
+
+    /// <summary>
+    /// Load available microphones via JavaScript
+    /// </summary>
+    private async Task LoadMicrophonesAsync()
+    {
+        if (KioskWebView?.CoreWebView2 == null)
+        {
+            Logger.Log("Cannot load microphones: WebView2 not initialized");
+            return;
+        }
+
+        try
+        {
+            Logger.Log("Loading available microphones...");
+            
+            // JavaScript to get microphone list (requests permission if needed)
+            var script = @"
+                (async () => {
+                    try {
+                        // Request permission first
+                        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        tempStream.getTracks().forEach(track => track.stop());
+                        
+                        // Get devices
+                        const devices = await navigator.mediaDevices.enumerateDevices();
+                        const microphones = devices
+                            .filter(d => d.kind === 'audioinput')
+                            .map(d => ({ deviceId: d.deviceId, label: d.label || 'Microphone ' + d.deviceId.substring(0, 8) }));
+                        return JSON.stringify(microphones);
+                    } catch (e) {
+                        console.error('Failed to enumerate microphones:', e);
+                        return JSON.stringify([]);
+                    }
+                })();
+            ";
+
+            var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
+            
+            // Parse the JSON result (it comes wrapped in quotes from ExecuteScriptAsync)
+            var json = JsonSerializer.Deserialize<string>(result);
+            if (!string.IsNullOrEmpty(json))
+            {
+                var microphones = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(json, new JsonSerializerOptions 
+                { 
+                    PropertyNameCaseInsensitive = true 
+                });
+                
+                if (microphones != null)
+                {
+                    _microphones = microphones;
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        MicrophoneSelector.Items.Clear();
+                        foreach (var mic in _microphones)
+                        {
+                            MicrophoneSelector.Items.Add(mic);
+                        }
+                        Logger.Log($"Loaded {_microphones.Count} microphone(s)");
+                        
+                        // Restore previous selection if available
+                        if (_selectedMicrophoneId != null)
+                        {
+                            var selected = _microphones.FirstOrDefault(m => m.DeviceId == _selectedMicrophoneId);
+                            if (selected != null)
+                            {
+                                MicrophoneSelector.SelectedItem = selected;
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to load microphones: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Handle camera selection change
+    /// </summary>
+    private async void CameraSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CameraSelector.SelectedItem is MediaDeviceInfo camera)
+        {
+            _selectedCameraId = camera.DeviceId;
+            Logger.Log($"Selected camera: {camera.Label}");
+            await ApplyMediaDeviceOverrideAsync();
+        }
+    }
+
+    /// <summary>
+    /// Handle microphone selection change
+    /// </summary>
+    private async void MicrophoneSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (MicrophoneSelector.SelectedItem is MediaDeviceInfo microphone)
+        {
+            _selectedMicrophoneId = microphone.DeviceId;
+            Logger.Log($"Selected microphone: {microphone.Label}");
+            await ApplyMediaDeviceOverrideAsync();
+        }
+    }
+
+    /// <summary>
+    /// Inject JavaScript to override camera and microphone selection for all future getUserMedia calls
+    /// </summary>
+    private async Task ApplyMediaDeviceOverrideAsync()
+    {
+        if (KioskWebView?.CoreWebView2 == null) return;
+
+        // Escape the deviceIds for use in JavaScript
+        var escapedCameraId = _selectedCameraId?.Replace("'", "\\'") ?? "";
+        var escapedMicrophoneId = _selectedMicrophoneId?.Replace("'", "\\'") ?? "";
+        
+        var script = $@"
+            // Store the preferred device IDs
+            window.__preferredCameraId = '{escapedCameraId}' || window.__preferredCameraId || null;
+            window.__preferredMicrophoneId = '{escapedMicrophoneId}' || window.__preferredMicrophoneId || null;
+            
+            // Override getUserMedia if not already done
+            if (!window.__mediaDeviceOverrideApplied) {{
+                const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+                
+                navigator.mediaDevices.getUserMedia = async (constraints) => {{
+                    // Apply camera override
+                    if (window.__preferredCameraId && constraints.video) {{
+                        if (constraints.video === true) {{
+                            constraints.video = {{ deviceId: {{ exact: window.__preferredCameraId }} }};
+                        }} else if (typeof constraints.video === 'object') {{
+                            constraints.video.deviceId = {{ exact: window.__preferredCameraId }};
+                        }}
+                        console.log('Camera override applied:', window.__preferredCameraId);
+                    }}
+                    
+                    // Apply microphone override
+                    if (window.__preferredMicrophoneId && constraints.audio) {{
+                        if (constraints.audio === true) {{
+                            constraints.audio = {{ deviceId: {{ exact: window.__preferredMicrophoneId }} }};
+                        }} else if (typeof constraints.audio === 'object') {{
+                            constraints.audio.deviceId = {{ exact: window.__preferredMicrophoneId }};
+                        }}
+                        console.log('Microphone override applied:', window.__preferredMicrophoneId);
+                    }}
+                    
+                    return originalGetUserMedia(constraints);
+                }};
+                
+                window.__mediaDeviceOverrideApplied = true;
+                console.log('Media device override installed');
+            }}
+            
+            'Devices set - Camera: ' + (window.__preferredCameraId ? 'Yes' : 'No') + ', Mic: ' + (window.__preferredMicrophoneId ? 'Yes' : 'No');
+        ";
+
+        try
+        {
+            var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
+            Logger.Log($"Media device override applied: {result}");
+            
+            // Build status message
+            var cameraName = _cameras.FirstOrDefault(c => c.DeviceId == _selectedCameraId)?.Label;
+            var micName = _microphones.FirstOrDefault(m => m.DeviceId == _selectedMicrophoneId)?.Label;
+            var statusParts = new List<string>();
+            if (cameraName != null) statusParts.Add($"📷 {cameraName}");
+            if (micName != null) statusParts.Add($"🎤 {micName}");
+            
+            if (statusParts.Count > 0)
+            {
+                ShowStatus("Devices Selected", string.Join(" | ", statusParts));
+                _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to apply media device override: {ex.Message}");
+        }
+    }
+
+    #endregion
 
     private void ViewLogsButton_Click(object sender, RoutedEventArgs e)
     {

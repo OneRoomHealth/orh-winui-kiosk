@@ -54,7 +54,29 @@
                 <Button x:Name="ForwardButton" Content="→ Forward" Margin="2" Click="ForwardButton_Click"/>
                 <Button x:Name="RefreshButton" Content="⟳ Refresh" Margin="2" Click="RefreshButton_Click"/>
                 <Button x:Name="DevToolsButton" Content="DevTools (F12)" Margin="2" Click="DevToolsButton_Click"/>
-                <Button x:Name="CameraTestButton" Content="Camera Test" Margin="2" Click="CameraTestButton_Click"/>
+                
+                <!-- Camera Selector -->
+                <StackPanel Orientation="Horizontal" Margin="2" VerticalAlignment="Center">
+                    <TextBlock Text="📷" VerticalAlignment="Center" Foreground="White" Margin="5,0,5,0"/>
+                    <ComboBox x:Name="CameraSelector" 
+                              Width="160" 
+                              Height="28"
+                              PlaceholderText="Select Camera..."
+                              SelectionChanged="CameraSelector_SelectionChanged"/>
+                    <Button x:Name="RefreshCamerasButton" Content="↻" Margin="2" Padding="6,2" Click="RefreshCamerasButton_Click" ToolTipService.ToolTip="Refresh camera list"/>
+                </StackPanel>
+                
+                <!-- Microphone Selector -->
+                <StackPanel Orientation="Horizontal" Margin="2" VerticalAlignment="Center">
+                    <TextBlock Text="🎤" VerticalAlignment="Center" Foreground="White" Margin="5,0,5,0"/>
+                    <ComboBox x:Name="MicrophoneSelector" 
+                              Width="160" 
+                              Height="28"
+                              PlaceholderText="Select Mic..."
+                              SelectionChanged="MicrophoneSelector_SelectionChanged"/>
+                    <Button x:Name="RefreshMicrophonesButton" Content="↻" Margin="2" Padding="6,2" Click="RefreshMicrophonesButton_Click" ToolTipService.ToolTip="Refresh microphone list"/>
+                </StackPanel>
+                
                 <Button x:Name="ViewLogsButton" Content="📋 View Logs" Margin="2" Click="ViewLogsButton_Click"/>
                 <Button x:Name="SwitchMonitorButton" Content="🖥️ Switch Monitor" Margin="2" Click="SwitchMonitorButton_Click"/>
             </StackPanel>
