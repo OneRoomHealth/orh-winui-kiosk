@@ -126,6 +126,9 @@ public sealed partial class MainWindow : Window
     private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingWebMessages = new();
     private bool _webMessageBridgeInitialized = false;
 
+    // Guard to prevent concurrent media device enumeration (avoids race conditions on _cameras/_microphones)
+    private readonly SemaphoreSlim _mediaEnumerationLock = new(1, 1);
+
     private const string PreferredCameraIdKey = "PreferredCameraId";
     private const string PreferredMicrophoneIdKey = "PreferredMicrophoneId";
 
@@ -2109,14 +2112,49 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task LoadAllMediaDevicesAsync()
     {
-        await LoadCamerasAsync();
-        await LoadMicrophonesAsync();
+        // Use lock to prevent overlapping enumeration calls (e.g., from EnterDebugMode + OnNavigationCompleted)
+        if (!await _mediaEnumerationLock.WaitAsync(0))
+        {
+            Logger.Log("LoadAllMediaDevicesAsync: skipping (another enumeration in progress)");
+            return;
+        }
+
+        try
+        {
+            await LoadCamerasAsyncCore();
+            await LoadMicrophonesAsyncCore();
+        }
+        finally
+        {
+            _mediaEnumerationLock.Release();
+        }
     }
 
     /// <summary>
-    /// Load available cameras via JavaScript
+    /// Load available cameras via JavaScript (acquires lock)
     /// </summary>
     private async Task LoadCamerasAsync()
+    {
+        if (!await _mediaEnumerationLock.WaitAsync(0))
+        {
+            Logger.Log("LoadCamerasAsync: skipping (another enumeration in progress)");
+            return;
+        }
+
+        try
+        {
+            await LoadCamerasAsyncCore();
+        }
+        finally
+        {
+            _mediaEnumerationLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Load available cameras via JavaScript (no lock - caller must hold _mediaEnumerationLock)
+    /// </summary>
+    private async Task LoadCamerasAsyncCore()
     {
         if (KioskWebView?.CoreWebView2 == null)
         {
@@ -2143,32 +2181,53 @@ public sealed partial class MainWindow : Window
                     }
                 }
 
+                // Capture the selected ID and list locally to avoid race conditions
+                var localCameras = cameras;
+                var localSelectedId = _selectedCameraId;
+
                 _cameras = cameras;
                 DispatcherQueue.TryEnqueue(() =>
                 {
                     CameraSelector.Items.Clear();
-                    foreach (var cam in _cameras)
+                    foreach (var cam in localCameras)
                     {
                         CameraSelector.Items.Add(cam);
                     }
-                    Logger.Log($"Loaded {_cameras.Count} camera(s)");
+                    Logger.Log($"Loaded {localCameras.Count} camera(s)");
                     
                     // Restore previous selection if available
-                    if (_selectedCameraId != null)
+                    if (!string.IsNullOrWhiteSpace(localSelectedId))
                     {
-                        var selected = _cameras.FirstOrDefault(c => c.DeviceId == _selectedCameraId);
-                        if (selected != null)
+                        var selectedIndex = -1;
+                        for (int i = 0; i < localCameras.Count; i++)
                         {
-                            CameraSelector.SelectedItem = selected;
+                            if (localCameras[i].DeviceId == localSelectedId)
+                            {
+                                selectedIndex = i;
+                                break;
+                            }
+                        }
+                        if (selectedIndex >= 0)
+                        {
+                            CameraSelector.SelectedIndex = selectedIndex;
+                            Logger.Log($"Restored camera selection to index {selectedIndex}: {localCameras[selectedIndex].Label}");
+                        }
+                        else
+                        {
+                            Logger.Log($"Could not restore camera selection: device {localSelectedId} not found in enumerated list");
                         }
                     }
                 });
 
                 // If we got no cameras, collect diagnostics to understand why enumeration is empty.
-                if (_cameras.Count == 0)
+                if (cameras.Count == 0)
                 {
                     _ = LogWebRtcDeviceDiagnosticsAsync("LoadCamerasAsync: no videoinput devices");
                 }
+            }
+            else
+            {
+                Logger.Log("LoadCamerasAsync: enumeration returned null (timeout or error)");
             }
         }
         catch (Exception ex)
@@ -2178,9 +2237,30 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Load available microphones via JavaScript
+    /// Load available microphones via JavaScript (acquires lock)
     /// </summary>
     private async Task LoadMicrophonesAsync()
+    {
+        if (!await _mediaEnumerationLock.WaitAsync(0))
+        {
+            Logger.Log("LoadMicrophonesAsync: skipping (another enumeration in progress)");
+            return;
+        }
+
+        try
+        {
+            await LoadMicrophonesAsyncCore();
+        }
+        finally
+        {
+            _mediaEnumerationLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Load available microphones via JavaScript (no lock - caller must hold _mediaEnumerationLock)
+    /// </summary>
+    private async Task LoadMicrophonesAsyncCore()
     {
         if (KioskWebView?.CoreWebView2 == null)
         {
@@ -2207,32 +2287,53 @@ public sealed partial class MainWindow : Window
                     }
                 }
 
+                // Capture the selected ID and list locally to avoid race conditions
+                var localMicrophones = microphones;
+                var localSelectedId = _selectedMicrophoneId;
+
                 _microphones = microphones;
                 DispatcherQueue.TryEnqueue(() =>
                 {
                     MicrophoneSelector.Items.Clear();
-                    foreach (var mic in _microphones)
+                    foreach (var mic in localMicrophones)
                     {
                         MicrophoneSelector.Items.Add(mic);
                     }
-                    Logger.Log($"Loaded {_microphones.Count} microphone(s)");
+                    Logger.Log($"Loaded {localMicrophones.Count} microphone(s)");
                     
                     // Restore previous selection if available
-                    if (_selectedMicrophoneId != null)
+                    if (!string.IsNullOrWhiteSpace(localSelectedId))
                     {
-                        var selected = _microphones.FirstOrDefault(m => m.DeviceId == _selectedMicrophoneId);
-                        if (selected != null)
+                        var selectedIndex = -1;
+                        for (int i = 0; i < localMicrophones.Count; i++)
                         {
-                            MicrophoneSelector.SelectedItem = selected;
+                            if (localMicrophones[i].DeviceId == localSelectedId)
+                            {
+                                selectedIndex = i;
+                                break;
+                            }
+                        }
+                        if (selectedIndex >= 0)
+                        {
+                            MicrophoneSelector.SelectedIndex = selectedIndex;
+                            Logger.Log($"Restored microphone selection to index {selectedIndex}: {localMicrophones[selectedIndex].Label}");
+                        }
+                        else
+                        {
+                            Logger.Log($"Could not restore microphone selection: device {localSelectedId} not found in enumerated list");
                         }
                     }
                 });
 
                 // If we got no microphones, collect diagnostics to understand why enumeration is empty.
-                if (_microphones.Count == 0)
+                if (microphones.Count == 0)
                 {
                     _ = LogWebRtcDeviceDiagnosticsAsync("LoadMicrophonesAsync: no audioinput devices");
                 }
+            }
+            else
+            {
+                Logger.Log("LoadMicrophonesAsync: enumeration returned null (timeout or error)");
             }
         }
         catch (Exception ex)
