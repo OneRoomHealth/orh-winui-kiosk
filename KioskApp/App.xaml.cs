@@ -95,12 +95,20 @@ public partial class App : Application
 			Debug.WriteLine("Window activated");
 			Logger.Log("MainWindow created and activated");
 
-			// Start local navigation command server (port 8787) so external tools can instruct the kiosk to navigate.
-			// Endpoint: POST http://127.0.0.1:8787/navigate  { "url": "https://example.com" }
-			// (Runs in background; StartAsync internally handles "access denied" and "port in use" cases.)
+			// Wire navigation endpoint on the already-running HTTP API server (often port 8787 in config).
 			if (m_window is MainWindow mainWindow)
 			{
-				_ = LocalCommandServer.StartAsync(mainWindow);
+				_hardwareApiServer?.SetNavigationHandler(async (url) =>
+				{
+					await mainWindow.DispatcherQueue.EnqueueAsync(() => mainWindow.NavigateToUrl(url));
+				});
+			}
+
+			// Start LocalCommandServer only if it won't conflict with the configured HTTP API port.
+			// (LocalCommandServer is fixed to port 8787; if the API server is also 8787, LocalCommandServer cannot bind.)
+			if (m_window is MainWindow mainWindow2 && config.HttpApi.Port != 8787)
+			{
+				_ = LocalCommandServer.StartAsync(mainWindow2);
 				Logger.Log("LocalCommandServer start requested");
 			}
 
