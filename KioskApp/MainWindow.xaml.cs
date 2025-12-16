@@ -1857,7 +1857,7 @@ public sealed partial class MainWindow : Window
                             .filter(d => d.kind === 'videoinput')
                             .map((d, idx) => ({
                                 deviceId: d.deviceId,
-                                label: (d.label && d.label.trim()) ? d.label : ('Camera ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
+                                label: ((d.label || '').trim()) ? (d.label || '').trim() : ('Camera ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
                             }));
                         return JSON.stringify(cameras);
                     } catch (e) {
@@ -1955,7 +1955,7 @@ public sealed partial class MainWindow : Window
                             .filter(d => d.kind === 'audioinput')
                             .map((d, idx) => ({
                                 deviceId: d.deviceId,
-                                label: (d.label && d.label.trim()) ? d.label : ('Microphone ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
+                                label: ((d.label || '').trim()) ? (d.label || '').trim() : ('Microphone ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
                             }));
                         return JSON.stringify(microphones);
                     } catch (e) {
