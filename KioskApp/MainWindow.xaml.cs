@@ -7,6 +7,8 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
+using System.Threading;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using Microsoft.UI;
@@ -118,6 +120,10 @@ public sealed partial class MainWindow : Window
     private List<MediaDeviceInfo> _microphones = new();
     private string? _selectedCameraId = null;
     private string? _selectedMicrophoneId = null;
+
+    // WebView->Host message bridge for async media enumeration (ExecuteScriptAsync does not reliably await Promises)
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingWebMessages = new();
+    private bool _webMessageBridgeInitialized = false;
 
     /// <summary>
     /// Represents a media device (camera or microphone) for the selector dropdowns.
@@ -872,6 +878,13 @@ public sealed partial class MainWindow : Window
 
         // Navigation event handlers
         KioskWebView.NavigationCompleted += OnNavigationCompleted;
+
+        // Initialize WebMessage bridge once (used for async media device enumeration)
+        if (!_webMessageBridgeInitialized)
+        {
+            _webMessageBridgeInitialized = true;
+            KioskWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
+        }
         
         // Ensure status overlay is hidden when WebView is ready
         Logger.Log("WebView2 setup complete, ensuring status overlay is hidden");
@@ -947,6 +960,35 @@ public sealed partial class MainWindow : Window
         };
 
         Logger.Log("WebView2 setup completed");
+    }
+
+    private void CoreWebView2_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
+    {
+        try
+        {
+            var json = e.WebMessageAsJson;
+            if (string.IsNullOrWhiteSpace(json)) return;
+
+            using var doc = JsonDocument.Parse(json);
+            if (!doc.RootElement.TryGetProperty("type", out var typeEl)) return;
+            if (!doc.RootElement.TryGetProperty("requestId", out var reqEl)) return;
+
+            var type = typeEl.GetString();
+            var requestId = reqEl.GetString();
+            if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(requestId)) return;
+
+            // Only handle our internal messages
+            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag") return;
+
+            if (_pendingWebMessages.TryRemove(requestId, out var tcs))
+            {
+                tcs.TrySetResult(json);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"WebMessageReceived parse error: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -1798,6 +1840,130 @@ public sealed partial class MainWindow : Window
 
     #region Media Device Selection (Camera & Microphone)
 
+    private async Task<string?> SendWebMessageRequestAsync(string jsToExecute, string requestId, TimeSpan timeout)
+    {
+        if (KioskWebView?.CoreWebView2 == null) return null;
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!_pendingWebMessages.TryAdd(requestId, tcs))
+        {
+            return null;
+        }
+
+        try
+        {
+            await KioskWebView.CoreWebView2.ExecuteScriptAsync(jsToExecute);
+
+            using var cts = new CancellationTokenSource(timeout);
+            await using (cts.Token.Register(() => tcs.TrySetCanceled()))
+            {
+                return await tcs.Task;
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            _pendingWebMessages.TryRemove(requestId, out _);
+            Logger.Log($"Web message request timed out: {requestId}");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _pendingWebMessages.TryRemove(requestId, out _);
+            Logger.Log($"Web message request failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private async Task<List<MediaDeviceInfo>> EnumerateMediaDevicesViaWebMessageAsync(string kind, string context)
+    {
+        var requestId = Guid.NewGuid().ToString("N");
+
+        // Fire-and-forget async work inside the page and deliver results back via chrome.webview.postMessage.
+        // (ExecuteScriptAsync does not reliably await Promises, and otherwise returns {}.)
+        var js = $@"
+            (() => {{
+                try {{
+                    const requestId = '{requestId}';
+                    const kind = '{kind}';
+
+                    const post = (payload) => {{
+                        try {{
+                            if (window.chrome && chrome.webview && chrome.webview.postMessage) {{
+                                chrome.webview.postMessage(payload);
+                            }}
+                        }} catch (e) {{}}
+                    }};
+
+                    (async () => {{
+                        const result = {{ type: 'orh.mediaDevices.result', requestId, kind, context: '{context.Replace("'", "\\'")}', devices: [], error: null }};
+                        try {{
+                            if (!navigator || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {{
+                                throw new Error('navigator.mediaDevices.enumerateDevices is not available');
+                            }}
+
+                            // Try to unlock labels (best-effort). Don’t fail enumeration if this fails.
+                            try {{
+                                if (kind === 'videoinput') {{
+                                    const s = await navigator.mediaDevices.getUserMedia({{ video: true }});
+                                    s.getTracks().forEach(t => t.stop());
+                                }} else if (kind === 'audioinput') {{
+                                    const s = await navigator.mediaDevices.getUserMedia({{ audio: true }});
+                                    s.getTracks().forEach(t => t.stop());
+                                }}
+                            }} catch (e) {{
+                                // ignore
+                            }}
+
+                            const devices = await navigator.mediaDevices.enumerateDevices();
+                            const filtered = devices.filter(d => d.kind === kind);
+                            result.devices = filtered.map((d, idx) => {{
+                                const trimmed = ((d.label || '')).trim();
+                                const fallback = (kind === 'videoinput' ? 'Camera ' : 'Microphone ') + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : '');
+                                return {{ deviceId: d.deviceId || '', label: trimmed ? trimmed : fallback }};
+                            }});
+                        }} catch (e) {{
+                            result.error = {{ name: e && e.name ? e.name : null, message: e && e.message ? e.message : String(e) }};
+                        }}
+
+                        post(result);
+                    }})();
+                }} catch (e) {{
+                    // swallow
+                }}
+            }})();";
+
+        var json = await SendWebMessageRequestAsync(js, requestId, TimeSpan.FromSeconds(8));
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return new List<MediaDeviceInfo>();
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("error", out var errEl) && errEl.ValueKind != JsonValueKind.Null)
+            {
+                var name = errEl.TryGetProperty("name", out var n) ? n.GetString() : null;
+                var msg = errEl.TryGetProperty("message", out var m) ? m.GetString() : null;
+                Logger.Log($"Media enumeration error ({kind}): {name} {msg}");
+            }
+
+            if (!root.TryGetProperty("devices", out var devicesEl) || devicesEl.ValueKind != JsonValueKind.Array)
+            {
+                return new List<MediaDeviceInfo>();
+            }
+
+            var devices = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(devicesEl.GetRawText(), new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            return devices ?? new List<MediaDeviceInfo>();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to parse web message devices ({kind}): {ex.Message}. Raw: {json}");
+            return new List<MediaDeviceInfo>();
+        }
+    }
+
     /// <summary>
     /// Collects detailed diagnostics from within the WebView page about WebRTC device enumeration.
     /// This is used when enumerateDevices returns no cameras/microphones, to help pinpoint policy/secure-context issues.
@@ -1808,53 +1974,57 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var diagScript = @"
-                (async () => {
-                    const info = {
-                        context: 'REPLACE_CONTEXT',
-                        href: (typeof location !== 'undefined' && location.href) ? location.href : null,
-                        origin: (typeof location !== 'undefined' && location.origin) ? location.origin : null,
-                        isSecureContext: (typeof isSecureContext !== 'undefined') ? isSecureContext : null,
-                        userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : null,
-                        hasNavigator: (typeof navigator !== 'undefined'),
-                        hasMediaDevices: (typeof navigator !== 'undefined' && !!navigator.mediaDevices),
-                        hasEnumerateDevices: (typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices)),
-                        hasGetUserMedia: (typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)),
-                        enumerateError: null,
-                        enumerateResult: null
-                    };
+            var requestId = Guid.NewGuid().ToString("N");
+            var js = $@"
+                (() => {{
+                    const requestId = '{requestId}';
+                    const post = (payload) => {{
+                        try {{ if (window.chrome && chrome.webview && chrome.webview.postMessage) chrome.webview.postMessage(payload); }} catch (e) {{}}
+                    }};
+                    (async () => {{
+                        const info = {{
+                            type: 'orh.webrtc.diag',
+                            requestId,
+                            context: '{context.Replace("'", "\\'")}',
+                            href: (typeof location !== 'undefined' && location.href) ? location.href : null,
+                            origin: (typeof location !== 'undefined' && location.origin) ? location.origin : null,
+                            isSecureContext: (typeof isSecureContext !== 'undefined') ? isSecureContext : null,
+                            userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : null,
+                            hasNavigator: (typeof navigator !== 'undefined'),
+                            hasMediaDevices: (typeof navigator !== 'undefined' && !!navigator.mediaDevices),
+                            hasEnumerateDevices: (typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices)),
+                            hasGetUserMedia: (typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)),
+                            enumerateError: null,
+                            enumerateResult: null
+                        }};
 
-                    try {
-                        if (!info.hasMediaDevices || !info.hasEnumerateDevices) {
-                            throw new Error('navigator.mediaDevices.enumerateDevices is not available');
-                        }
+                        try {{
+                            if (!info.hasMediaDevices || !info.hasEnumerateDevices) {{
+                                throw new Error('navigator.mediaDevices.enumerateDevices is not available');
+                            }}
+                            const devices = await navigator.mediaDevices.enumerateDevices();
+                            info.enumerateResult = devices.map(d => ({{
+                                kind: d.kind,
+                                deviceIdPresent: !!d.deviceId,
+                                label: (d.label || null),
+                                labelTrimmed: (d.label ? d.label.trim() : null),
+                                groupIdPresent: !!d.groupId
+                            }}));
+                        }} catch (e) {{
+                            info.enumerateError = (e && (e.name || e.message)) ? {{ name: e.name || null, message: e.message || String(e) }} : String(e);
+                        }}
+                        post(info);
+                    }})(); 
+                }})();";
 
-                        const devices = await navigator.mediaDevices.enumerateDevices();
-                        info.enumerateResult = devices.map(d => ({
-                            kind: d.kind,
-                            deviceIdPresent: !!d.deviceId,
-                            label: (d.label || null),
-                            labelTrimmed: (d.label ? d.label.trim() : null),
-                            groupIdPresent: !!d.groupId
-                        }));
-                    } catch (e) {
-                        info.enumerateError = (e && (e.name || e.message)) ? { name: e.name || null, message: e.message || String(e) } : String(e);
-                    }
-
-                    return JSON.stringify(info);
-                })();
-            ";
-
-            diagScript = diagScript.Replace("REPLACE_CONTEXT", context.Replace("'", "\\'"));
-            var raw = await KioskWebView.CoreWebView2.ExecuteScriptAsync(diagScript);
-            var json = JsonSerializer.Deserialize<string>(raw);
+            var json = await SendWebMessageRequestAsync(js, requestId, TimeSpan.FromSeconds(8));
             if (!string.IsNullOrWhiteSpace(json))
             {
                 Logger.Log($"[WebRTC DIAG] {json}");
             }
             else
             {
-                Logger.Log("[WebRTC DIAG] No diagnostic JSON returned (unexpected).");
+                Logger.Log("[WebRTC DIAG] No diagnostic JSON returned (timeout).");
             }
         }
         catch (Exception ex)
@@ -1902,66 +2072,8 @@ public sealed partial class MainWindow : Window
         try
         {
             Logger.Log("Loading available cameras...");
-            
-            // JavaScript to get camera list.
-            // Important: enumerateDevices can work even when getUserMedia fails (e.g., insecure origin, no user gesture, page not ready).
-            // We attempt getUserMedia({video:true}) to unlock device labels, but we still enumerate on failure.
-            var script = @"
-                (async () => {
-                    try {
-                        // Try to request video permission (may fail depending on page/origin/policy)
-                        try {
-                            const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
-                            tempStream.getTracks().forEach(track => track.stop());
-                        } catch (e) {
-                            console.warn('getUserMedia(video) failed; enumerating devices anyway:', e);
-                        }
 
-                        // Enumerate devices regardless
-                        const devices = await navigator.mediaDevices.enumerateDevices();
-                        const cameras = devices
-                            .filter(d => d.kind === 'videoinput')
-                            .map((d, idx) => ({
-                                deviceId: d.deviceId,
-                                label: ((d.label || '').trim()) ? (d.label || '').trim() : ('Camera ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
-                            }));
-                        // Return the array directly; WebView2 ExecuteScriptAsync will JSON-serialize it.
-                        return cameras;
-                    } catch (e) {
-                        console.error('Failed to enumerate cameras:', e);
-                        // Last resort: return empty list (caller will keep previous items)
-                        return [];
-                    }
-                })();
-            ";
-
-            var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
-            
-            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            List<MediaDeviceInfo>? cameras = null;
-
-            // WebView2 returns JSON for the evaluated expression. Depending on what the script returns,
-            // the result may be a JSON array/object (e.g. '[{...}]') or a JSON string containing JSON.
-            try
-            {
-                cameras = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(result, options);
-            }
-            catch
-            {
-                try
-                {
-                    var jsonString = JsonSerializer.Deserialize<string>(result);
-                    if (!string.IsNullOrWhiteSpace(jsonString))
-                    {
-                        cameras = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(jsonString, options);
-                    }
-                }
-                catch (Exception ex2)
-                {
-                    Logger.Log($"Failed to parse camera enumeration result. Raw: {result}. Error: {ex2.Message}");
-                }
-            }
-
+            var cameras = await EnumerateMediaDevicesViaWebMessageAsync("videoinput", "LoadCamerasAsync");
             if (cameras != null)
             {
                 // Ensure labels are never blank (ComboBox will display Label)
@@ -2024,63 +2136,8 @@ public sealed partial class MainWindow : Window
         try
         {
             Logger.Log("Loading available microphones...");
-            
-            // JavaScript to get microphone list. Same approach as cameras: attempt permission, but enumerate regardless.
-            var script = @"
-                (async () => {
-                    try {
-                        // Try to request audio permission (may fail depending on page/origin/policy)
-                        try {
-                            const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                            tempStream.getTracks().forEach(track => track.stop());
-                        } catch (e) {
-                            console.warn('getUserMedia(audio) failed; enumerating devices anyway:', e);
-                        }
 
-                        // Enumerate devices regardless
-                        const devices = await navigator.mediaDevices.enumerateDevices();
-                        const microphones = devices
-                            .filter(d => d.kind === 'audioinput')
-                            .map((d, idx) => ({
-                                deviceId: d.deviceId,
-                                label: ((d.label || '').trim()) ? (d.label || '').trim() : ('Microphone ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
-                            }));
-                        // Return the array directly; WebView2 ExecuteScriptAsync will JSON-serialize it.
-                        return microphones;
-                    } catch (e) {
-                        console.error('Failed to enumerate microphones:', e);
-                        // Last resort: return empty list (caller will keep previous items)
-                        return [];
-                    }
-                })();
-            ";
-
-            var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
-            
-            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-            List<MediaDeviceInfo>? microphones = null;
-
-            // Same parsing strategy as cameras (handle JSON array/object OR JSON string containing JSON).
-            try
-            {
-                microphones = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(result, options);
-            }
-            catch
-            {
-                try
-                {
-                    var jsonString = JsonSerializer.Deserialize<string>(result);
-                    if (!string.IsNullOrWhiteSpace(jsonString))
-                    {
-                        microphones = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(jsonString, options);
-                    }
-                }
-                catch (Exception ex2)
-                {
-                    Logger.Log($"Failed to parse microphone enumeration result. Raw: {result}. Error: {ex2.Message}");
-                }
-            }
-
+            var microphones = await EnumerateMediaDevicesViaWebMessageAsync("audioinput", "LoadMicrophonesAsync");
             if (microphones != null)
             {
                 // Ensure labels are never blank (ComboBox will display Label)
