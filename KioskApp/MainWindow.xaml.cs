@@ -989,6 +989,17 @@ public sealed partial class MainWindow : Window
                     {
                         UrlTextBox.Text = _currentUrl;
                     }
+
+                    // If debug mode is active, refresh the media device lists after navigation.
+                    // This avoids empty dropdowns when debug mode is entered before the target page finishes loading.
+                    if (_isDebugMode)
+                    {
+                        _ = Task.Run(async () =>
+                        {
+                            await Task.Delay(250);
+                            await LoadAllMediaDevicesAsync();
+                        });
+                    }
                 }
                 else
                 {
@@ -1826,22 +1837,32 @@ public sealed partial class MainWindow : Window
         {
             Logger.Log("Loading available cameras...");
             
-            // JavaScript to get camera list (requests permission if needed)
+            // JavaScript to get camera list.
+            // Important: enumerateDevices can work even when getUserMedia fails (e.g., insecure origin, no user gesture, page not ready).
+            // We attempt getUserMedia({video:true}) to unlock device labels, but we still enumerate on failure.
             var script = @"
                 (async () => {
                     try {
-                        // Request permission first
-                        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                        tempStream.getTracks().forEach(track => track.stop());
-                        
-                        // Get devices
+                        // Try to request video permission (may fail depending on page/origin/policy)
+                        try {
+                            const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                            tempStream.getTracks().forEach(track => track.stop());
+                        } catch (e) {
+                            console.warn('getUserMedia(video) failed; enumerating devices anyway:', e);
+                        }
+
+                        // Enumerate devices regardless
                         const devices = await navigator.mediaDevices.enumerateDevices();
                         const cameras = devices
                             .filter(d => d.kind === 'videoinput')
-                            .map(d => ({ deviceId: d.deviceId, label: d.label || 'Camera ' + d.deviceId.substring(0, 8) }));
+                            .map((d, idx) => ({
+                                deviceId: d.deviceId,
+                                label: (d.label && d.label.trim()) ? d.label : ('Camera ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
+                            }));
                         return JSON.stringify(cameras);
                     } catch (e) {
                         console.error('Failed to enumerate cameras:', e);
+                        // Last resort: return empty list (caller will keep previous items)
                         return JSON.stringify([]);
                     }
                 })();
@@ -1860,6 +1881,18 @@ public sealed partial class MainWindow : Window
                 
                 if (cameras != null)
                 {
+                    // Ensure labels are never blank (ComboBox will display Label)
+                    for (int i = 0; i < cameras.Count; i++)
+                    {
+                        if (string.IsNullOrWhiteSpace(cameras[i].Label))
+                        {
+                            var idPart = !string.IsNullOrWhiteSpace(cameras[i].DeviceId)
+                                ? $" ({cameras[i].DeviceId.Substring(0, Math.Min(8, cameras[i].DeviceId.Length))})"
+                                : "";
+                            cameras[i].Label = $"Camera {i + 1}{idPart}";
+                        }
+                    }
+
                     _cameras = cameras;
                     DispatcherQueue.TryEnqueue(() =>
                     {
@@ -1904,22 +1937,30 @@ public sealed partial class MainWindow : Window
         {
             Logger.Log("Loading available microphones...");
             
-            // JavaScript to get microphone list (requests permission if needed)
+            // JavaScript to get microphone list. Same approach as cameras: attempt permission, but enumerate regardless.
             var script = @"
                 (async () => {
                     try {
-                        // Request permission first
-                        const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                        tempStream.getTracks().forEach(track => track.stop());
-                        
-                        // Get devices
+                        // Try to request audio permission (may fail depending on page/origin/policy)
+                        try {
+                            const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                            tempStream.getTracks().forEach(track => track.stop());
+                        } catch (e) {
+                            console.warn('getUserMedia(audio) failed; enumerating devices anyway:', e);
+                        }
+
+                        // Enumerate devices regardless
                         const devices = await navigator.mediaDevices.enumerateDevices();
                         const microphones = devices
                             .filter(d => d.kind === 'audioinput')
-                            .map(d => ({ deviceId: d.deviceId, label: d.label || 'Microphone ' + d.deviceId.substring(0, 8) }));
+                            .map((d, idx) => ({
+                                deviceId: d.deviceId,
+                                label: (d.label && d.label.trim()) ? d.label : ('Microphone ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
+                            }));
                         return JSON.stringify(microphones);
                     } catch (e) {
                         console.error('Failed to enumerate microphones:', e);
+                        // Last resort: return empty list (caller will keep previous items)
                         return JSON.stringify([]);
                     }
                 })();
@@ -1938,6 +1979,18 @@ public sealed partial class MainWindow : Window
                 
                 if (microphones != null)
                 {
+                    // Ensure labels are never blank (ComboBox will display Label)
+                    for (int i = 0; i < microphones.Count; i++)
+                    {
+                        if (string.IsNullOrWhiteSpace(microphones[i].Label))
+                        {
+                            var idPart = !string.IsNullOrWhiteSpace(microphones[i].DeviceId)
+                                ? $" ({microphones[i].DeviceId.Substring(0, Math.Min(8, microphones[i].DeviceId.Length))})"
+                                : "";
+                            microphones[i].Label = $"Microphone {i + 1}{idPart}";
+                        }
+                    }
+
                     _microphones = microphones;
                     DispatcherQueue.TryEnqueue(() =>
                     {

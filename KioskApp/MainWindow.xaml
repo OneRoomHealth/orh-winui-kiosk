@@ -61,6 +61,7 @@
                     <ComboBox x:Name="CameraSelector" 
                               Width="160" 
                               Height="28"
+                              DisplayMemberPath="Label"
                               PlaceholderText="Select Camera..."
                               SelectionChanged="CameraSelector_SelectionChanged"/>
                     <Button x:Name="RefreshCamerasButton" Content="↻" Margin="2" Padding="6,2" Click="RefreshCamerasButton_Click" ToolTipService.ToolTip="Refresh camera list"/>
@@ -72,6 +73,7 @@
                     <ComboBox x:Name="MicrophoneSelector" 
                               Width="160" 
                               Height="28"
+                              DisplayMemberPath="Label"
                               PlaceholderText="Select Mic..."
                               SelectionChanged="MicrophoneSelector_SelectionChanged"/>
                     <Button x:Name="RefreshMicrophonesButton" Content="↻" Margin="2" Padding="6,2" Click="RefreshMicrophonesButton_Click" ToolTipService.ToolTip="Refresh microphone list"/>
