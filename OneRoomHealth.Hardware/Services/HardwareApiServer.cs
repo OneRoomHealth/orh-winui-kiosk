@@ -9,6 +9,8 @@ using OneRoomHealth.Hardware.Abstractions;
 using OneRoomHealth.Hardware.Api.Models;
 using OneRoomHealth.Hardware.Api.Controllers;
 using System.Diagnostics;
+using System.IO;
+using System.Text.Json;
 
 namespace OneRoomHealth.Hardware.Services;
 
@@ -320,12 +322,51 @@ public class HardwareApiServer
             {
                 _logger.LogDebug("POST /navigate");
 
-                var body = await request.ReadFromJsonAsync<NavigateRequest>();
-                var url = body?.Url;
+                // Read raw body for robust parsing + diagnostics (curl/PowerShell quoting issues are common).
+                string rawBody;
+                using (var reader = new StreamReader(request.Body))
+                {
+                    rawBody = await reader.ReadToEndAsync();
+                }
+
+                _logger.LogInformation("POST /navigate Content-Type={ContentType} RawBody={RawBody}", request.ContentType, rawBody);
+
+                string? url = null;
+
+                // Try JSON first: {"url":"https://..."}
+                if (!string.IsNullOrWhiteSpace(rawBody))
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(rawBody);
+                        if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                            doc.RootElement.TryGetProperty("url", out var urlEl) &&
+                            urlEl.ValueKind == JsonValueKind.String)
+                        {
+                            url = urlEl.GetString();
+                        }
+                    }
+                    catch (JsonException)
+                    {
+                        // fall through to other parsing options below
+                    }
+                }
+
+                // Fallback: allow plain text body containing just the URL
+                if (string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(rawBody) &&
+                    Uri.TryCreate(rawBody.Trim().Trim('"', '\''), UriKind.Absolute, out _))
+                {
+                    url = rawBody.Trim().Trim('"', '\'');
+                }
 
                 if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
                 {
-                    return Results.BadRequest(new { success = false, message = "Invalid URL" });
+                    return Results.BadRequest(new
+                    {
+                        success = false,
+                        message = "Invalid request body. Send JSON: {\"url\":\"https://example.com\"}",
+                        received = rawBody
+                    });
                 }
 
                 var handler = _navigateHandler;
@@ -336,6 +377,11 @@ public class HardwareApiServer
 
                 await handler(url);
                 return Results.Ok(new { success = true, message = $"Navigating to {url}" });
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Invalid JSON for /navigate");
+                return Results.BadRequest(new { success = false, message = "Invalid JSON. Expected: {\"url\":\"https://example.com\"}" });
             }
             catch (Exception ex)
             {
