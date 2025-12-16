@@ -860,7 +860,8 @@ public sealed partial class MainWindow : Window
         {
             // Auto-allow all permission types for kiosk mode
             args.State = CoreWebView2PermissionState.Allow;
-            Logger.Log($"Auto-allowed permission: {args.PermissionKind}");
+            args.SavesInProfile = true;
+            Logger.Log($"Auto-allowed permission: {args.PermissionKind} for {args.Uri}");
         };
 
         // Developer tools are initially disabled (unless debug mode is active)
@@ -1798,6 +1799,71 @@ public sealed partial class MainWindow : Window
     #region Media Device Selection (Camera & Microphone)
 
     /// <summary>
+    /// Collects detailed diagnostics from within the WebView page about WebRTC device enumeration.
+    /// This is used when enumerateDevices returns no cameras/microphones, to help pinpoint policy/secure-context issues.
+    /// </summary>
+    private async Task LogWebRtcDeviceDiagnosticsAsync(string context)
+    {
+        if (KioskWebView?.CoreWebView2 == null) return;
+
+        try
+        {
+            var diagScript = @"
+                (async () => {
+                    const info = {
+                        context: 'REPLACE_CONTEXT',
+                        href: (typeof location !== 'undefined' && location.href) ? location.href : null,
+                        origin: (typeof location !== 'undefined' && location.origin) ? location.origin : null,
+                        isSecureContext: (typeof isSecureContext !== 'undefined') ? isSecureContext : null,
+                        userAgent: (typeof navigator !== 'undefined' && navigator.userAgent) ? navigator.userAgent : null,
+                        hasNavigator: (typeof navigator !== 'undefined'),
+                        hasMediaDevices: (typeof navigator !== 'undefined' && !!navigator.mediaDevices),
+                        hasEnumerateDevices: (typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices)),
+                        hasGetUserMedia: (typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)),
+                        enumerateError: null,
+                        enumerateResult: null
+                    };
+
+                    try {
+                        if (!info.hasMediaDevices || !info.hasEnumerateDevices) {
+                            throw new Error('navigator.mediaDevices.enumerateDevices is not available');
+                        }
+
+                        const devices = await navigator.mediaDevices.enumerateDevices();
+                        info.enumerateResult = devices.map(d => ({
+                            kind: d.kind,
+                            deviceIdPresent: !!d.deviceId,
+                            label: (d.label || null),
+                            labelTrimmed: (d.label ? d.label.trim() : null),
+                            groupIdPresent: !!d.groupId
+                        }));
+                    } catch (e) {
+                        info.enumerateError = (e && (e.name || e.message)) ? { name: e.name || null, message: e.message || String(e) } : String(e);
+                    }
+
+                    return JSON.stringify(info);
+                })();
+            ";
+
+            diagScript = diagScript.Replace("REPLACE_CONTEXT", context.Replace("'", "\\'"));
+            var raw = await KioskWebView.CoreWebView2.ExecuteScriptAsync(diagScript);
+            var json = JsonSerializer.Deserialize<string>(raw);
+            if (!string.IsNullOrWhiteSpace(json))
+            {
+                Logger.Log($"[WebRTC DIAG] {json}");
+            }
+            else
+            {
+                Logger.Log("[WebRTC DIAG] No diagnostic JSON returned (unexpected).");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[WebRTC DIAG] Failed to collect diagnostics: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Refresh the camera list from WebView2
     /// </summary>
     private async void RefreshCamerasButton_Click(object sender, RoutedEventArgs e)
@@ -1913,6 +1979,12 @@ public sealed partial class MainWindow : Window
                             }
                         }
                     });
+
+                    // If we got no cameras, collect diagnostics to understand why enumeration is empty.
+                    if (_cameras.Count == 0)
+                    {
+                        _ = LogWebRtcDeviceDiagnosticsAsync("LoadCamerasAsync: no videoinput devices");
+                    }
                 }
             }
         }
@@ -2011,6 +2083,12 @@ public sealed partial class MainWindow : Window
                             }
                         }
                     });
+
+                    // If we got no microphones, collect diagnostics to understand why enumeration is empty.
+                    if (_microphones.Count == 0)
+                    {
+                        _ = LogWebRtcDeviceDiagnosticsAsync("LoadMicrophonesAsync: no audioinput devices");
+                    }
                 }
             }
         }
