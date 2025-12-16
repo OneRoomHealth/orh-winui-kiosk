@@ -21,6 +21,7 @@ using Windows.UI.ViewManagement;
 using System.IO;
 using System.Reflection;
 using Microsoft.UI.Xaml.Input;
+using Windows.Storage;
 
 namespace KioskApp;
 
@@ -125,6 +126,9 @@ public sealed partial class MainWindow : Window
     private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingWebMessages = new();
     private bool _webMessageBridgeInitialized = false;
 
+    private const string PreferredCameraIdKey = "PreferredCameraId";
+    private const string PreferredMicrophoneIdKey = "PreferredMicrophoneId";
+
     /// <summary>
     /// Represents a media device (camera or microphone) for the selector dropdowns.
     /// </summary>
@@ -141,6 +145,9 @@ public sealed partial class MainWindow : Window
         _config = config;
         Logger.Log("MainWindow constructor called");
         Logger.Log($"Log file is being written to: {Logger.LogFilePath}");
+
+        // Load persisted media device preferences (camera/mic) so they apply across app restarts.
+        LoadPersistedMediaDevicePreferences();
         
         // Subscribe to log events for real-time updates
         Logger.LogAdded += OnLogAdded;
@@ -161,6 +168,46 @@ public sealed partial class MainWindow : Window
 
         // Hook Activated event - do all initialization there when window is fully ready
         this.Activated += MainWindow_Activated;
+    }
+
+    private void LoadPersistedMediaDevicePreferences()
+    {
+        try
+        {
+            var values = ApplicationData.Current.LocalSettings.Values;
+            _selectedCameraId = values.TryGetValue(PreferredCameraIdKey, out var camVal) ? camVal as string : null;
+            _selectedMicrophoneId = values.TryGetValue(PreferredMicrophoneIdKey, out var micVal) ? micVal as string : null;
+
+            Logger.Log($"Loaded persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to load persisted media preferences: {ex.Message}");
+        }
+    }
+
+    private void SavePersistedMediaDevicePreferences()
+    {
+        try
+        {
+            var values = ApplicationData.Current.LocalSettings.Values;
+
+            if (string.IsNullOrWhiteSpace(_selectedCameraId))
+                values.Remove(PreferredCameraIdKey);
+            else
+                values[PreferredCameraIdKey] = _selectedCameraId!;
+
+            if (string.IsNullOrWhiteSpace(_selectedMicrophoneId))
+                values.Remove(PreferredMicrophoneIdKey);
+            else
+                values[PreferredMicrophoneIdKey] = _selectedMicrophoneId!;
+
+            Logger.Log($"Saved persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to save persisted media preferences: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -655,7 +702,8 @@ public sealed partial class MainWindow : Window
 
                 // Position window at the display's origin and set its size
                 Logger.Log($"Calling SetWindowPos with: X={bounds.X}, Y={bounds.Y}, W={bounds.Width}, H={bounds.Height}");
-                SetWindowPos(_hwnd, IntPtr.Zero, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_NOZORDER | SWP_SHOWWINDOW);
+                // IMPORTANT: use HWND_TOPMOST to ensure we cover the taskbar; do not pass SWP_NOZORDER or it will block Z-order changes.
+                SetWindowPos(_hwnd, HWND_TOPMOST, bounds.X, bounds.Y, bounds.Width, bounds.Height, SWP_SHOWWINDOW | SWP_FRAMECHANGED);
                 Debug.WriteLine($"Window positioned at ({bounds.X}, {bounds.Y}) with size {bounds.Width}x{bounds.Height}");
                 Logger.Log($"✓ SetWindowPos called successfully");
                 
@@ -694,9 +742,9 @@ public sealed partial class MainWindow : Window
                                     Logger.Log($"  Actual display ID: {(currentDisplay != null ? currentDisplay.DisplayId.Value.ToString() : "NULL")}");
                                     Logger.Log("  Attempting to reposition window...");
                                     
-                                    SetWindowPos(_hwnd, IntPtr.Zero, 
+                                    SetWindowPos(_hwnd, HWND_TOPMOST, 
                                         bounds.X, bounds.Y, bounds.Width, bounds.Height,
-                                        SWP_SHOWWINDOW | SWP_NOZORDER);
+                                        SWP_SHOWWINDOW | SWP_FRAMECHANGED);
                                     Logger.Log("  SetWindowPos called for retry");
                                     
                                     // Verify again after retry
@@ -746,9 +794,10 @@ public sealed partial class MainWindow : Window
             _appWindow.Closing += (_, e) => { e.Cancel = true; };
         }
 
-        // Ensure window style changes are applied and shown (using SWP_NOSIZE to keep current size)
+        // Ensure window style changes are applied and shown (using SWP_NOSIZE to keep current size).
+        // Do NOT include SWP_NOZORDER here; we want to explicitly enforce topmost so the taskbar can't overlay the kiosk window.
         const uint SWP_NOSIZE = 0x0001;
-        SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOSIZE | SWP_NOMOVE);
+        SetWindowPos(_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_FRAMECHANGED | SWP_NOSIZE | SWP_NOMOVE);
         
         Debug.WriteLine("ConfigureAsKioskWindow completed");
         Logger.Log("========== ConfigureAsKioskWindow COMPLETE ==========");
@@ -952,6 +1001,12 @@ public sealed partial class MainWindow : Window
                 ";
                 await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
                 Logger.Log("Injected kiosk scripts (hotkeys + autoplay)");
+
+                // Re-apply persisted camera/mic overrides on every page load so they persist across navigation and app restarts.
+                if (!string.IsNullOrWhiteSpace(_selectedCameraId) || !string.IsNullOrWhiteSpace(_selectedMicrophoneId))
+                {
+                    await ApplyMediaDeviceOverrideAsync(showStatus: false);
+                }
             }
             catch (Exception ex)
             {
@@ -2195,7 +2250,8 @@ public sealed partial class MainWindow : Window
         {
             _selectedCameraId = camera.DeviceId;
             Logger.Log($"Selected camera: {camera.Label}");
-            await ApplyMediaDeviceOverrideAsync();
+            SavePersistedMediaDevicePreferences();
+            await ApplyMediaDeviceOverrideAsync(showStatus: true);
         }
     }
 
@@ -2208,14 +2264,15 @@ public sealed partial class MainWindow : Window
         {
             _selectedMicrophoneId = microphone.DeviceId;
             Logger.Log($"Selected microphone: {microphone.Label}");
-            await ApplyMediaDeviceOverrideAsync();
+            SavePersistedMediaDevicePreferences();
+            await ApplyMediaDeviceOverrideAsync(showStatus: true);
         }
     }
 
     /// <summary>
     /// Inject JavaScript to override camera and microphone selection for all future getUserMedia calls
     /// </summary>
-    private async Task ApplyMediaDeviceOverrideAsync()
+    private async Task ApplyMediaDeviceOverrideAsync(bool showStatus)
     {
         if (KioskWebView?.CoreWebView2 == null) return;
 
@@ -2275,7 +2332,7 @@ public sealed partial class MainWindow : Window
             if (cameraName != null) statusParts.Add($"📷 {cameraName}");
             if (micName != null) statusParts.Add($"🎤 {micName}");
             
-            if (statusParts.Count > 0)
+            if (showStatus && statusParts.Count > 0)
             {
                 ShowStatus("Devices Selected", string.Join(" | ", statusParts));
                 _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
