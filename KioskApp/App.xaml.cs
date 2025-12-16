@@ -95,7 +95,14 @@ public partial class App : Application
 			Debug.WriteLine("Window activated");
 			Logger.Log("MainWindow created and activated");
 
-			// Note: LocalCommandServer removed - functionality replaced by hardware API
+			// Start local navigation command server (port 8787) so external tools can instruct the kiosk to navigate.
+			// Endpoint: POST http://127.0.0.1:8787/navigate  { "url": "https://example.com" }
+			// (Runs in background; StartAsync internally handles "access denied" and "port in use" cases.)
+			if (m_window is MainWindow mainWindow)
+			{
+				_ = LocalCommandServer.StartAsync(mainWindow);
+				Logger.Log("LocalCommandServer start requested");
+			}
 
 			Debug.WriteLine("OnLaunched completed successfully");
 		}
