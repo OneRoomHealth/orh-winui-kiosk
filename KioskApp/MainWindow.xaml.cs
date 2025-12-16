@@ -1925,66 +1925,82 @@ public sealed partial class MainWindow : Window
                                 deviceId: d.deviceId,
                                 label: ((d.label || '').trim()) ? (d.label || '').trim() : ('Camera ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
                             }));
-                        return JSON.stringify(cameras);
+                        // Return the array directly; WebView2 ExecuteScriptAsync will JSON-serialize it.
+                        return cameras;
                     } catch (e) {
                         console.error('Failed to enumerate cameras:', e);
                         // Last resort: return empty list (caller will keep previous items)
-                        return JSON.stringify([]);
+                        return [];
                     }
                 })();
             ";
 
             var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
             
-            // Parse the JSON result (it comes wrapped in quotes from ExecuteScriptAsync)
-            var json = JsonSerializer.Deserialize<string>(result);
-            if (!string.IsNullOrEmpty(json))
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            List<MediaDeviceInfo>? cameras = null;
+
+            // WebView2 returns JSON for the evaluated expression. Depending on what the script returns,
+            // the result may be a JSON array/object (e.g. '[{...}]') or a JSON string containing JSON.
+            try
             {
-                var cameras = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(json, new JsonSerializerOptions 
-                { 
-                    PropertyNameCaseInsensitive = true 
-                });
-                
-                if (cameras != null)
+                cameras = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(result, options);
+            }
+            catch
+            {
+                try
                 {
-                    // Ensure labels are never blank (ComboBox will display Label)
-                    for (int i = 0; i < cameras.Count; i++)
+                    var jsonString = JsonSerializer.Deserialize<string>(result);
+                    if (!string.IsNullOrWhiteSpace(jsonString))
                     {
-                        if (string.IsNullOrWhiteSpace(cameras[i].Label))
+                        cameras = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(jsonString, options);
+                    }
+                }
+                catch (Exception ex2)
+                {
+                    Logger.Log($"Failed to parse camera enumeration result. Raw: {result}. Error: {ex2.Message}");
+                }
+            }
+
+            if (cameras != null)
+            {
+                // Ensure labels are never blank (ComboBox will display Label)
+                for (int i = 0; i < cameras.Count; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(cameras[i].Label))
+                    {
+                        var idPart = !string.IsNullOrWhiteSpace(cameras[i].DeviceId)
+                            ? $" ({cameras[i].DeviceId.Substring(0, Math.Min(8, cameras[i].DeviceId.Length))})"
+                            : "";
+                        cameras[i].Label = $"Camera {i + 1}{idPart}";
+                    }
+                }
+
+                _cameras = cameras;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    CameraSelector.Items.Clear();
+                    foreach (var cam in _cameras)
+                    {
+                        CameraSelector.Items.Add(cam);
+                    }
+                    Logger.Log($"Loaded {_cameras.Count} camera(s)");
+                    
+                    // Restore previous selection if available
+                    if (_selectedCameraId != null)
+                    {
+                        var selected = _cameras.FirstOrDefault(c => c.DeviceId == _selectedCameraId);
+                        if (selected != null)
                         {
-                            var idPart = !string.IsNullOrWhiteSpace(cameras[i].DeviceId)
-                                ? $" ({cameras[i].DeviceId.Substring(0, Math.Min(8, cameras[i].DeviceId.Length))})"
-                                : "";
-                            cameras[i].Label = $"Camera {i + 1}{idPart}";
+                            CameraSelector.SelectedItem = selected;
                         }
                     }
+                });
 
-                    _cameras = cameras;
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        CameraSelector.Items.Clear();
-                        foreach (var cam in _cameras)
-                        {
-                            CameraSelector.Items.Add(cam);
-                        }
-                        Logger.Log($"Loaded {_cameras.Count} camera(s)");
-                        
-                        // Restore previous selection if available
-                        if (_selectedCameraId != null)
-                        {
-                            var selected = _cameras.FirstOrDefault(c => c.DeviceId == _selectedCameraId);
-                            if (selected != null)
-                            {
-                                CameraSelector.SelectedItem = selected;
-                            }
-                        }
-                    });
-
-                    // If we got no cameras, collect diagnostics to understand why enumeration is empty.
-                    if (_cameras.Count == 0)
-                    {
-                        _ = LogWebRtcDeviceDiagnosticsAsync("LoadCamerasAsync: no videoinput devices");
-                    }
+                // If we got no cameras, collect diagnostics to understand why enumeration is empty.
+                if (_cameras.Count == 0)
+                {
+                    _ = LogWebRtcDeviceDiagnosticsAsync("LoadCamerasAsync: no videoinput devices");
                 }
             }
         }
@@ -2029,66 +2045,81 @@ public sealed partial class MainWindow : Window
                                 deviceId: d.deviceId,
                                 label: ((d.label || '').trim()) ? (d.label || '').trim() : ('Microphone ' + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : ''))
                             }));
-                        return JSON.stringify(microphones);
+                        // Return the array directly; WebView2 ExecuteScriptAsync will JSON-serialize it.
+                        return microphones;
                     } catch (e) {
                         console.error('Failed to enumerate microphones:', e);
                         // Last resort: return empty list (caller will keep previous items)
-                        return JSON.stringify([]);
+                        return [];
                     }
                 })();
             ";
 
             var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
             
-            // Parse the JSON result (it comes wrapped in quotes from ExecuteScriptAsync)
-            var json = JsonSerializer.Deserialize<string>(result);
-            if (!string.IsNullOrEmpty(json))
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            List<MediaDeviceInfo>? microphones = null;
+
+            // Same parsing strategy as cameras (handle JSON array/object OR JSON string containing JSON).
+            try
             {
-                var microphones = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(json, new JsonSerializerOptions 
-                { 
-                    PropertyNameCaseInsensitive = true 
-                });
-                
-                if (microphones != null)
+                microphones = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(result, options);
+            }
+            catch
+            {
+                try
                 {
-                    // Ensure labels are never blank (ComboBox will display Label)
-                    for (int i = 0; i < microphones.Count; i++)
+                    var jsonString = JsonSerializer.Deserialize<string>(result);
+                    if (!string.IsNullOrWhiteSpace(jsonString))
                     {
-                        if (string.IsNullOrWhiteSpace(microphones[i].Label))
+                        microphones = JsonSerializer.Deserialize<List<MediaDeviceInfo>>(jsonString, options);
+                    }
+                }
+                catch (Exception ex2)
+                {
+                    Logger.Log($"Failed to parse microphone enumeration result. Raw: {result}. Error: {ex2.Message}");
+                }
+            }
+
+            if (microphones != null)
+            {
+                // Ensure labels are never blank (ComboBox will display Label)
+                for (int i = 0; i < microphones.Count; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(microphones[i].Label))
+                    {
+                        var idPart = !string.IsNullOrWhiteSpace(microphones[i].DeviceId)
+                            ? $" ({microphones[i].DeviceId.Substring(0, Math.Min(8, microphones[i].DeviceId.Length))})"
+                            : "";
+                        microphones[i].Label = $"Microphone {i + 1}{idPart}";
+                    }
+                }
+
+                _microphones = microphones;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    MicrophoneSelector.Items.Clear();
+                    foreach (var mic in _microphones)
+                    {
+                        MicrophoneSelector.Items.Add(mic);
+                    }
+                    Logger.Log($"Loaded {_microphones.Count} microphone(s)");
+                    
+                    // Restore previous selection if available
+                    if (_selectedMicrophoneId != null)
+                    {
+                        var selected = _microphones.FirstOrDefault(m => m.DeviceId == _selectedMicrophoneId);
+                        if (selected != null)
                         {
-                            var idPart = !string.IsNullOrWhiteSpace(microphones[i].DeviceId)
-                                ? $" ({microphones[i].DeviceId.Substring(0, Math.Min(8, microphones[i].DeviceId.Length))})"
-                                : "";
-                            microphones[i].Label = $"Microphone {i + 1}{idPart}";
+                            MicrophoneSelector.SelectedItem = selected;
                         }
                     }
+                });
 
-                    _microphones = microphones;
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        MicrophoneSelector.Items.Clear();
-                        foreach (var mic in _microphones)
-                        {
-                            MicrophoneSelector.Items.Add(mic);
-                        }
-                        Logger.Log($"Loaded {_microphones.Count} microphone(s)");
-                        
-                        // Restore previous selection if available
-                        if (_selectedMicrophoneId != null)
-                        {
-                            var selected = _microphones.FirstOrDefault(m => m.DeviceId == _selectedMicrophoneId);
-                            if (selected != null)
-                            {
-                                MicrophoneSelector.SelectedItem = selected;
-                            }
-                        }
-                    });
-
-                    // If we got no microphones, collect diagnostics to understand why enumeration is empty.
-                    if (_microphones.Count == 0)
-                    {
-                        _ = LogWebRtcDeviceDiagnosticsAsync("LoadMicrophonesAsync: no audioinput devices");
-                    }
+                // If we got no microphones, collect diagnostics to understand why enumeration is empty.
+                if (_microphones.Count == 0)
+                {
+                    _ = LogWebRtcDeviceDiagnosticsAsync("LoadMicrophonesAsync: no audioinput devices");
                 }
             }
         }
