@@ -1062,13 +1062,15 @@ public sealed partial class MainWindow : Window
                         const initialCam = {initialCameraIdJson};
                         const initialMic = {initialMicrophoneIdJson};
 
-                        // If localStorage doesn't have prefs yet (first launch), seed them from app settings
+                        // Seed localStorage from app settings ONCE per WebView session.
+                        // This ensures persisted WinUI preferences win on app startup (even if localStorage contains stale values),
+                        // but does not overwrite user changes during this run (selection change triggers a reload).
                         try {{
-                            if (localStorage.getItem(camKey) === null) {{
+                            const seededKey = '__orhMediaPrefsSeeded';
+                            if (!sessionStorage.getItem(seededKey)) {{
                                 localStorage.setItem(camKey, JSON.stringify(initialCam));
-                            }}
-                            if (localStorage.getItem(micKey) === null) {{
                                 localStorage.setItem(micKey, JSON.stringify(initialMic));
+                                sessionStorage.setItem(seededKey, '1');
                             }}
                         }} catch (e) {{}}
 
@@ -2300,36 +2302,43 @@ public sealed partial class MainWindow : Window
                 _cameras = cameras;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    CameraSelector.Items.Clear();
-                    foreach (var cam in localCameras)
+                    _suppressMediaSelectionEvents = true;
+                    try
                     {
-                        CameraSelector.Items.Add(cam);
-                    }
-                    Logger.Log($"Loaded {localCameras.Count} camera(s)");
-                    
-                    // Restore previous selection if available
-                    if (!string.IsNullOrWhiteSpace(localSelectedId))
-                    {
-                        var selectedIndex = -1;
-                        for (int i = 0; i < localCameras.Count; i++)
+                        CameraSelector.SelectedIndex = -1; // prevent implicit auto-selection while rebuilding
+                        CameraSelector.Items.Clear();
+                        foreach (var cam in localCameras)
                         {
-                            if (localCameras[i].DeviceId == localSelectedId)
+                            CameraSelector.Items.Add(cam);
+                        }
+                        Logger.Log($"Loaded {localCameras.Count} camera(s)");
+                        
+                        // Restore previous selection if available
+                        if (!string.IsNullOrWhiteSpace(localSelectedId))
+                        {
+                            var selectedIndex = -1;
+                            for (int i = 0; i < localCameras.Count; i++)
                             {
-                                selectedIndex = i;
-                                break;
+                                if (localCameras[i].DeviceId == localSelectedId)
+                                {
+                                    selectedIndex = i;
+                                    break;
+                                }
+                            }
+                            if (selectedIndex >= 0)
+                            {
+                                CameraSelector.SelectedIndex = selectedIndex;
+                                Logger.Log($"Restored camera selection to index {selectedIndex}: {localCameras[selectedIndex].Label}");
+                            }
+                            else
+                            {
+                                Logger.Log($"Could not restore camera selection: device {localSelectedId} not found in enumerated list");
                             }
                         }
-                        if (selectedIndex >= 0)
-                        {
-                            _suppressMediaSelectionEvents = true;
-                            CameraSelector.SelectedIndex = selectedIndex;
-                            _suppressMediaSelectionEvents = false;
-                            Logger.Log($"Restored camera selection to index {selectedIndex}: {localCameras[selectedIndex].Label}");
-                        }
-                        else
-                        {
-                            Logger.Log($"Could not restore camera selection: device {localSelectedId} not found in enumerated list");
-                        }
+                    }
+                    finally
+                    {
+                        _suppressMediaSelectionEvents = false;
                     }
                 });
             }
@@ -2409,36 +2418,43 @@ public sealed partial class MainWindow : Window
                 _microphones = microphones;
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    MicrophoneSelector.Items.Clear();
-                    foreach (var mic in localMicrophones)
+                    _suppressMediaSelectionEvents = true;
+                    try
                     {
-                        MicrophoneSelector.Items.Add(mic);
-                    }
-                    Logger.Log($"Loaded {localMicrophones.Count} microphone(s)");
-                    
-                    // Restore previous selection if available
-                    if (!string.IsNullOrWhiteSpace(localSelectedId))
-                    {
-                        var selectedIndex = -1;
-                        for (int i = 0; i < localMicrophones.Count; i++)
+                        MicrophoneSelector.SelectedIndex = -1; // prevent implicit auto-selection while rebuilding
+                        MicrophoneSelector.Items.Clear();
+                        foreach (var mic in localMicrophones)
                         {
-                            if (localMicrophones[i].DeviceId == localSelectedId)
+                            MicrophoneSelector.Items.Add(mic);
+                        }
+                        Logger.Log($"Loaded {localMicrophones.Count} microphone(s)");
+                        
+                        // Restore previous selection if available
+                        if (!string.IsNullOrWhiteSpace(localSelectedId))
+                        {
+                            var selectedIndex = -1;
+                            for (int i = 0; i < localMicrophones.Count; i++)
                             {
-                                selectedIndex = i;
-                                break;
+                                if (localMicrophones[i].DeviceId == localSelectedId)
+                                {
+                                    selectedIndex = i;
+                                    break;
+                                }
+                            }
+                            if (selectedIndex >= 0)
+                            {
+                                MicrophoneSelector.SelectedIndex = selectedIndex;
+                                Logger.Log($"Restored microphone selection to index {selectedIndex}: {localMicrophones[selectedIndex].Label}");
+                            }
+                            else
+                            {
+                                Logger.Log($"Could not restore microphone selection: device {localSelectedId} not found in enumerated list");
                             }
                         }
-                        if (selectedIndex >= 0)
-                        {
-                            _suppressMediaSelectionEvents = true;
-                            MicrophoneSelector.SelectedIndex = selectedIndex;
-                            _suppressMediaSelectionEvents = false;
-                            Logger.Log($"Restored microphone selection to index {selectedIndex}: {localMicrophones[selectedIndex].Label}");
-                        }
-                        else
-                        {
-                            Logger.Log($"Could not restore microphone selection: device {localSelectedId} not found in enumerated list");
-                        }
+                    }
+                    finally
+                    {
+                        _suppressMediaSelectionEvents = false;
                     }
                 });
             }
