@@ -2380,14 +2380,15 @@ public sealed partial class MainWindow : Window
     {
         if (KioskWebView?.CoreWebView2 == null) return;
 
-        // Escape the deviceIds for use in JavaScript
-        var escapedCameraId = _selectedCameraId?.Replace("'", "\\'") ?? "";
-        var escapedMicrophoneId = _selectedMicrophoneId?.Replace("'", "\\'") ?? "";
+        // Serialize as JSON literals so we can explicitly clear values (null) and avoid orphaned overrides.
+        // Using "|| window.__preferredX || null" preserves previous values when one preference is unset.
+        var cameraIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraId) ? null : _selectedCameraId);
+        var microphoneIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneId) ? null : _selectedMicrophoneId);
         
         var script = $@"
             // Store the preferred device IDs
-            window.__preferredCameraId = '{escapedCameraId}' || window.__preferredCameraId || null;
-            window.__preferredMicrophoneId = '{escapedMicrophoneId}' || window.__preferredMicrophoneId || null;
+            window.__preferredCameraId = {cameraIdJson};
+            window.__preferredMicrophoneId = {microphoneIdJson};
             
             // Override getUserMedia if not already done
             if (!window.__mediaDeviceOverrideApplied) {{
