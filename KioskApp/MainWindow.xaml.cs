@@ -848,7 +848,7 @@ public sealed partial class MainWindow : Window
                 await KioskWebView.EnsureCoreWebView2Async(environment);
                 Logger.Log("CoreWebView2 is ready, setting up WebView...");
                 
-                SetupWebView();
+                await SetupWebViewAsync();
                 
                 // Navigate to the configured URL
                 _currentUrl = _config.Kiosk.DefaultUrl;
@@ -904,8 +904,9 @@ public sealed partial class MainWindow : Window
 
     /// <summary>
     /// Configures WebView2 settings, including developer tools restrictions.
+    /// Must be awaited before first navigation to avoid races with AddScriptToExecuteOnDocumentCreatedAsync.
     /// </summary>
-    private void SetupWebView()
+    private async Task SetupWebViewAsync()
     {
         var settings = KioskWebView.CoreWebView2.Settings;
 
@@ -945,7 +946,8 @@ public sealed partial class MainWindow : Window
 
         // Install getUserMedia override as early as possible (before page scripts run).
         // This is critical: if the page acquires camera/mic before DOMContentLoaded, later overrides won't affect it.
-        _ = InstallMediaOverrideOnDocumentCreatedAsync();
+        // IMPORTANT: await this before first navigation, otherwise the initial document may load without the override.
+        await InstallMediaOverrideOnDocumentCreatedAsync();
         
         // Ensure status overlay is hidden when WebView is ready
         Logger.Log("WebView2 setup complete, ensuring status overlay is hidden");
@@ -1290,7 +1292,7 @@ public sealed partial class MainWindow : Window
                 try
                 {
                     await KioskWebView.EnsureCoreWebView2Async();
-                    SetupWebView();
+                    await SetupWebViewAsync();
                     
                     // Navigate to default URL if we don't have a current URL
                     if (string.IsNullOrEmpty(_currentUrl))
