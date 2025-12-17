@@ -2113,9 +2113,10 @@ public sealed partial class MainWindow : Window
     private async Task LoadAllMediaDevicesAsync()
     {
         // Use lock to prevent overlapping enumeration calls (e.g., from EnterDebugMode + OnNavigationCompleted)
-        if (!await _mediaEnumerationLock.WaitAsync(0))
+        // Wait up to 12 seconds for any in-progress enumeration to complete (each device type can take up to 8s)
+        if (!await _mediaEnumerationLock.WaitAsync(TimeSpan.FromSeconds(12)))
         {
-            Logger.Log("LoadAllMediaDevicesAsync: skipping (another enumeration in progress)");
+            Logger.Log("LoadAllMediaDevicesAsync: timed out waiting for lock (another enumeration stuck?)");
             return;
         }
 
@@ -2135,9 +2136,10 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task LoadCamerasAsync()
     {
-        if (!await _mediaEnumerationLock.WaitAsync(0))
+        // Wait up to 10 seconds for any in-progress enumeration to complete
+        if (!await _mediaEnumerationLock.WaitAsync(TimeSpan.FromSeconds(10)))
         {
-            Logger.Log("LoadCamerasAsync: skipping (another enumeration in progress)");
+            Logger.Log("LoadCamerasAsync: timed out waiting for lock");
             return;
         }
 
@@ -2167,7 +2169,7 @@ public sealed partial class MainWindow : Window
             Logger.Log("Loading available cameras...");
 
             var cameras = await EnumerateMediaDevicesViaWebMessageAsync("videoinput", "LoadCamerasAsync");
-            if (cameras != null)
+            if (cameras != null && cameras.Count > 0)
             {
                 // Ensure labels are never blank (ComboBox will display Label)
                 for (int i = 0; i < cameras.Count; i++)
@@ -2218,12 +2220,12 @@ public sealed partial class MainWindow : Window
                         }
                     }
                 });
-
-                // If we got no cameras, collect diagnostics to understand why enumeration is empty.
-                if (cameras.Count == 0)
-                {
-                    _ = LogWebRtcDeviceDiagnosticsAsync("LoadCamerasAsync: no videoinput devices");
-                }
+            }
+            else if (cameras != null && cameras.Count == 0)
+            {
+                // Got empty list - could be timeout or no devices. Don't clear existing dropdown data.
+                Logger.Log("LoadCamerasAsync: enumeration returned 0 cameras (keeping existing dropdown data if any)");
+                _ = LogWebRtcDeviceDiagnosticsAsync("LoadCamerasAsync: no videoinput devices");
             }
             else
             {
@@ -2241,9 +2243,10 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task LoadMicrophonesAsync()
     {
-        if (!await _mediaEnumerationLock.WaitAsync(0))
+        // Wait up to 10 seconds for any in-progress enumeration to complete
+        if (!await _mediaEnumerationLock.WaitAsync(TimeSpan.FromSeconds(10)))
         {
-            Logger.Log("LoadMicrophonesAsync: skipping (another enumeration in progress)");
+            Logger.Log("LoadMicrophonesAsync: timed out waiting for lock");
             return;
         }
 
@@ -2273,7 +2276,7 @@ public sealed partial class MainWindow : Window
             Logger.Log("Loading available microphones...");
 
             var microphones = await EnumerateMediaDevicesViaWebMessageAsync("audioinput", "LoadMicrophonesAsync");
-            if (microphones != null)
+            if (microphones != null && microphones.Count > 0)
             {
                 // Ensure labels are never blank (ComboBox will display Label)
                 for (int i = 0; i < microphones.Count; i++)
@@ -2324,12 +2327,12 @@ public sealed partial class MainWindow : Window
                         }
                     }
                 });
-
-                // If we got no microphones, collect diagnostics to understand why enumeration is empty.
-                if (microphones.Count == 0)
-                {
-                    _ = LogWebRtcDeviceDiagnosticsAsync("LoadMicrophonesAsync: no audioinput devices");
-                }
+            }
+            else if (microphones != null && microphones.Count == 0)
+            {
+                // Got empty list - could be timeout or no devices. Don't clear existing dropdown data.
+                Logger.Log("LoadMicrophonesAsync: enumeration returned 0 microphones (keeping existing dropdown data if any)");
+                _ = LogWebRtcDeviceDiagnosticsAsync("LoadMicrophonesAsync: no audioinput devices");
             }
             else
             {
