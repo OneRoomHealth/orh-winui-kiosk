@@ -136,6 +136,7 @@ public sealed partial class MainWindow : Window
     private const string WebStoragePreferredMicrophoneKey = "__orhPreferredMicrophoneId";
 
     private bool _suppressMediaSelectionEvents = false;
+    private bool _mediaOverrideDocCreatedScriptAdded = false;
 
     /// <summary>
     /// Represents a media device (camera or microphone) for the selector dropdowns.
@@ -1037,16 +1038,39 @@ public sealed partial class MainWindow : Window
 
         try
         {
+            if (_mediaOverrideDocCreatedScriptAdded)
+            {
+                return;
+            }
+
+            // Seed values from persisted C# preferences so the very first document can apply overrides
+            // even if the page calls getUserMedia before DOMContentLoaded.
+            var initialCameraIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraId) ? null : _selectedCameraId);
+            var initialMicrophoneIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneId) ? null : _selectedMicrophoneId);
+
             // Idempotent installation: use a global flag in the script.
             // Preferences are stored in localStorage so they apply across navigations and are readable at document creation time.
             var script = $@"
                 (() => {{
                     try {{
-                        if (window.__orhMediaOverrideDocCreatedInstalled) return;
-                        window.__orhMediaOverrideDocCreatedInstalled = true;
+                        // Single shared per-document flag to avoid nested override layers.
+                        if (window.__orhMediaOverrideInstalled) return;
+                        window.__orhMediaOverrideInstalled = true;
 
                         const camKey = '{WebStoragePreferredCameraKey}';
                         const micKey = '{WebStoragePreferredMicrophoneKey}';
+                        const initialCam = {initialCameraIdJson};
+                        const initialMic = {initialMicrophoneIdJson};
+
+                        // If localStorage doesn't have prefs yet (first launch), seed them from app settings
+                        try {{
+                            if (localStorage.getItem(camKey) === null) {{
+                                localStorage.setItem(camKey, JSON.stringify(initialCam));
+                            }}
+                            if (localStorage.getItem(micKey) === null) {{
+                                localStorage.setItem(micKey, JSON.stringify(initialMic));
+                            }}
+                        }} catch (e) {{}}
 
                         const readPref = (key) => {{
                             try {{
@@ -1097,6 +1121,7 @@ public sealed partial class MainWindow : Window
                 }})();";
 
             await KioskWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+            _mediaOverrideDocCreatedScriptAdded = true;
             Logger.Log("Installed media override script on document creation");
         }
         catch (Exception ex)
@@ -2515,38 +2540,6 @@ public sealed partial class MainWindow : Window
                 localStorage.setItem('{WebStoragePreferredCameraKey}', JSON.stringify(window.__preferredCameraId));
                 localStorage.setItem('{WebStoragePreferredMicrophoneKey}', JSON.stringify(window.__preferredMicrophoneId));
             }} catch (e) {{}}
-            
-            // Override getUserMedia if not already done
-            if (!window.__mediaDeviceOverrideApplied) {{
-                const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-                
-                navigator.mediaDevices.getUserMedia = async (constraints) => {{
-                    // Apply camera override
-                    if (window.__preferredCameraId && constraints.video) {{
-                        if (constraints.video === true) {{
-                            constraints.video = {{ deviceId: {{ exact: window.__preferredCameraId }} }};
-                        }} else if (typeof constraints.video === 'object') {{
-                            constraints.video.deviceId = {{ exact: window.__preferredCameraId }};
-                        }}
-                        console.log('Camera override applied:', window.__preferredCameraId);
-                    }}
-                    
-                    // Apply microphone override
-                    if (window.__preferredMicrophoneId && constraints.audio) {{
-                        if (constraints.audio === true) {{
-                            constraints.audio = {{ deviceId: {{ exact: window.__preferredMicrophoneId }} }};
-                        }} else if (typeof constraints.audio === 'object') {{
-                            constraints.audio.deviceId = {{ exact: window.__preferredMicrophoneId }};
-                        }}
-                        console.log('Microphone override applied:', window.__preferredMicrophoneId);
-                    }}
-                    
-                    return originalGetUserMedia(constraints);
-                }};
-                
-                window.__mediaDeviceOverrideApplied = true;
-                console.log('Media device override installed');
-            }}
             
             'Devices set - Camera: ' + (window.__preferredCameraId ? 'Yes' : 'No') + ', Mic: ' + (window.__preferredMicrophoneId ? 'Yes' : 'No');
         ";
