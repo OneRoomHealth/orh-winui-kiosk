@@ -132,6 +132,11 @@ public sealed partial class MainWindow : Window
     private const string PreferredCameraIdKey = "PreferredCameraId";
     private const string PreferredMicrophoneIdKey = "PreferredMicrophoneId";
 
+    private const string WebStoragePreferredCameraKey = "__orhPreferredCameraId";
+    private const string WebStoragePreferredMicrophoneKey = "__orhPreferredMicrophoneId";
+
+    private bool _suppressMediaSelectionEvents = false;
+
     /// <summary>
     /// Represents a media device (camera or microphone) for the selector dropdowns.
     /// </summary>
@@ -937,6 +942,10 @@ public sealed partial class MainWindow : Window
             _webMessageBridgeInitialized = true;
             KioskWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
         }
+
+        // Install getUserMedia override as early as possible (before page scripts run).
+        // This is critical: if the page acquires camera/mic before DOMContentLoaded, later overrides won't affect it.
+        _ = InstallMediaOverrideOnDocumentCreatedAsync();
         
         // Ensure status overlay is hidden when WebView is ready
         Logger.Log("WebView2 setup complete, ensuring status overlay is hidden");
@@ -1018,6 +1027,80 @@ public sealed partial class MainWindow : Window
         };
 
         Logger.Log("WebView2 setup completed");
+    }
+
+    private async Task InstallMediaOverrideOnDocumentCreatedAsync()
+    {
+        if (KioskWebView?.CoreWebView2 == null) return;
+
+        try
+        {
+            // Idempotent installation: use a global flag in the script.
+            // Preferences are stored in localStorage so they apply across navigations and are readable at document creation time.
+            var script = $@"
+                (() => {{
+                    try {{
+                        if (window.__orhMediaOverrideDocCreatedInstalled) return;
+                        window.__orhMediaOverrideDocCreatedInstalled = true;
+
+                        const camKey = '{WebStoragePreferredCameraKey}';
+                        const micKey = '{WebStoragePreferredMicrophoneKey}';
+
+                        const readPref = (key) => {{
+                            try {{
+                                const v = localStorage.getItem(key);
+                                if (v === null || v === undefined) return null;
+                                // Stored as JSON literal (string or null)
+                                return JSON.parse(v);
+                            }} catch (e) {{
+                                return null;
+                            }}
+                        }};
+
+                        // Load persisted preferences into window globals
+                        window.__preferredCameraId = readPref(camKey);
+                        window.__preferredMicrophoneId = readPref(micKey);
+
+                        if (navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {{
+                            const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+                            navigator.mediaDevices.getUserMedia = async (constraints) => {{
+                                // Refresh prefs each call (in case they were updated without a reload)
+                                window.__preferredCameraId = readPref(camKey);
+                                window.__preferredMicrophoneId = readPref(micKey);
+
+                                // Apply camera override
+                                if (window.__preferredCameraId && constraints && constraints.video) {{
+                                    if (constraints.video === true) {{
+                                        constraints.video = {{ deviceId: {{ exact: window.__preferredCameraId }} }};
+                                    }} else if (typeof constraints.video === 'object') {{
+                                        constraints.video.deviceId = {{ exact: window.__preferredCameraId }};
+                                    }}
+                                }}
+
+                                // Apply microphone override
+                                if (window.__preferredMicrophoneId && constraints && constraints.audio) {{
+                                    if (constraints.audio === true) {{
+                                        constraints.audio = {{ deviceId: {{ exact: window.__preferredMicrophoneId }} }};
+                                    }} else if (typeof constraints.audio === 'object') {{
+                                        constraints.audio.deviceId = {{ exact: window.__preferredMicrophoneId }};
+                                    }}
+                                }}
+
+                                return originalGetUserMedia(constraints);
+                            }};
+                        }}
+                    }} catch (e) {{
+                        // swallow
+                    }}
+                }})();";
+
+            await KioskWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+            Logger.Log("Installed media override script on document creation");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to install document-created media override: {ex.Message}");
+        }
     }
 
     private void CoreWebView2_WebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -2211,7 +2294,9 @@ public sealed partial class MainWindow : Window
                         }
                         if (selectedIndex >= 0)
                         {
+                            _suppressMediaSelectionEvents = true;
                             CameraSelector.SelectedIndex = selectedIndex;
+                            _suppressMediaSelectionEvents = false;
                             Logger.Log($"Restored camera selection to index {selectedIndex}: {localCameras[selectedIndex].Label}");
                         }
                         else
@@ -2318,7 +2403,9 @@ public sealed partial class MainWindow : Window
                         }
                         if (selectedIndex >= 0)
                         {
+                            _suppressMediaSelectionEvents = true;
                             MicrophoneSelector.SelectedIndex = selectedIndex;
+                            _suppressMediaSelectionEvents = false;
                             Logger.Log($"Restored microphone selection to index {selectedIndex}: {localMicrophones[selectedIndex].Label}");
                         }
                         else
@@ -2350,12 +2437,19 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void CameraSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_suppressMediaSelectionEvents) return;
         if (CameraSelector.SelectedItem is MediaDeviceInfo camera)
         {
             _selectedCameraId = camera.DeviceId;
             Logger.Log($"Selected camera: {camera.Label}");
             SavePersistedMediaDevicePreferences();
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
+
+            // Most web apps won't switch an already-active stream; reload in debug mode to force re-acquisition.
+            if (_isDebugMode)
+            {
+                await ReloadWebViewForMediaChangeAsync();
+            }
         }
     }
 
@@ -2364,12 +2458,35 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async void MicrophoneSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (_suppressMediaSelectionEvents) return;
         if (MicrophoneSelector.SelectedItem is MediaDeviceInfo microphone)
         {
             _selectedMicrophoneId = microphone.DeviceId;
             Logger.Log($"Selected microphone: {microphone.Label}");
             SavePersistedMediaDevicePreferences();
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
+
+            if (_isDebugMode)
+            {
+                await ReloadWebViewForMediaChangeAsync();
+            }
+        }
+    }
+
+    private async Task ReloadWebViewForMediaChangeAsync()
+    {
+        try
+        {
+            if (KioskWebView?.CoreWebView2 == null) return;
+            await DispatcherQueue.EnqueueAsync(() =>
+            {
+                Logger.Log("Reloading WebView to apply media device change");
+                KioskWebView.Reload();
+            });
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to reload WebView for media change: {ex.Message}");
         }
     }
 
@@ -2389,6 +2506,13 @@ public sealed partial class MainWindow : Window
             // Store the preferred device IDs
             window.__preferredCameraId = {cameraIdJson};
             window.__preferredMicrophoneId = {microphoneIdJson};
+            
+            // Persist preferences into localStorage so the document-created script can apply them
+            // before any page JavaScript calls getUserMedia.
+            try {{
+                localStorage.setItem('{WebStoragePreferredCameraKey}', JSON.stringify(window.__preferredCameraId));
+                localStorage.setItem('{WebStoragePreferredMicrophoneKey}', JSON.stringify(window.__preferredMicrophoneId));
+            }} catch (e) {{}}
             
             // Override getUserMedia if not already done
             if (!window.__mediaDeviceOverrideApplied) {{
