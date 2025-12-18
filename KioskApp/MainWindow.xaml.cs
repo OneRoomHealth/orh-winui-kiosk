@@ -121,6 +121,8 @@ public sealed partial class MainWindow : Window
     private List<MediaDeviceInfo> _microphones = new();
     private string? _selectedCameraId = null;
     private string? _selectedMicrophoneId = null;
+    private string? _selectedCameraLabel = null;
+    private string? _selectedMicrophoneLabel = null;
 
     // WebView->Host message bridge for async media enumeration (ExecuteScriptAsync does not reliably await Promises)
     private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingWebMessages = new();
@@ -131,6 +133,8 @@ public sealed partial class MainWindow : Window
 
     private const string PreferredCameraIdKey = "PreferredCameraId";
     private const string PreferredMicrophoneIdKey = "PreferredMicrophoneId";
+    private const string PreferredCameraLabelKey = "PreferredCameraLabel";
+    private const string PreferredMicrophoneLabelKey = "PreferredMicrophoneLabel";
 
     private const string WebStoragePreferredCameraKey = "__orhPreferredCameraId";
     private const string WebStoragePreferredMicrophoneKey = "__orhPreferredMicrophoneId";
@@ -186,8 +190,10 @@ public sealed partial class MainWindow : Window
             var values = ApplicationData.Current.LocalSettings.Values;
             _selectedCameraId = values.TryGetValue(PreferredCameraIdKey, out var camVal) ? camVal as string : null;
             _selectedMicrophoneId = values.TryGetValue(PreferredMicrophoneIdKey, out var micVal) ? micVal as string : null;
+            _selectedCameraLabel = values.TryGetValue(PreferredCameraLabelKey, out var camLabelVal) ? camLabelVal as string : null;
+            _selectedMicrophoneLabel = values.TryGetValue(PreferredMicrophoneLabelKey, out var micLabelVal) ? micLabelVal as string : null;
 
-            Logger.Log($"Loaded persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}");
+            Logger.Log($"Loaded persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}, CameraLabel set: {!string.IsNullOrWhiteSpace(_selectedCameraLabel)}, MicLabel set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneLabel)}");
         }
         catch (Exception ex)
         {
@@ -211,7 +217,17 @@ public sealed partial class MainWindow : Window
             else
                 values[PreferredMicrophoneIdKey] = _selectedMicrophoneId!;
 
-            Logger.Log($"Saved persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}");
+            if (string.IsNullOrWhiteSpace(_selectedCameraLabel))
+                values.Remove(PreferredCameraLabelKey);
+            else
+                values[PreferredCameraLabelKey] = _selectedCameraLabel!;
+
+            if (string.IsNullOrWhiteSpace(_selectedMicrophoneLabel))
+                values.Remove(PreferredMicrophoneLabelKey);
+            else
+                values[PreferredMicrophoneLabelKey] = _selectedMicrophoneLabel!;
+
+            Logger.Log($"Saved persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}, CameraLabel set: {!string.IsNullOrWhiteSpace(_selectedCameraLabel)}, MicLabel set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneLabel)}");
         }
         catch (Exception ex)
         {
@@ -2298,6 +2314,7 @@ public sealed partial class MainWindow : Window
                 // Capture the selected ID and list locally to avoid race conditions
                 var localCameras = cameras;
                 var localSelectedId = _selectedCameraId;
+                var localSelectedLabel = _selectedCameraLabel;
 
                 _cameras = cameras;
                 DispatcherQueue.TryEnqueue(() =>
@@ -2332,7 +2349,60 @@ public sealed partial class MainWindow : Window
                             }
                             else
                             {
-                                Logger.Log($"Could not restore camera selection: device {localSelectedId} not found in enumerated list");
+                                Logger.Log($"Could not restore camera selection by DeviceId: device {localSelectedId} not found in enumerated list");
+
+                                // Fallback: deviceId may change between enumerations; try to match by label.
+                                if (!string.IsNullOrWhiteSpace(localSelectedLabel))
+                                {
+                                    var labelMatchIndex = -1;
+                                    for (int i = 0; i < localCameras.Count; i++)
+                                    {
+                                        if (string.Equals(localCameras[i].Label?.Trim(), localSelectedLabel.Trim(), StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            labelMatchIndex = i;
+                                            break;
+                                        }
+                                    }
+
+                                    if (labelMatchIndex >= 0)
+                                    {
+                                        CameraSelector.SelectedIndex = labelMatchIndex;
+                                        _selectedCameraId = localCameras[labelMatchIndex].DeviceId;
+                                        _selectedCameraLabel = localCameras[labelMatchIndex].Label;
+                                        SavePersistedMediaDevicePreferences();
+                                        Logger.Log($"Restored camera selection by Label to index {labelMatchIndex}: {_selectedCameraLabel} (updated DeviceId)");
+                                    }
+                                    else
+                                    {
+                                        Logger.Log($"Could not restore camera selection by Label either: '{localSelectedLabel}'");
+                                    }
+                                }
+                            }
+                        }
+                        else if (!string.IsNullOrWhiteSpace(localSelectedLabel))
+                        {
+                            // If we have a saved label but no id (or id cleared), try restoring by label.
+                            var labelMatchIndex = -1;
+                            for (int i = 0; i < localCameras.Count; i++)
+                            {
+                                if (string.Equals(localCameras[i].Label?.Trim(), localSelectedLabel.Trim(), StringComparison.OrdinalIgnoreCase))
+                                {
+                                    labelMatchIndex = i;
+                                    break;
+                                }
+                            }
+
+                            if (labelMatchIndex >= 0)
+                            {
+                                CameraSelector.SelectedIndex = labelMatchIndex;
+                                _selectedCameraId = localCameras[labelMatchIndex].DeviceId;
+                                _selectedCameraLabel = localCameras[labelMatchIndex].Label;
+                                SavePersistedMediaDevicePreferences();
+                                Logger.Log($"Restored camera selection by Label to index {labelMatchIndex}: {_selectedCameraLabel} (updated DeviceId)");
+                            }
+                            else
+                            {
+                                Logger.Log($"Could not restore camera selection by Label: '{localSelectedLabel}'");
                             }
                         }
                     }
@@ -2414,6 +2484,7 @@ public sealed partial class MainWindow : Window
                 // Capture the selected ID and list locally to avoid race conditions
                 var localMicrophones = microphones;
                 var localSelectedId = _selectedMicrophoneId;
+                var localSelectedLabel = _selectedMicrophoneLabel;
 
                 _microphones = microphones;
                 DispatcherQueue.TryEnqueue(() =>
@@ -2448,7 +2519,58 @@ public sealed partial class MainWindow : Window
                             }
                             else
                             {
-                                Logger.Log($"Could not restore microphone selection: device {localSelectedId} not found in enumerated list");
+                                Logger.Log($"Could not restore microphone selection by DeviceId: device {localSelectedId} not found in enumerated list");
+
+                                if (!string.IsNullOrWhiteSpace(localSelectedLabel))
+                                {
+                                    var labelMatchIndex = -1;
+                                    for (int i = 0; i < localMicrophones.Count; i++)
+                                    {
+                                        if (string.Equals(localMicrophones[i].Label?.Trim(), localSelectedLabel.Trim(), StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            labelMatchIndex = i;
+                                            break;
+                                        }
+                                    }
+
+                                    if (labelMatchIndex >= 0)
+                                    {
+                                        MicrophoneSelector.SelectedIndex = labelMatchIndex;
+                                        _selectedMicrophoneId = localMicrophones[labelMatchIndex].DeviceId;
+                                        _selectedMicrophoneLabel = localMicrophones[labelMatchIndex].Label;
+                                        SavePersistedMediaDevicePreferences();
+                                        Logger.Log($"Restored microphone selection by Label to index {labelMatchIndex}: {_selectedMicrophoneLabel} (updated DeviceId)");
+                                    }
+                                    else
+                                    {
+                                        Logger.Log($"Could not restore microphone selection by Label either: '{localSelectedLabel}'");
+                                    }
+                                }
+                            }
+                        }
+                        else if (!string.IsNullOrWhiteSpace(localSelectedLabel))
+                        {
+                            var labelMatchIndex = -1;
+                            for (int i = 0; i < localMicrophones.Count; i++)
+                            {
+                                if (string.Equals(localMicrophones[i].Label?.Trim(), localSelectedLabel.Trim(), StringComparison.OrdinalIgnoreCase))
+                                {
+                                    labelMatchIndex = i;
+                                    break;
+                                }
+                            }
+
+                            if (labelMatchIndex >= 0)
+                            {
+                                MicrophoneSelector.SelectedIndex = labelMatchIndex;
+                                _selectedMicrophoneId = localMicrophones[labelMatchIndex].DeviceId;
+                                _selectedMicrophoneLabel = localMicrophones[labelMatchIndex].Label;
+                                SavePersistedMediaDevicePreferences();
+                                Logger.Log($"Restored microphone selection by Label to index {labelMatchIndex}: {_selectedMicrophoneLabel} (updated DeviceId)");
+                            }
+                            else
+                            {
+                                Logger.Log($"Could not restore microphone selection by Label: '{localSelectedLabel}'");
                             }
                         }
                     }
@@ -2484,6 +2606,7 @@ public sealed partial class MainWindow : Window
         if (CameraSelector.SelectedItem is MediaDeviceInfo camera)
         {
             _selectedCameraId = camera.DeviceId;
+            _selectedCameraLabel = camera.Label;
             Logger.Log($"Selected camera: {camera.Label}");
             SavePersistedMediaDevicePreferences();
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
@@ -2505,6 +2628,7 @@ public sealed partial class MainWindow : Window
         if (MicrophoneSelector.SelectedItem is MediaDeviceInfo microphone)
         {
             _selectedMicrophoneId = microphone.DeviceId;
+            _selectedMicrophoneLabel = microphone.Label;
             Logger.Log($"Selected microphone: {microphone.Label}");
             SavePersistedMediaDevicePreferences();
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
