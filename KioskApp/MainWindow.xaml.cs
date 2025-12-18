@@ -1107,30 +1107,97 @@ public sealed partial class MainWindow : Window
 
                         if (navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {{
                             const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+
+                            const report = (level, message, extra) => {{
+                                try {{
+                                    if (window.chrome && chrome.webview && chrome.webview.postMessage) {{
+                                        chrome.webview.postMessage({{
+                                            type: 'orh.media.override',
+                                            requestId: 'media-override', // required by host parser; constant is fine for log-only messages
+                                            level,
+                                            message,
+                                            extra: extra || null
+                                        }});
+                                    }}
+                                }} catch (e) {{}}
+                            }};
+
+                            const cloneConstraints = (c) => {{
+                                if (!c) return c;
+                                const out = {{ ...c }};
+                                if (c.video && typeof c.video === 'object') out.video = {{ ...c.video }};
+                                if (c.audio && typeof c.audio === 'object') out.audio = {{ ...c.audio }};
+                                return out;
+                            }};
+
+                            const applyOverride = (c, camId, micId, mode) => {{
+                                // mode: 'exact' | 'ideal'
+                                const out = cloneConstraints(c);
+                                if (camId && out && out.video) {{
+                                    if (out.video === true) {{
+                                        out.video = {{ deviceId: {{ [mode]: camId }} }};
+                                    }} else if (typeof out.video === 'object') {{
+                                        out.video.deviceId = {{ [mode]: camId }};
+                                    }}
+                                }}
+                                if (micId && out && out.audio) {{
+                                    if (out.audio === true) {{
+                                        out.audio = {{ deviceId: {{ [mode]: micId }} }};
+                                    }} else if (typeof out.audio === 'object') {{
+                                        out.audio.deviceId = {{ [mode]: micId }};
+                                    }}
+                                }}
+                                return out;
+                            }};
+
+                            const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
                             navigator.mediaDevices.getUserMedia = async (constraints) => {{
                                 // Refresh prefs each call (in case they were updated without a reload)
-                                window.__preferredCameraId = readPref(camKey);
-                                window.__preferredMicrophoneId = readPref(micKey);
+                                const camId = readPref(camKey);
+                                const micId = readPref(micKey);
 
-                                // Apply camera override
-                                if (window.__preferredCameraId && constraints && constraints.video) {{
-                                    if (constraints.video === true) {{
-                                        constraints.video = {{ deviceId: {{ exact: window.__preferredCameraId }} }};
-                                    }} else if (typeof constraints.video === 'object') {{
-                                        constraints.video.deviceId = {{ exact: window.__preferredCameraId }};
+                                // Fast path: no prefs set
+                                if (!camId && !micId) {{
+                                    return originalGetUserMedia(constraints);
+                                }}
+
+                                // Try exact first (honor user choice), then retry on transient errors,
+                                // then fall back to 'ideal' (avoid gray screen if device is temporarily not readable).
+                                const exactConstraints = applyOverride(constraints, camId, micId, 'exact');
+
+                                for (let attempt = 1; attempt <= 3; attempt++) {{
+                                    try {{
+                                        if (attempt > 1) {{
+                                            report('info', 'Retrying getUserMedia with exact deviceId', {{ attempt, camIdSet: !!camId, micIdSet: !!micId }});
+                                        }}
+                                        return await originalGetUserMedia(exactConstraints);
+                                    }} catch (e) {{
+                                        const name = e && e.name ? e.name : 'Error';
+                                        const msg = e && e.message ? e.message : String(e);
+                                        // Transient errors when switching devices quickly
+                                        if (name === 'NotReadableError' || name === 'AbortError') {{
+                                            report('warn', 'getUserMedia failed (transient), will retry', {{ attempt, name, msg }});
+                                            await sleep(250 * attempt);
+                                            continue;
+                                        }}
+                                        // Hard failures: break to fallback
+                                        report('warn', 'getUserMedia failed with exact deviceId, falling back', {{ attempt, name, msg }});
+                                        break;
                                     }}
                                 }}
 
-                                // Apply microphone override
-                                if (window.__preferredMicrophoneId && constraints && constraints.audio) {{
-                                    if (constraints.audio === true) {{
-                                        constraints.audio = {{ deviceId: {{ exact: window.__preferredMicrophoneId }} }};
-                                    }} else if (typeof constraints.audio === 'object') {{
-                                        constraints.audio.deviceId = {{ exact: window.__preferredMicrophoneId }};
-                                    }}
+                                // Fallback to ideal (still prefers selected device but won't hard-fail)
+                                try {{
+                                    const idealConstraints = applyOverride(constraints, camId, micId, 'ideal');
+                                    report('info', 'Retrying getUserMedia with ideal deviceId', {{ camIdSet: !!camId, micIdSet: !!micId }});
+                                    return await originalGetUserMedia(idealConstraints);
+                                }} catch (e2) {{
+                                    const name2 = e2 && e2.name ? e2.name : 'Error';
+                                    const msg2 = e2 && e2.message ? e2.message : String(e2);
+                                    report('error', 'getUserMedia failed even with ideal deviceId', {{ name: name2, msg: msg2 }});
+                                    throw e2;
                                 }}
-
-                                return originalGetUserMedia(constraints);
                             }};
                         }}
                     }} catch (e) {{
@@ -1164,7 +1231,14 @@ public sealed partial class MainWindow : Window
             if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(requestId)) return;
 
             // Only handle our internal messages
-            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag") return;
+            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag" && type != "orh.media.override") return;
+
+            // Log-only message type (no request correlation needed)
+            if (type == "orh.media.override")
+            {
+                Logger.Log($"[MEDIA OVERRIDE] {json}");
+                return;
+            }
 
             if (_pendingWebMessages.TryRemove(requestId, out var tcs))
             {
