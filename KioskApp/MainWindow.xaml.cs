@@ -2345,6 +2345,9 @@ public sealed partial class MainWindow : Window
                             if (selectedIndex >= 0)
                             {
                                 CameraSelector.SelectedIndex = selectedIndex;
+                                _selectedCameraLabel = localCameras[selectedIndex].Label;
+                                // Keep persisted label in sync even when restore happens under suppression.
+                                SavePersistedMediaDevicePreferences();
                                 Logger.Log($"Restored camera selection to index {selectedIndex}: {localCameras[selectedIndex].Label}");
                             }
                             else
@@ -2515,6 +2518,9 @@ public sealed partial class MainWindow : Window
                             if (selectedIndex >= 0)
                             {
                                 MicrophoneSelector.SelectedIndex = selectedIndex;
+                                _selectedMicrophoneLabel = localMicrophones[selectedIndex].Label;
+                                // Keep persisted label in sync even when restore happens under suppression.
+                                SavePersistedMediaDevicePreferences();
                                 Logger.Log($"Restored microphone selection to index {selectedIndex}: {localMicrophones[selectedIndex].Label}");
                             }
                             else
