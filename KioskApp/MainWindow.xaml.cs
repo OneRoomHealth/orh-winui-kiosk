@@ -141,7 +141,7 @@ public sealed partial class MainWindow : Window
 
     private bool _suppressMediaSelectionEvents = false;
     private bool _mediaOverrideDocCreatedScriptAdded = false;
-    private System.Threading.Timer? _mediaPreferenceSyncTimer = null;
+    private DispatcherQueueTimer? _mediaPreferenceSyncTimer = null;
 
     /// <summary>
     /// Represents a media device (camera or microphone) for the selector dropdowns.
@@ -1060,38 +1060,37 @@ public sealed partial class MainWindow : Window
 
     private void StartMediaPreferenceSyncTimer()
     {
-        // Dispose any existing timer
-        _mediaPreferenceSyncTimer?.Dispose();
-
-        // Sync every 30 seconds
-        _mediaPreferenceSyncTimer = new System.Threading.Timer(async _ =>
+        // Stop any existing timer (DispatcherQueueTimer runs on UI thread)
+        if (_mediaPreferenceSyncTimer != null)
         {
-            try
-            {
-                if (KioskWebView?.CoreWebView2 == null) return;
-                if (string.IsNullOrWhiteSpace(_selectedCameraId) && string.IsNullOrWhiteSpace(_selectedMicrophoneId)) return;
+            _mediaPreferenceSyncTimer.Stop();
+            _mediaPreferenceSyncTimer.Tick -= MediaPreferenceSyncTimer_Tick;
+            _mediaPreferenceSyncTimer = null;
+        }
 
-                // Re-sync localStorage on UI thread
-                await DispatcherQueue.EnqueueAsync(async () =>
-                {
-                    try
-                    {
-                        await ApplyMediaDeviceOverrideAsync(showStatus: false);
-                        Logger.Log("[MEDIA SYNC] Periodic localStorage sync completed");
-                    }
-                    catch (Exception ex)
-                    {
-                        Logger.Log($"[MEDIA SYNC] Periodic sync failed: {ex.Message}");
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"[MEDIA SYNC] Timer callback error: {ex.Message}");
-            }
-        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+        _mediaPreferenceSyncTimer = DispatcherQueue.CreateTimer();
+        _mediaPreferenceSyncTimer.Interval = TimeSpan.FromSeconds(30);
+        _mediaPreferenceSyncTimer.IsRepeating = true;
+        _mediaPreferenceSyncTimer.Tick += MediaPreferenceSyncTimer_Tick;
+        _mediaPreferenceSyncTimer.Start();
 
-        Logger.Log("Media preference sync timer started (30s interval)");
+        Logger.Log("Media preference sync timer started (DispatcherQueueTimer, 30s interval)");
+    }
+
+    private async void MediaPreferenceSyncTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        try
+        {
+            if (KioskWebView?.CoreWebView2 == null) return;
+            if (string.IsNullOrWhiteSpace(_selectedCameraId) && string.IsNullOrWhiteSpace(_selectedMicrophoneId)) return;
+
+            await ApplyMediaDeviceOverrideAsync(showStatus: false);
+            Logger.Log("[MEDIA SYNC] Periodic localStorage sync completed");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[MEDIA SYNC] Timer callback error: {ex.Message}");
+        }
     }
 
     private async Task InstallMediaOverrideOnDocumentCreatedAsync()
@@ -1357,7 +1356,7 @@ public sealed partial class MainWindow : Window
                     // This avoids empty dropdowns when debug mode is entered before the target page finishes loading.
                     if (_isDebugMode)
                     {
-                        _ = Task.Run(async () =>
+                        _ = DispatcherQueue.EnqueueAsync(async () =>
                         {
                             await Task.Delay(250);
                             await LoadAllMediaDevicesAsync();
@@ -1581,12 +1580,10 @@ public sealed partial class MainWindow : Window
     {
         Logger.LogSecurityEvent("ExitDebugMode", "Exiting debug mode");
 
-        await Task.Run(async () =>
+        await DispatcherQueue.EnqueueAsync(() =>
         {
-            await DispatcherQueue.EnqueueAsync(() =>
+            try
             {
-                try
-                {
                     // Disable developer features
                     if (KioskWebView?.CoreWebView2?.Settings != null)
                     {
@@ -1626,12 +1623,11 @@ public sealed partial class MainWindow : Window
                         _appWindow.SetPresenter(AppWindowPresenterKind.Overlapped);
                         Logger.Log("Set presenter to Overlapped before configuration");
                     }
-                }
-                catch (Exception ex)
-                {
-                    Logger.Log($"Error in ExitDebugMode UI cleanup: {ex.Message}");
-                }
-            });
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error in ExitDebugMode UI cleanup: {ex.Message}");
+            }
         });
 
         // Wait longer for presenter change to take effect
@@ -1718,7 +1714,7 @@ public sealed partial class MainWindow : Window
                                     
                                     // After re-navigating, force re-apply media overrides and reload to reacquire camera/mic.
                                     // This mitigates occasional gray screens where the page keeps an old stream.
-                                    _ = Task.Run(async () =>
+                                    _ = DispatcherQueue.EnqueueAsync(async () =>
                                     {
                                         try
                                         {
@@ -2005,7 +2001,8 @@ public sealed partial class MainWindow : Window
             if (_mediaPreferenceSyncTimer != null)
             {
                 Logger.Log("Stopping media preference sync timer...");
-                _mediaPreferenceSyncTimer.Dispose();
+                _mediaPreferenceSyncTimer.Tick -= MediaPreferenceSyncTimer_Tick;
+                _mediaPreferenceSyncTimer.Stop();
                 _mediaPreferenceSyncTimer = null;
                 Logger.Log("Media preference sync timer stopped");
             }
@@ -2190,6 +2187,37 @@ public sealed partial class MainWindow : Window
 
     #region Media Device Selection (Camera & Microphone)
 
+    private async Task<string> ExecuteScriptAsyncUi(string js)
+    {
+        if (KioskWebView?.CoreWebView2 == null) return "{}";
+
+        if (DispatcherQueue.HasThreadAccess)
+        {
+            return await KioskWebView.CoreWebView2.ExecuteScriptAsync(js);
+        }
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        DispatcherQueue.TryEnqueue(async () =>
+        {
+            try
+            {
+                if (KioskWebView?.CoreWebView2 == null)
+                {
+                    tcs.TrySetResult("{}");
+                    return;
+                }
+
+                var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(js);
+                tcs.TrySetResult(result);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        });
+        return await tcs.Task;
+    }
+
     private async Task<string?> SendWebMessageRequestAsync(string jsToExecute, string requestId, TimeSpan timeout)
     {
         if (KioskWebView?.CoreWebView2 == null) return null;
@@ -2202,7 +2230,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            await KioskWebView.CoreWebView2.ExecuteScriptAsync(jsToExecute);
+            await ExecuteScriptAsyncUi(jsToExecute);
 
             using var cts = new CancellationTokenSource(timeout);
             await using (cts.Token.Register(() => tcs.TrySetCanceled()))
@@ -2572,6 +2600,14 @@ public sealed partial class MainWindow : Window
                                 Logger.Log($"Could not restore camera selection by Label: '{localSelectedLabel}'");
                             }
                         }
+
+                        // Debug: log state after rebuild to catch mismatches between UI and persisted values
+                        try
+                        {
+                            var uiCam = CameraSelector.SelectedItem as MediaDeviceInfo;
+                            Logger.Log($"[CAMERA UI STATE] SelectedIndex={CameraSelector.SelectedIndex}, UI={(uiCam != null ? $"{uiCam.Label} (ID: {uiCam.DeviceId})" : "null")}, PersistedId={_selectedCameraId ?? "null"}, PersistedLabel={_selectedCameraLabel ?? "null"}");
+                        }
+                        catch { /* ignore */ }
                     }
                     finally
                     {
@@ -2839,6 +2875,33 @@ public sealed partial class MainWindow : Window
         try
         {
             if (KioskWebView?.CoreWebView2 == null) return;
+
+            // Best-effort: stop any active MediaStreams attached to <video> elements.
+            // This reduces "gray screen" and NotReadableError cases when switching devices rapidly.
+            try
+            {
+                await ExecuteScriptAsyncUi(@"
+                    (() => {
+                        try {
+                            document.querySelectorAll('video').forEach(v => {
+                                try {
+                                    const s = v.srcObject;
+                                    if (s && s.getTracks) {
+                                        s.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
+                                    }
+                                    v.srcObject = null;
+                                } catch (e) {}
+                            });
+                        } catch (e) {}
+                        return true;
+                    })();
+                ");
+                Logger.Log("[MEDIA RELOAD] Stopped active video tracks before reload");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"[MEDIA RELOAD] Failed to stop tracks before reload: {ex.Message}");
+            }
             
             // Brief delay to ensure ApplyMediaDeviceOverrideAsync's ExecuteScriptAsync has completed
             // and localStorage is updated before the new document loads.
@@ -2903,7 +2966,7 @@ public sealed partial class MainWindow : Window
 
         try
         {
-            var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
+            var result = await ExecuteScriptAsyncUi(script);
             Logger.Log($"Media device override applied (raw): {result}");
 
             try
