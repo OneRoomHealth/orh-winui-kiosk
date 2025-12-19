@@ -1716,6 +1716,27 @@ public sealed partial class MainWindow : Window
                                     KioskWebView.Source = uri;
                                     Logger.Log($"Navigating to URL after debug mode: {_currentUrl}");
                                     
+                                    // After re-navigating, force re-apply media overrides and reload to reacquire camera/mic.
+                                    // This mitigates occasional gray screens where the page keeps an old stream.
+                                    _ = Task.Run(async () =>
+                                    {
+                                        try
+                                        {
+                                            // Allow navigation to kick off
+                                            await Task.Delay(200);
+                                            await ApplyMediaDeviceOverrideAsync(showStatus: false);
+                                            Logger.Log("[DEBUG EXIT] Re-applied media override after navigation");
+                                            
+                                            // Force a reload to reacquire devices with the preferred IDs
+                                            await ReloadWebViewForMediaChangeAsync();
+                                            Logger.Log("[DEBUG EXIT] Forced WebView reload to reacquire media");
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Logger.Log($"[DEBUG EXIT] Failed to reapply media override/reload: {ex.Message}");
+                                        }
+                                    });
+                                    
                                     // Force a refresh to ensure content fills the WebView
                                     _ = Task.Delay(500).ContinueWith(_ =>
                                     {
@@ -2848,24 +2869,58 @@ public sealed partial class MainWindow : Window
         var microphoneIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneId) ? null : _selectedMicrophoneId);
         
         var script = $@"
-            // Store the preferred device IDs
-            window.__preferredCameraId = {cameraIdJson};
-            window.__preferredMicrophoneId = {microphoneIdJson};
-            
-            // Persist preferences into localStorage so the document-created script can apply them
-            // before any page JavaScript calls getUserMedia.
-            try {{
-                localStorage.setItem('{WebStoragePreferredCameraKey}', JSON.stringify(window.__preferredCameraId));
-                localStorage.setItem('{WebStoragePreferredMicrophoneKey}', JSON.stringify(window.__preferredMicrophoneId));
-            }} catch (e) {{}}
-            
-            'Devices set - Camera: ' + (window.__preferredCameraId ? 'Yes' : 'No') + ', Mic: ' + (window.__preferredMicrophoneId ? 'Yes' : 'No');
+            (() => {{
+                try {{
+                    // Store the preferred device IDs
+                    window.__preferredCameraId = {cameraIdJson};
+                    window.__preferredMicrophoneId = {microphoneIdJson};
+                    
+                    // Persist preferences into localStorage so the document-created script can apply them
+                    // before any page JavaScript calls getUserMedia.
+                    try {{
+                        localStorage.setItem('{WebStoragePreferredCameraKey}', JSON.stringify(window.__preferredCameraId));
+                        localStorage.setItem('{WebStoragePreferredMicrophoneKey}', JSON.stringify(window.__preferredMicrophoneId));
+                    }} catch (e) {{}}
+                    
+                    const snapshot = {{
+                        status: 'ok',
+                        windowCam: window.__preferredCameraId,
+                        windowMic: window.__preferredMicrophoneId,
+                        localCam: null,
+                        localMic: null
+                    }};
+                    try {{
+                        snapshot.localCam = localStorage.getItem('{WebStoragePreferredCameraKey}');
+                        snapshot.localMic = localStorage.getItem('{WebStoragePreferredMicrophoneKey}');
+                    }} catch (e) {{}}
+                    
+                    return snapshot;
+                }} catch (e) {{
+                    return {{ status: 'error', message: String(e) }};
+                }}
+            }})();
         ";
 
         try
         {
             var result = await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
-            Logger.Log($"Media device override applied: {result}");
+            Logger.Log($"Media device override applied (raw): {result}");
+
+            try
+            {
+                using var doc = JsonDocument.Parse(result);
+                var root = doc.RootElement;
+                var status = root.TryGetProperty("status", out var s) ? s.GetString() : null;
+                var windowCam = root.TryGetProperty("windowCam", out var wc) ? wc.ToString() : null;
+                var windowMic = root.TryGetProperty("windowMic", out var wm) ? wm.ToString() : null;
+                var localCam = root.TryGetProperty("localCam", out var lc) ? lc.ToString() : null;
+                var localMic = root.TryGetProperty("localMic", out var lm) ? lm.ToString() : null;
+                Logger.Log($"[MEDIA OVERRIDE] status={status}, windowCam={windowCam}, windowMic={windowMic}, localCamRaw={localCam}, localMicRaw={localMic}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"[MEDIA OVERRIDE] Failed to parse snapshot: {ex.Message}");
+            }
             
             // Build status message
             var cameraName = _cameras.FirstOrDefault(c => c.DeviceId == _selectedCameraId)?.Label;
