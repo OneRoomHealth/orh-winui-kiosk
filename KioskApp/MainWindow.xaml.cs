@@ -2197,7 +2197,7 @@ public sealed partial class MainWindow : Window
         }
 
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-        DispatcherQueue.TryEnqueue(async () =>
+        var enqueued = DispatcherQueue.TryEnqueue(async () =>
         {
             try
             {
@@ -2215,6 +2215,23 @@ public sealed partial class MainWindow : Window
                 tcs.TrySetException(ex);
             }
         });
+        
+        // If the dispatcher is shutting down, TryEnqueue can return false. Avoid hanging forever.
+        if (!enqueued)
+        {
+            Logger.Log("[WEBVIEW SCRIPT] DispatcherQueue.TryEnqueue failed (dispatcher likely shutting down); returning empty result");
+            tcs.TrySetResult("{}");
+        }
+
+        // Defensive: even if TryEnqueue returns true, the dispatcher may stop processing before our work runs.
+        // Ensure we never hang indefinitely during shutdown.
+        var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        if (completed != tcs.Task)
+        {
+            Logger.Log("[WEBVIEW SCRIPT] ExecuteScriptAsyncUi timed out waiting for UI dispatcher; returning empty result");
+            return "{}";
+        }
+
         return await tcs.Task;
     }
 
