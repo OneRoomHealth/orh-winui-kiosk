@@ -1960,6 +1960,15 @@ public sealed partial class MainWindow : Window
         {
             Logger.Log("========== APPLICATION EXIT START ==========");
             
+            // Stop media preference sync timer
+            if (_mediaPreferenceSyncTimer != null)
+            {
+                Logger.Log("Stopping media preference sync timer...");
+                _mediaPreferenceSyncTimer.Dispose();
+                _mediaPreferenceSyncTimer = null;
+                Logger.Log("Media preference sync timer stopped");
+            }
+
             // Stop video controller if active
             if (_videoController != null)
             {
