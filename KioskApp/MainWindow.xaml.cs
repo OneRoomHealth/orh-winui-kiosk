@@ -141,6 +141,7 @@ public sealed partial class MainWindow : Window
 
     private bool _suppressMediaSelectionEvents = false;
     private bool _mediaOverrideDocCreatedScriptAdded = false;
+    private System.Threading.Timer? _mediaPreferenceSyncTimer = null;
 
     /// <summary>
     /// Represents a media device (camera or microphone) for the selector dropdowns.
@@ -1046,6 +1047,46 @@ public sealed partial class MainWindow : Window
         };
 
         Logger.Log("WebView2 setup completed");
+
+        // Start periodic sync timer to ensure localStorage stays in sync with app prefs
+        // (protects against web page clearing localStorage or other corruption)
+        StartMediaPreferenceSyncTimer();
+    }
+
+    private void StartMediaPreferenceSyncTimer()
+    {
+        // Dispose any existing timer
+        _mediaPreferenceSyncTimer?.Dispose();
+
+        // Sync every 30 seconds
+        _mediaPreferenceSyncTimer = new System.Threading.Timer(async _ =>
+        {
+            try
+            {
+                if (KioskWebView?.CoreWebView2 == null) return;
+                if (string.IsNullOrWhiteSpace(_selectedCameraId) && string.IsNullOrWhiteSpace(_selectedMicrophoneId)) return;
+
+                // Re-sync localStorage on UI thread
+                await DispatcherQueue.EnqueueAsync(async () =>
+                {
+                    try
+                    {
+                        await ApplyMediaDeviceOverrideAsync(showStatus: false);
+                        Logger.Log("[MEDIA SYNC] Periodic localStorage sync completed");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Log($"[MEDIA SYNC] Periodic sync failed: {ex.Message}");
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"[MEDIA SYNC] Timer callback error: {ex.Message}");
+            }
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+
+        Logger.Log("Media preference sync timer started (30s interval)");
     }
 
     private async Task InstallMediaOverrideOnDocumentCreatedAsync()
@@ -1078,16 +1119,14 @@ public sealed partial class MainWindow : Window
                         const initialCam = {initialCameraIdJson};
                         const initialMic = {initialMicrophoneIdJson};
 
-                        // Seed localStorage from app settings ONCE per WebView session.
-                        // This ensures persisted WinUI preferences win on app startup (even if localStorage contains stale values),
-                        // but does not overwrite user changes during this run (selection change triggers a reload).
+                        // ALWAYS seed localStorage from embedded app preferences on every document creation.
+                        // This ensures WinUI LocalSettings are the single source of truth, and localStorage
+                        // is refreshed even if the web page clears it or it gets corrupted.
+                        // (Embedded values are from app startup; selection changes also call ApplyMediaDeviceOverrideAsync
+                        // on DOMContentLoaded to sync any user changes made during this session.)
                         try {{
-                            const seededKey = '__orhMediaPrefsSeeded';
-                            if (!sessionStorage.getItem(seededKey)) {{
-                                localStorage.setItem(camKey, JSON.stringify(initialCam));
-                                localStorage.setItem(micKey, JSON.stringify(initialMic));
-                                sessionStorage.setItem(seededKey, '1');
-                            }}
+                            localStorage.setItem(camKey, JSON.stringify(initialCam));
+                            localStorage.setItem(micKey, JSON.stringify(initialMic));
                         }} catch (e) {{}}
 
                         const readPref = (key) => {{
@@ -1154,8 +1193,9 @@ public sealed partial class MainWindow : Window
 
                             navigator.mediaDevices.getUserMedia = async (constraints) => {{
                                 // Refresh prefs each call (in case they were updated without a reload)
-                                const camId = readPref(camKey);
-                                const micId = readPref(micKey);
+                                // Fallback chain: localStorage -> embedded initial values (from app startup)
+                                const camId = readPref(camKey) || initialCam;
+                                const micId = readPref(micKey) || initialMic;
 
                                 // Fast path: no prefs set
                                 if (!camId && !micId) {{
@@ -2725,6 +2765,11 @@ public sealed partial class MainWindow : Window
         try
         {
             if (KioskWebView?.CoreWebView2 == null) return;
+            
+            // Brief delay to ensure ApplyMediaDeviceOverrideAsync's ExecuteScriptAsync has completed
+            // and localStorage is updated before the new document loads.
+            await Task.Delay(150);
+            
             await DispatcherQueue.EnqueueAsync(() =>
             {
                 Logger.Log("Reloading WebView to apply media device change");
