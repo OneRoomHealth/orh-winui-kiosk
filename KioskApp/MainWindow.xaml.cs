@@ -967,15 +967,10 @@ public sealed partial class MainWindow : Window
         // IMPORTANT: await this before first navigation, otherwise the initial document may load without the override.
         await InstallMediaOverrideOnDocumentCreatedAsync();
         
-        // Seed localStorage with persisted preferences BEFORE the first navigation.
-        // This is critical because localStorage persists across app restarts, and stale values
-        // from a previous session would be preserved by the document-created script (which only
-        // seeds if localStorage is empty). By seeding here, we ensure fresh app preferences win.
-        if (!string.IsNullOrWhiteSpace(_selectedCameraId) || !string.IsNullOrWhiteSpace(_selectedMicrophoneId))
-        {
-            await ApplyMediaDeviceOverrideAsync(showStatus: false);
-            Logger.Log("Seeded localStorage with persisted media preferences before first navigation");
-        }
+        // NOTE: Cannot seed localStorage here because WebView is at about:blank (null origin).
+        // localStorage is per-origin and not accessible from null origins.
+        // Instead, the document-created script uses sessionStorage to detect first-of-session
+        // navigation and seeds localStorage from embedded values (fresh from app startup).
         
         // Ensure status overlay is hidden when WebView is ready
         Logger.Log("WebView2 setup complete, ensuring status overlay is hidden");
@@ -1126,22 +1121,31 @@ public sealed partial class MainWindow : Window
 
                         const camKey = '{WebStoragePreferredCameraKey}';
                         const micKey = '{WebStoragePreferredMicrophoneKey}';
+                        const sessionMarker = 'orh_media_session_seeded';
                         const initialCam = {initialCameraIdJson};
                         const initialMic = {initialMicrophoneIdJson};
 
-                        // Seed localStorage from embedded app preferences ONLY if localStorage is empty or null.
-                        // ApplyMediaDeviceOverrideAsync updates localStorage BEFORE reload, so we must NOT
-                        // overwrite those fresh values with stale embedded values from app startup.
-                        // This ensures user selection changes survive page reloads.
+                        // Use sessionStorage to detect first navigation of this app session.
+                        // - On first navigation: force seed localStorage from embedded values (fresh from app startup).
+                        //   This overwrites any stale localStorage from a previous app session.
+                        // - On subsequent navigations (reloads, page changes): only seed if localStorage is empty.
+                        //   This preserves user changes made via ApplyMediaDeviceOverrideAsync during this session.
+                        // - On app restart: sessionStorage is cleared, so we seed again from fresh embedded values.
                         try {{
-                            const existingCam = localStorage.getItem(camKey);
-                            const existingMic = localStorage.getItem(micKey);
-                            // Only seed if no value exists (null means key doesn't exist)
-                            if (existingCam === null) {{
+                            const isFirstOfSession = !sessionStorage.getItem(sessionMarker);
+                            if (isFirstOfSession) {{
+                                // First navigation of session: force overwrite with embedded (fresh from persisted prefs)
                                 localStorage.setItem(camKey, JSON.stringify(initialCam));
-                            }}
-                            if (existingMic === null) {{
                                 localStorage.setItem(micKey, JSON.stringify(initialMic));
+                                sessionStorage.setItem(sessionMarker, 'true');
+                            }} else {{
+                                // Subsequent navigation: only seed if localStorage is empty (preserves user changes)
+                                if (localStorage.getItem(camKey) === null) {{
+                                    localStorage.setItem(camKey, JSON.stringify(initialCam));
+                                }}
+                                if (localStorage.getItem(micKey) === null) {{
+                                    localStorage.setItem(micKey, JSON.stringify(initialMic));
+                                }}
                             }}
                         }} catch (e) {{}}
 
