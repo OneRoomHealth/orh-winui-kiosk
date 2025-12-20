@@ -3420,16 +3420,17 @@ public sealed partial class MainWindow : Window
                     (() => {
                         try {
                             if (typeof window.__orhStopLocalTracks === 'function') {
-                                const stoppedAll = window.__orhStopLocalTracks();
-                                console.log('[ORH RELOAD] Stopped ' + stoppedAll + ' local track(s) before reload');
-                                return stoppedAll;
+                                // Only stop local VIDEO tracks. Stopping local audio here can disrupt the call/session.
+                                const stoppedVideo = window.__orhStopLocalTracks('video');
+                                console.log('[ORH RELOAD] Stopped ' + stoppedVideo + ' local VIDEO track(s) before reload');
+                                return stoppedVideo;
                             }
                             console.log('[ORH RELOAD] __orhStopLocalTracks not available; skipping stop');
                         } catch (e) {}
                         return true;
                     })();
                 ");
-                Logger.Log("[MEDIA RELOAD] Requested stop of local getUserMedia tracks before reload");
+                Logger.Log("[MEDIA RELOAD] Requested stop of local getUserMedia VIDEO tracks before reload");
             }
             catch (Exception ex)
             {
