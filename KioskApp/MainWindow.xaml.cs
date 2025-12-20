@@ -1628,7 +1628,27 @@ public sealed partial class MainWindow : Window
                         KioskWebView.CoreWebView2.OpenDevToolsWindow();
                     }
                     
+                    // Clear stale camera/microphone dropdown data before loading fresh data.
+                    // This prevents user from selecting stale device IDs from a previous debug session
+                    // (device IDs regenerate on each WebView navigation/reload).
+                    _suppressMediaSelectionEvents = true;
+                    try
+                    {
+                        var oldCameraCount = CameraSelector.Items.Count;
+                        var oldMicCount = MicrophoneSelector.Items.Count;
+                        CameraSelector.Items.Clear();
+                        MicrophoneSelector.Items.Clear();
+                        CameraSelector.SelectedIndex = -1;
+                        MicrophoneSelector.SelectedIndex = -1;
+                        Logger.Log($"[DEBUG MODE] Cleared stale dropdown data (was: {oldCameraCount} cameras, {oldMicCount} mics)");
+                    }
+                    finally
+                    {
+                        _suppressMediaSelectionEvents = false;
+                    }
+                    
                     // Load available cameras and microphones for the dropdowns
+                    Logger.Log("[DEBUG MODE] Starting fresh media device enumeration...");
                     _ = LoadAllMediaDevicesAsync();
 
                     // Window the application
@@ -2372,8 +2392,17 @@ public sealed partial class MainWindow : Window
         }
         catch (TaskCanceledException)
         {
-            _pendingWebMessages.TryRemove(requestId, out _);
-            Logger.Log($"Web message request timed out: {requestId}");
+            // If the request is still in the dictionary, it was a timeout.
+            // If it was already removed (by ReloadWebViewForMediaChangeAsync), it was cancelled due to WebView reload.
+            var wasTimeout = _pendingWebMessages.TryRemove(requestId, out _);
+            if (wasTimeout)
+            {
+                Logger.Log($"[WEBMSG] Request timed out: {requestId}");
+            }
+            else
+            {
+                Logger.Log($"[WEBMSG] Request cancelled (WebView reload): {requestId}");
+            }
             return null;
         }
         catch (Exception ex)
