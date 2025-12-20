@@ -3335,13 +3335,16 @@ public sealed partial class MainWindow : Window
             SavePersistedMediaDevicePreferences();
             Logger.Log($"[CAMERA SELECT] Saved preferences, applying override...");
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
-            Logger.Log($"[CAMERA SELECT] Override applied, reloading WebView...");
+            Logger.Log($"[CAMERA SELECT] Override applied");
 
-            // Most web apps won't switch an already-active stream; reload in debug mode to force re-acquisition.
+            // IMPORTANT: Do NOT auto-reload the WebView here.
+            // Reloading resets the entire call/session (including remote video), and in practice can lead to
+            // “no streams” when the page can't re-auth/join cleanly. We persist the preference so the next
+            // media acquisition uses the selected device.
             if (_isDebugMode)
             {
-                await ReloadWebViewForMediaChangeAsync();
-                Logger.Log($"[CAMERA SELECT] WebView reload initiated");
+                ShowStatus("Device Saved", "Camera selection saved. It will apply the next time the page acquires camera (or after a manual reload).");
+                _ = Task.Delay(2500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
             }
         }
         else
@@ -3380,10 +3383,11 @@ public sealed partial class MainWindow : Window
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
             Logger.Log($"[MIC SELECT] Override applied");
 
+            // IMPORTANT: Do NOT auto-reload the WebView here (see camera selection rationale).
             if (_isDebugMode)
             {
-                await ReloadWebViewForMediaChangeAsync();
-                Logger.Log($"[MIC SELECT] WebView reload initiated");
+                ShowStatus("Device Saved", "Microphone selection saved. It will apply the next time the page acquires mic (or after a manual reload).");
+                _ = Task.Delay(2500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
             }
         }
         else
