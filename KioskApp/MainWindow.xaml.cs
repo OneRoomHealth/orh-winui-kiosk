@@ -1647,9 +1647,9 @@ public sealed partial class MainWindow : Window
                         _suppressMediaSelectionEvents = false;
                     }
                     
-                    // Load available cameras and microphones for the dropdowns
-                    Logger.Log("[DEBUG MODE] Starting fresh media device enumeration...");
-                    _ = LoadAllMediaDevicesAsync();
+                    // Stop any active video tracks before enumeration to release the camera.
+                    // This prevents getUserMedia from hanging during the enumeration's label unlock.
+                    _ = StopActiveTracksAndEnumerateDevicesAsync();
 
                     // Window the application
                     if (_appWindow?.Presenter.Kind == AppWindowPresenterKind.FullScreen)
@@ -2607,6 +2607,62 @@ public sealed partial class MainWindow : Window
     private async void RefreshMicrophonesButton_Click(object sender, RoutedEventArgs e)
     {
         await LoadMicrophonesAsync();
+    }
+
+    /// <summary>
+    /// Stop active video tracks and then enumerate media devices.
+    /// This is used when entering debug mode to release any camera streams before enumeration.
+    /// </summary>
+    private async Task StopActiveTracksAndEnumerateDevicesAsync()
+    {
+        try
+        {
+            Logger.Log("[DEBUG MODE] Stopping active video tracks before enumeration...");
+            
+            // Stop any active MediaStreams attached to <video> elements to release the camera
+            if (KioskWebView?.CoreWebView2 != null)
+            {
+                try
+                {
+                    await ExecuteScriptAsyncUi(@"
+                        (() => {
+                            try {
+                                let stoppedCount = 0;
+                                document.querySelectorAll('video').forEach(v => {
+                                    try {
+                                        const s = v.srcObject;
+                                        if (s && s.getTracks) {
+                                            s.getTracks().forEach(t => { 
+                                                try { t.stop(); stoppedCount++; } catch (e) {} 
+                                            });
+                                        }
+                                        v.srcObject = null;
+                                    } catch (e) {}
+                                });
+                                console.log('[ORH DEBUG] Stopped ' + stoppedCount + ' track(s)');
+                                return stoppedCount;
+                            } catch (e) { return 0; }
+                        })();
+                    ");
+                    Logger.Log("[DEBUG MODE] Stopped active video tracks");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"[DEBUG MODE] Failed to stop video tracks: {ex.Message}");
+                }
+            }
+            
+            // Brief delay to let camera driver release
+            await Task.Delay(300);
+            
+            // Now enumerate devices
+            Logger.Log("[DEBUG MODE] Starting fresh media device enumeration...");
+            await LoadAllMediaDevicesAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"[DEBUG MODE] StopActiveTracksAndEnumerateDevicesAsync failed: {ex.Message}");
+        }
     }
 
     /// <summary>
