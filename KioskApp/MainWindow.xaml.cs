@@ -141,7 +141,7 @@ public sealed partial class MainWindow : Window
 
     private bool _suppressMediaSelectionEvents = false;
     private bool _mediaOverrideDocCreatedScriptAdded = false;
-    private DispatcherQueueTimer? _mediaPreferenceSyncTimer = null;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _mediaPreferenceSyncTimer = null;
 
     /// <summary>
     /// Represents a media device (camera or microphone) for the selector dropdowns.
@@ -1077,7 +1077,7 @@ public sealed partial class MainWindow : Window
         Logger.Log("Media preference sync timer started (DispatcherQueueTimer, 30s interval)");
     }
 
-    private async void MediaPreferenceSyncTimer_Tick(DispatcherQueueTimer sender, object args)
+    private async void MediaPreferenceSyncTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
     {
         try
         {
