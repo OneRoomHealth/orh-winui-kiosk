@@ -128,6 +128,8 @@ public sealed partial class MainWindow : Window
     // WebView->Host message bridge for async media enumeration (ExecuteScriptAsync does not reliably await Promises)
     private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingWebMessages = new();
     private bool _webMessageBridgeInitialized = false;
+    private bool _webConsoleLoggingInitialized = false;
+    private bool _webProcessFailedLoggingInitialized = false;
 
     // Guard to prevent concurrent media device enumeration (avoids race conditions on _cameras/_microphones)
     private readonly SemaphoreSlim _mediaEnumerationLock = new(1, 1);
@@ -969,6 +971,40 @@ public sealed partial class MainWindow : Window
         {
             _webMessageBridgeInitialized = true;
             KioskWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
+        }
+
+        // Capture page console output to help diagnose cases where ExecuteScriptAsync runs but no postMessage arrives.
+        if (!_webConsoleLoggingInitialized)
+        {
+            _webConsoleLoggingInitialized = true;
+            KioskWebView.CoreWebView2.ConsoleMessageReceived += (sender, args) =>
+            {
+                try
+                {
+                    Logger.Log($"[WEB CONSOLE] {args.Level}: {args.Message} ({args.Source}:{args.LineNumber})");
+                }
+                catch
+                {
+                    // ignore logging failures
+                }
+            };
+        }
+
+        // Capture WebView process failures (renderer/browser crashes) which can present as timeouts.
+        if (!_webProcessFailedLoggingInitialized)
+        {
+            _webProcessFailedLoggingInitialized = true;
+            KioskWebView.CoreWebView2.ProcessFailed += (sender, args) =>
+            {
+                try
+                {
+                    Logger.Log($"[WEBVIEW PROCESS FAILED] Kind={args.ProcessFailedKind}");
+                }
+                catch
+                {
+                    // ignore logging failures
+                }
+            };
         }
 
         // Install getUserMedia override as early as possible (before page scripts run).
