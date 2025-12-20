@@ -107,6 +107,11 @@
                            FontWeight="Bold"
                            VerticalAlignment="Center"/>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5">
+                    <Button x:Name="CopyLogsButton" 
+                            Content="Copy" 
+                            Click="CopyLogsButton_Click"
+                            Padding="10,5"
+                            Margin="0,0,5,0"/>
                     <Button x:Name="ClearLogsButton" 
                             Content="Clear" 
                             Click="ClearLogsButton_Click"

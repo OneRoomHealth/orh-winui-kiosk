@@ -22,6 +22,7 @@ using System.IO;
 using System.Reflection;
 using Microsoft.UI.Xaml.Input;
 using Windows.Storage;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace KioskApp;
 
@@ -138,6 +139,8 @@ public sealed partial class MainWindow : Window
 
     private const string WebStoragePreferredCameraKey = "__orhPreferredCameraId";
     private const string WebStoragePreferredMicrophoneKey = "__orhPreferredMicrophoneId";
+    private const string WebStoragePreferredCameraLabelKey = "__orhPreferredCameraLabel";
+    private const string WebStoragePreferredMicrophoneLabelKey = "__orhPreferredMicrophoneLabel";
 
     private bool _suppressMediaSelectionEvents = false;
     private bool _mediaOverrideDocCreatedScriptAdded = false;
@@ -1108,6 +1111,8 @@ public sealed partial class MainWindow : Window
             // even if the page calls getUserMedia before DOMContentLoaded.
             var initialCameraIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraId) ? null : _selectedCameraId);
             var initialMicrophoneIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneId) ? null : _selectedMicrophoneId);
+            var initialCameraLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraLabel) ? null : _selectedCameraLabel);
+            var initialMicrophoneLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneLabel) ? null : _selectedMicrophoneLabel);
 
             // Idempotent installation: use a global flag in the script.
             // Preferences are stored in localStorage so they apply across navigations and are readable at document creation time.
@@ -1120,9 +1125,13 @@ public sealed partial class MainWindow : Window
 
                         const camKey = '{WebStoragePreferredCameraKey}';
                         const micKey = '{WebStoragePreferredMicrophoneKey}';
+                        const camLabelKey = '{WebStoragePreferredCameraLabelKey}';
+                        const micLabelKey = '{WebStoragePreferredMicrophoneLabelKey}';
                         const sessionMarker = 'orh_media_session_seeded';
                         const initialCam = {initialCameraIdJson};
                         const initialMic = {initialMicrophoneIdJson};
+                        const initialCamLabel = {initialCameraLabelJson};
+                        const initialMicLabel = {initialMicrophoneLabelJson};
 
                         // Use sessionStorage to detect first navigation of this app session.
                         // - On first navigation: force seed localStorage from embedded values (fresh from app startup).
@@ -1136,6 +1145,8 @@ public sealed partial class MainWindow : Window
                                 // First navigation of session: force overwrite with embedded (fresh from persisted prefs)
                                 localStorage.setItem(camKey, JSON.stringify(initialCam));
                                 localStorage.setItem(micKey, JSON.stringify(initialMic));
+                                localStorage.setItem(camLabelKey, JSON.stringify(initialCamLabel));
+                                localStorage.setItem(micLabelKey, JSON.stringify(initialMicLabel));
                                 sessionStorage.setItem(sessionMarker, 'true');
                             }} else {{
                                 // Subsequent navigation: only seed if localStorage is empty (preserves user changes)
@@ -1144,6 +1155,12 @@ public sealed partial class MainWindow : Window
                                 }}
                                 if (localStorage.getItem(micKey) === null) {{
                                     localStorage.setItem(micKey, JSON.stringify(initialMic));
+                                }}
+                                if (localStorage.getItem(camLabelKey) === null) {{
+                                    localStorage.setItem(camLabelKey, JSON.stringify(initialCamLabel));
+                                }}
+                                if (localStorage.getItem(micLabelKey) === null) {{
+                                    localStorage.setItem(micLabelKey, JSON.stringify(initialMicLabel));
                                 }}
                             }}
                         }} catch (e) {{}}
@@ -1162,6 +1179,8 @@ public sealed partial class MainWindow : Window
                         // Load persisted preferences into window globals
                         window.__preferredCameraId = readPref(camKey);
                         window.__preferredMicrophoneId = readPref(micKey);
+                        window.__preferredCameraLabel = readPref(camLabelKey);
+                        window.__preferredMicrophoneLabel = readPref(micLabelKey);
 
                         if (navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {{
                             const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
@@ -1209,12 +1228,26 @@ public sealed partial class MainWindow : Window
                             }};
 
                             const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+                            const norm = (s) => (s || '').toString().trim().toLowerCase();
+                            const resolveDeviceIdByLabel = async (kind, label) => {{
+                                try {{
+                                    if (!label) return null;
+                                    const devices = await navigator.mediaDevices.enumerateDevices();
+                                    const target = norm(label);
+                                    const match = devices.find(d => d.kind === kind && norm(d.label) === target);
+                                    return match && match.deviceId ? match.deviceId : null;
+                                }} catch (e) {{
+                                    return null;
+                                }}
+                            }};
 
                             navigator.mediaDevices.getUserMedia = async (constraints) => {{
                                 // Refresh prefs each call (in case they were updated without a reload)
                                 // Fallback chain: localStorage -> embedded initial values (from app startup)
                                 const camId = readPref(camKey) || initialCam;
                                 const micId = readPref(micKey) || initialMic;
+                                const camLabel = readPref(camLabelKey) || initialCamLabel;
+                                const micLabel = readPref(micLabelKey) || initialMicLabel;
 
                                 // Fast path: no prefs set
                                 if (!camId && !micId) {{
@@ -1244,6 +1277,35 @@ public sealed partial class MainWindow : Window
                                         report('warn', 'getUserMedia failed with exact deviceId, falling back', {{ attempt, name, msg }});
                                         break;
                                     }}
+                                }}
+
+                                // If deviceIds have changed across reloads (common in kiosk/WebView contexts),
+                                // try to re-resolve current deviceId by label and retry exact once.
+                                try {{
+                                    let resolvedCam = camId;
+                                    let resolvedMic = micId;
+                                    if (camLabel) {{
+                                        const newCam = await resolveDeviceIdByLabel('videoinput', camLabel);
+                                        if (newCam && newCam !== camId) {{
+                                            resolvedCam = newCam;
+                                            try {{ localStorage.setItem(camKey, JSON.stringify(newCam)); }} catch (e) {{}}
+                                            report('info', 'Resolved camera deviceId by label', {{ camLabel, oldId: camId, newId: newCam }});
+                                        }}
+                                    }}
+                                    if (micLabel) {{
+                                        const newMic = await resolveDeviceIdByLabel('audioinput', micLabel);
+                                        if (newMic && newMic !== micId) {{
+                                            resolvedMic = newMic;
+                                            try {{ localStorage.setItem(micKey, JSON.stringify(newMic)); }} catch (e) {{}}
+                                            report('info', 'Resolved microphone deviceId by label', {{ micLabel, oldId: micId, newId: newMic }});
+                                        }}
+                                    }}
+
+                                    const resolvedExact = applyOverride(constraints, resolvedCam, resolvedMic, 'exact');
+                                    report('info', 'Retrying getUserMedia with resolved deviceId(s)', {{ camResolved: !!resolvedCam, micResolved: !!resolvedMic }});
+                                    return await originalGetUserMedia(resolvedExact);
+                                }} catch (e3) {{
+                                    // continue to ideal fallback
                                 }}
 
                                 // Fallback to ideal (still prefers selected device but won't hard-fail)
@@ -2297,14 +2359,20 @@ public sealed partial class MainWindow : Window
                                 throw new Error('navigator.mediaDevices.enumerateDevices is not available');
                             }}
 
-                            // Try to unlock labels (best-effort). Don’t fail enumeration if this fails.
+                            // Try to unlock labels (best-effort) BUT don't let getUserMedia hang and block enumeration.
+                            // If the camera stack is wedged (common during rapid switching), getUserMedia may never resolve.
+                            // In that case, skip label unlock and still enumerate.
+                            const withTimeout = (p, ms) => Promise.race([
+                                p,
+                                new Promise((_, reject) => setTimeout(() => reject(new Error('getUserMedia timeout')), ms))
+                            ]);
                             try {{
                                 if (kind === 'videoinput') {{
-                                    const s = await navigator.mediaDevices.getUserMedia({{ video: true }});
-                                    s.getTracks().forEach(t => t.stop());
+                                    const s = await withTimeout(navigator.mediaDevices.getUserMedia({{ video: true }}), 1500);
+                                    try {{ s.getTracks().forEach(t => t.stop()); }} catch (e) {{}}
                                 }} else if (kind === 'audioinput') {{
-                                    const s = await navigator.mediaDevices.getUserMedia({{ audio: true }});
-                                    s.getTracks().forEach(t => t.stop());
+                                    const s = await withTimeout(navigator.mediaDevices.getUserMedia({{ audio: true }}), 1500);
+                                    try {{ s.getTracks().forEach(t => t.stop()); }} catch (e) {{}}
                                 }}
                             }} catch (e) {{
                                 // ignore
@@ -2948,6 +3016,8 @@ public sealed partial class MainWindow : Window
         // Using "|| window.__preferredX || null" preserves previous values when one preference is unset.
         var cameraIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraId) ? null : _selectedCameraId);
         var microphoneIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneId) ? null : _selectedMicrophoneId);
+        var cameraLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraLabel) ? null : _selectedCameraLabel);
+        var microphoneLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneLabel) ? null : _selectedMicrophoneLabel);
         
         var script = $@"
             (() => {{
@@ -2955,24 +3025,32 @@ public sealed partial class MainWindow : Window
                     // Store the preferred device IDs
                     window.__preferredCameraId = {cameraIdJson};
                     window.__preferredMicrophoneId = {microphoneIdJson};
+                    window.__preferredCameraLabel = {cameraLabelJson};
+                    window.__preferredMicrophoneLabel = {microphoneLabelJson};
                     
                     // Persist preferences into localStorage so the document-created script can apply them
                     // before any page JavaScript calls getUserMedia.
                     try {{
                         localStorage.setItem('{WebStoragePreferredCameraKey}', JSON.stringify(window.__preferredCameraId));
                         localStorage.setItem('{WebStoragePreferredMicrophoneKey}', JSON.stringify(window.__preferredMicrophoneId));
+                        localStorage.setItem('{WebStoragePreferredCameraLabelKey}', JSON.stringify(window.__preferredCameraLabel));
+                        localStorage.setItem('{WebStoragePreferredMicrophoneLabelKey}', JSON.stringify(window.__preferredMicrophoneLabel));
                     }} catch (e) {{}}
                     
                     const snapshot = {{
                         status: 'ok',
                         windowCam: window.__preferredCameraId,
                         windowMic: window.__preferredMicrophoneId,
+                        windowCamLabel: window.__preferredCameraLabel,
+                        windowMicLabel: window.__preferredMicrophoneLabel,
                         localCam: null,
                         localMic: null
                     }};
                     try {{
                         snapshot.localCam = localStorage.getItem('{WebStoragePreferredCameraKey}');
                         snapshot.localMic = localStorage.getItem('{WebStoragePreferredMicrophoneKey}');
+                        snapshot.localCamLabel = localStorage.getItem('{WebStoragePreferredCameraLabelKey}');
+                        snapshot.localMicLabel = localStorage.getItem('{WebStoragePreferredMicrophoneLabelKey}');
                     }} catch (e) {{}}
                     
                     return snapshot;
@@ -2994,9 +3072,13 @@ public sealed partial class MainWindow : Window
                 var status = root.TryGetProperty("status", out var s) ? s.GetString() : null;
                 var windowCam = root.TryGetProperty("windowCam", out var wc) ? wc.ToString() : null;
                 var windowMic = root.TryGetProperty("windowMic", out var wm) ? wm.ToString() : null;
+                var windowCamLabel = root.TryGetProperty("windowCamLabel", out var wcl) ? wcl.ToString() : null;
+                var windowMicLabel = root.TryGetProperty("windowMicLabel", out var wml) ? wml.ToString() : null;
                 var localCam = root.TryGetProperty("localCam", out var lc) ? lc.ToString() : null;
                 var localMic = root.TryGetProperty("localMic", out var lm) ? lm.ToString() : null;
-                Logger.Log($"[MEDIA OVERRIDE] status={status}, windowCam={windowCam}, windowMic={windowMic}, localCamRaw={localCam}, localMicRaw={localMic}");
+                var localCamLabel = root.TryGetProperty("localCamLabel", out var lcl) ? lcl.ToString() : null;
+                var localMicLabel = root.TryGetProperty("localMicLabel", out var lml) ? lml.ToString() : null;
+                Logger.Log($"[MEDIA OVERRIDE] status={status}, windowCam={windowCam}, windowMic={windowMic}, windowCamLabel={windowCamLabel}, windowMicLabel={windowMicLabel}, localCamRaw={localCam}, localMicRaw={localMic}, localCamLabelRaw={localCamLabel}, localMicLabelRaw={localMicLabel}");
             }
             catch (Exception ex)
             {
@@ -3294,6 +3376,29 @@ public sealed partial class MainWindow : Window
     private void CloseLogsButton_Click(object sender, RoutedEventArgs e)
     {
         ToggleLogViewer();
+    }
+
+    private void CopyLogsButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var text = LogContentTextBlock?.Text ?? "";
+
+            var package = new DataPackage();
+            package.SetText(text);
+            Clipboard.SetContent(package);
+            Clipboard.Flush();
+
+            Logger.Log($"Log viewer copied to clipboard ({text.Length} chars)");
+            ShowStatus("Copied", $"Copied {text.Length} characters");
+            _ = Task.Delay(1200).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to copy logs to clipboard: {ex.Message}");
+            ShowStatus("Copy Failed", ex.Message);
+            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+        }
     }
 
     #endregion
