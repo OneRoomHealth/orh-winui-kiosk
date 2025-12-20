@@ -2219,17 +2219,18 @@ public sealed partial class MainWindow : Window
         // If the dispatcher is shutting down, TryEnqueue can return false. Avoid hanging forever.
         if (!enqueued)
         {
-            Logger.Log("[WEBVIEW SCRIPT] DispatcherQueue.TryEnqueue failed (dispatcher likely shutting down); returning empty result");
-            tcs.TrySetResult("{}");
+            Logger.Log("[WEBVIEW SCRIPT] DispatcherQueue.TryEnqueue failed (dispatcher likely shutting down)");
+            throw new OperationCanceledException("UI dispatcher is not accepting work; cannot execute script.");
         }
 
         // Defensive: even if TryEnqueue returns true, the dispatcher may stop processing before our work runs.
-        // Ensure we never hang indefinitely during shutdown.
+        // Ensure we never hang indefinitely during shutdown, but DO NOT return early with a fake result.
+        // Either the script executes (task completes) or we throw, so callers don't proceed assuming it ran.
         var completed = await Task.WhenAny(tcs.Task, Task.Delay(TimeSpan.FromSeconds(5)));
         if (completed != tcs.Task)
         {
-            Logger.Log("[WEBVIEW SCRIPT] ExecuteScriptAsyncUi timed out waiting for UI dispatcher; returning empty result");
-            return "{}";
+            Logger.Log("[WEBVIEW SCRIPT] ExecuteScriptAsyncUi timed out waiting for UI dispatcher to run");
+            throw new TimeoutException("Timed out waiting for UI dispatcher to execute script.");
         }
 
         return await tcs.Task;
