@@ -129,6 +129,11 @@ public sealed partial class MainWindow : Window
     private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingWebMessages = new();
     private bool _webMessageBridgeInitialized = false;
     private bool _webProcessFailedLoggingInitialized = false;
+    private bool _webViewNavigationCompletedInitialized = false;
+    private bool _coreEventHandlersInitialized = false;
+    private Microsoft.Web.WebView2.Core.CoreWebView2? _wiredCoreWebView2 = null;
+    private int _wiredCoreWebView2Id = 0;
+    private bool _isRecoveringWebViewProcessFailure = false;
 
     // Guard to prevent concurrent media device enumeration (avoids race conditions on _cameras/_microphones)
     private readonly SemaphoreSlim _mediaEnumerationLock = new(1, 1);
@@ -936,6 +941,43 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private async Task SetupWebViewAsync()
     {
+        if (KioskWebView?.CoreWebView2 == null)
+        {
+            Logger.Log("[WEBVIEW] SetupWebViewAsync called but CoreWebView2 is null");
+            return;
+        }
+
+        var core = KioskWebView.CoreWebView2;
+        var coreId = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(core);
+
+        // If the underlying CoreWebView2 instance has changed (common after BrowserProcessExited),
+        // we must rewire all core-level event handlers and re-install document-created scripts.
+        if (!ReferenceEquals(_wiredCoreWebView2, core))
+        {
+            var oldId = _wiredCoreWebView2Id;
+            _wiredCoreWebView2 = core;
+            _wiredCoreWebView2Id = coreId;
+            Logger.Log($"[WEBVIEW] CoreWebView2 instance changed: {oldId} -> {_wiredCoreWebView2Id}");
+
+            // Cancel any in-flight message waits (they belong to the old core / old document context)
+            var pending = _pendingWebMessages.Count;
+            if (pending > 0)
+            {
+                Logger.Log($"[WEBVIEW] Cancelling {pending} pending web message request(s) due to CoreWebView2 instance change");
+                foreach (var kvp in _pendingWebMessages)
+                {
+                    kvp.Value.TrySetCanceled();
+                }
+                _pendingWebMessages.Clear();
+            }
+
+            // Reset per-core wiring flags
+            _webMessageBridgeInitialized = false;
+            _webProcessFailedLoggingInitialized = false;
+            _coreEventHandlersInitialized = false;
+            _mediaOverrideDocCreatedScriptAdded = false;
+        }
+
         var settings = KioskWebView.CoreWebView2.Settings;
 
         // Kiosk mode settings
@@ -946,87 +988,128 @@ public sealed partial class MainWindow : Window
         settings.IsZoomControlEnabled = false;
         settings.IsStatusBarEnabled = false;
         
-        // Auto-allow all permissions for kiosk mode (camera, microphone, autoplay, etc.)
-        // This ensures the kiosk application works seamlessly without permission prompts
-        KioskWebView.CoreWebView2.PermissionRequested += (sender, args) =>
-        {
-            // Auto-allow all permission types for kiosk mode
-            args.State = CoreWebView2PermissionState.Allow;
-            args.SavesInProfile = true;
-            Logger.Log($"Auto-allowed permission: {args.PermissionKind} for {args.Uri}");
-        };
-
         // Developer tools are initially disabled (unless debug mode is active)
         settings.AreDevToolsEnabled = _isDebugMode;
         settings.AreDefaultContextMenusEnabled = _isDebugMode;
         settings.AreDefaultScriptDialogsEnabled = true;
         settings.AreBrowserAcceleratorKeysEnabled = false; // Disable F5, Ctrl+R, etc.
 
-        // Navigation event handlers
-        KioskWebView.NavigationCompleted += OnNavigationCompleted;
+        // Navigation event handlers (control-level; only wire once)
+        if (!_webViewNavigationCompletedInitialized)
+        {
+            _webViewNavigationCompletedInitialized = true;
+            KioskWebView.NavigationCompleted += OnNavigationCompleted;
+        }
 
         // Initialize WebMessage bridge once (used for async media device enumeration)
         if (!_webMessageBridgeInitialized)
         {
             _webMessageBridgeInitialized = true;
-            KioskWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
+            core.WebMessageReceived += CoreWebView2_WebMessageReceived;
+            Logger.Log($"[WEBVIEW] Wired WebMessageReceived (core={coreId})");
         }
 
         // Capture WebView process failures (renderer/browser crashes) which can present as timeouts.
         if (!_webProcessFailedLoggingInitialized)
         {
             _webProcessFailedLoggingInitialized = true;
-            KioskWebView.CoreWebView2.ProcessFailed += (sender, args) =>
+            core.ProcessFailed += (sender, args) =>
             {
                 try
                 {
-                    Logger.Log($"[WEBVIEW PROCESS FAILED] Kind={args.ProcessFailedKind}");
+                    var currentCore = KioskWebView?.CoreWebView2;
+                    var currentId = currentCore != null ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(currentCore) : 0;
+                    Logger.Log($"[WEBVIEW PROCESS FAILED] Kind={args.ProcessFailedKind}, core={currentId}");
+
+                    // Mark core wiring as stale; on next SetupWebViewAsync we will rewire.
+                    _wiredCoreWebView2 = null;
+                    _wiredCoreWebView2Id = 0;
+                    _webMessageBridgeInitialized = false;
+                    _webProcessFailedLoggingInitialized = false;
+                    _coreEventHandlersInitialized = false;
+                    _mediaOverrideDocCreatedScriptAdded = false;
+
+                    // Best-effort recovery: re-ensure CoreWebView2 and re-run setup on UI thread.
+                    if (!_isRecoveringWebViewProcessFailure)
+                    {
+                        _isRecoveringWebViewProcessFailure = true;
+                        _ = DispatcherQueue.EnqueueAsync(async () =>
+                        {
+                            try
+                            {
+                                Logger.Log($"[WEBVIEW] Attempting recovery after ProcessFailed ({args.ProcessFailedKind})...");
+                                await KioskWebView.EnsureCoreWebView2Async();
+                                await SetupWebViewAsync();
+
+                                // Reload current URL if available
+                                if (!string.IsNullOrWhiteSpace(_currentUrl))
+                                {
+                                    Logger.Log($"[WEBVIEW] Recovery reload navigating to: {_currentUrl}");
+                                    KioskWebView.Source = new Uri(_currentUrl);
+                                }
+                                else
+                                {
+                                    Logger.Log("[WEBVIEW] Recovery reload: calling WebView.Reload()");
+                                    KioskWebView.Reload();
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Logger.Log($"[WEBVIEW] Recovery failed: {ex.Message}");
+                            }
+                            finally
+                            {
+                                _isRecoveringWebViewProcessFailure = false;
+                            }
+                        });
+                    }
                 }
                 catch
                 {
                     // ignore logging failures
                 }
             };
+            Logger.Log($"[WEBVIEW] Wired ProcessFailed (core={coreId})");
         }
 
-        // Install getUserMedia override as early as possible (before page scripts run).
-        // This is critical: if the page acquires camera/mic before DOMContentLoaded, later overrides won't affect it.
-        // IMPORTANT: await this before first navigation, otherwise the initial document may load without the override.
-        await InstallMediaOverrideOnDocumentCreatedAsync();
-        
-        // NOTE: Cannot seed localStorage here because WebView is at about:blank (null origin).
-        // localStorage is per-origin and not accessible from null origins.
-        // Instead, the document-created script uses sessionStorage to detect first-of-session
-        // navigation and seeds localStorage from embedded values (fresh from app startup).
-        
-        // Ensure status overlay is hidden when WebView is ready
-        Logger.Log("WebView2 setup complete, ensuring status overlay is hidden");
-        DispatcherQueue.TryEnqueue(() => HideStatus());
-        
-        // Disable new window requests
-        KioskWebView.CoreWebView2.NewWindowRequested += (sender, args) =>
+        // Core-level event handlers that must be (re)attached per CoreWebView2 instance
+        if (!_coreEventHandlersInitialized)
         {
-            args.Handled = true; // Block popups and new windows
-        };
+            _coreEventHandlersInitialized = true;
+            Logger.Log($"[WEBVIEW] Wiring core event handlers (core={coreId})");
 
-        // Prevent WebView from capturing all keyboard input
-        // This is crucial for hotkeys to work
-        KioskWebView.CoreWebView2.DocumentTitleChanged += (sender, args) =>
-        {
-            // Periodically ensure our window has proper focus handling
-            _ = EnsureFocusHandling();
-        };
-
-        // Additional WebView keyboard handling
-        KioskWebView.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.Document);
-        KioskWebView.CoreWebView2.DOMContentLoaded += async (sender, args) =>
-        {
-            try
+            // Auto-allow all permissions for kiosk mode (camera, microphone, autoplay, etc.)
+            core.PermissionRequested += (sender, args) =>
             {
-                // Inject JavaScript to:
-                // 1. Prevent WebView from consuming our hotkeys
-                // 2. Enable autoplay for all media elements
-                string script = @"
+                args.State = CoreWebView2PermissionState.Allow;
+                args.SavesInProfile = true;
+                Logger.Log($"Auto-allowed permission: {args.PermissionKind} for {args.Uri}");
+            };
+
+            // Disable new window requests
+            core.NewWindowRequested += (sender, args) =>
+            {
+                args.Handled = true; // Block popups and new windows
+            };
+
+            // Prevent WebView from capturing all keyboard input
+            core.DocumentTitleChanged += (sender, args) =>
+            {
+                _ = EnsureFocusHandling();
+            };
+
+            // Additional WebView keyboard handling
+            core.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.Document);
+
+            // DOMContentLoaded injection (hotkeys + autoplay + console forwarding)
+            core.DOMContentLoaded += async (sender, args) =>
+            {
+                try
+                {
+                    // Inject JavaScript to:
+                    // 1. Prevent WebView from consuming our hotkeys
+                    // 2. Enable autoplay for all media elements
+                    string script = @"
                     // Forward page console + runtime errors to host logs (WebView2 SDK compatibility)
                     (function () {
                         try {
@@ -1121,21 +1204,39 @@ public sealed partial class MainWindow : Window
                         enableAutoplay();
                     });
                     observer.observe(document.body, { childList: true, subtree: true });
-                ";
-                await KioskWebView.CoreWebView2.ExecuteScriptAsync(script);
-                Logger.Log("Injected kiosk scripts (hotkeys + autoplay)");
+                    ";
+                    await core.ExecuteScriptAsync(script);
+                    Logger.Log("Injected kiosk scripts (hotkeys + autoplay)");
 
-                // Re-apply persisted camera/mic overrides on every page load so they persist across navigation and app restarts.
-                if (!string.IsNullOrWhiteSpace(_selectedCameraId) || !string.IsNullOrWhiteSpace(_selectedMicrophoneId))
-                {
-                    await ApplyMediaDeviceOverrideAsync(showStatus: false);
+                    // Re-apply persisted camera/mic overrides on every page load so they persist across navigation and app restarts.
+                    if (!string.IsNullOrWhiteSpace(_selectedCameraId) || !string.IsNullOrWhiteSpace(_selectedMicrophoneId))
+                    {
+                        await ApplyMediaDeviceOverrideAsync(showStatus: false);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"Error injecting kiosk scripts: {ex.Message}");
-            }
-        };
+                catch (Exception ex)
+                {
+                    Logger.Log($"Error injecting kiosk scripts: {ex.Message}");
+                }
+            };
+        }
+
+        // Install getUserMedia override as early as possible (before page scripts run).
+        // This is critical: if the page acquires camera/mic before DOMContentLoaded, later overrides won't affect it.
+        // IMPORTANT: await this before first navigation, otherwise the initial document may load without the override.
+        await InstallMediaOverrideOnDocumentCreatedAsync();
+        
+        // NOTE: Cannot seed localStorage here because WebView is at about:blank (null origin).
+        // localStorage is per-origin and not accessible from null origins.
+        // Instead, the document-created script uses sessionStorage to detect first-of-session
+        // navigation and seeds localStorage from embedded values (fresh from app startup).
+        
+        // Ensure status overlay is hidden when WebView is ready
+        Logger.Log("WebView2 setup complete, ensuring status overlay is hidden");
+        DispatcherQueue.TryEnqueue(() => HideStatus());
+        
+        // Note: core-level event handlers (PermissionRequested/NewWindowRequested/DocumentTitleChanged/WebResource filters/DOMContentLoaded)
+        // are wired above under _coreEventHandlersInitialized to ensure they are re-attached when CoreWebView2 is recreated.
 
         Logger.Log("WebView2 setup completed");
 
@@ -1432,7 +1533,11 @@ public sealed partial class MainWindow : Window
 
             // Log first 200 chars of every received message for debugging
             var preview = json.Length > 200 ? json.Substring(0, 200) + "..." : json;
-            Logger.Log($"[WEBMSG] Received: {preview}");
+            var coreId = KioskWebView?.CoreWebView2 != null
+                ? System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(KioskWebView.CoreWebView2)
+                : 0;
+            var source = string.IsNullOrWhiteSpace(e.Source) ? "unknown" : e.Source;
+            Logger.Log($"[WEBMSG] (core={coreId}) Received from {source}: {preview}");
 
             using var doc = JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("type", out var typeEl))
@@ -2461,19 +2566,21 @@ public sealed partial class MainWindow : Window
             return null;
         }
 
+        var coreId = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(KioskWebView.CoreWebView2);
+
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!_pendingWebMessages.TryAdd(requestId, tcs))
         {
-            Logger.Log($"[WEBMSG SEND] requestId={requestId} - failed to add to pending (duplicate?)");
+            Logger.Log($"[WEBMSG SEND] core={coreId} requestId={requestId} - failed to add to pending (duplicate?)");
             return null;
         }
 
-        Logger.Log($"[WEBMSG SEND] requestId={requestId} - executing JS, waiting {timeout.TotalSeconds}s for response");
+        Logger.Log($"[WEBMSG SEND] core={coreId} requestId={requestId} - executing JS, waiting {timeout.TotalSeconds}s for response");
 
         try
         {
             await ExecuteScriptAsyncUi(jsToExecute);
-            Logger.Log($"[WEBMSG SEND] requestId={requestId} - JS executed, waiting for postMessage response");
+            Logger.Log($"[WEBMSG SEND] core={coreId} requestId={requestId} - JS executed, waiting for postMessage response");
 
             using var cts = new CancellationTokenSource(timeout);
             await using (cts.Token.Register(() => tcs.TrySetCanceled()))
@@ -2488,11 +2595,11 @@ public sealed partial class MainWindow : Window
             var wasTimeout = _pendingWebMessages.TryRemove(requestId, out _);
             if (wasTimeout)
             {
-                Logger.Log($"[WEBMSG] Request timed out: {requestId}");
+                Logger.Log($"[WEBMSG] core={coreId} request timed out: {requestId}");
             }
             else
             {
-                Logger.Log($"[WEBMSG] Request cancelled (WebView reload): {requestId}");
+                Logger.Log($"[WEBMSG] core={coreId} request cancelled (WebView reload): {requestId}");
             }
             return null;
         }
