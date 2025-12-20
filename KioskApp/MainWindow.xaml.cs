@@ -1579,6 +1579,129 @@ public sealed partial class MainWindow : Window
                                 }}
                             }};
                         }}
+
+                        // Patch RTCPeerConnection so we can live-switch outgoing tracks without reloading the page.
+                        // This keeps the ACS call alive while changing the selected camera/microphone.
+                        try {{
+                            if (!window.__orhPeerConnectionPatchInstalled && typeof window.RTCPeerConnection === 'function') {{
+                                window.__orhPeerConnectionPatchInstalled = true;
+
+                                const OrigPC = window.RTCPeerConnection;
+                                window.__orhPeerConnections = [];
+
+                                function trackPc(pc) {{
+                                    try {{
+                                        window.__orhPeerConnections.push(pc);
+                                        pc.addEventListener('connectionstatechange', () => {{
+                                            try {{
+                                                const st = pc.connectionState;
+                                                if (st === 'closed' || st === 'failed') {{
+                                                    window.__orhPeerConnections = (window.__orhPeerConnections || []).filter(p => p !== pc);
+                                                }}
+                                            }} catch (e) {{}}
+                                        }});
+                                    }} catch (e) {{}}
+                                }}
+
+                                // Wrapper constructor
+                                const WrappedPC = function (...args) {{
+                                    const pc = new OrigPC(...args);
+                                    trackPc(pc);
+                                    return pc;
+                                }};
+
+                                // Preserve prototype chain + static properties
+                                WrappedPC.prototype = OrigPC.prototype;
+                                try {{ Object.setPrototypeOf(WrappedPC, OrigPC); }} catch (e) {{}}
+                                try {{
+                                    Object.getOwnPropertyNames(OrigPC).forEach((k) => {{
+                                        try {{
+                                            if (k === 'prototype') return;
+                                            const desc = Object.getOwnPropertyDescriptor(OrigPC, k);
+                                            if (desc) Object.defineProperty(WrappedPC, k, desc);
+                                        }} catch (e) {{}}
+                                    }});
+                                }} catch (e) {{}}
+
+                                window.RTCPeerConnection = WrappedPC;
+
+                                window.__orhCurrentOutgoingVideoTrack = null;
+                                window.__orhCurrentOutgoingAudioTrack = null;
+
+                                async function getNewTrack(kind) {{
+                                    const camId = readPref(camKey) || initialCam;
+                                    const micId = readPref(micKey) || initialMic;
+
+                                    if (kind === 'video') {{
+                                        if (!camId) throw new Error('No preferred camera id set');
+                                        const s = await navigator.mediaDevices.getUserMedia({{ video: {{ deviceId: {{ exact: camId }} }}, audio: false }});
+                                        const t = s.getVideoTracks && s.getVideoTracks()[0];
+                                        if (!t) throw new Error('No video track returned from getUserMedia');
+                                        return t;
+                                    }}
+                                    if (kind === 'audio') {{
+                                        if (!micId) throw new Error('No preferred microphone id set');
+                                        const s = await navigator.mediaDevices.getUserMedia({{ audio: {{ deviceId: {{ exact: micId }} }}, video: false }});
+                                        const t = s.getAudioTracks && s.getAudioTracks()[0];
+                                        if (!t) throw new Error('No audio track returned from getUserMedia');
+                                        return t;
+                                    }}
+                                    throw new Error('Unsupported kind: ' + kind);
+                                }}
+
+                                async function replaceOutgoing(kind, newTrack) {{
+                                    let replaced = 0;
+                                    const pcs = window.__orhPeerConnections || [];
+                                    for (let i = 0; i < pcs.length; i++) {{
+                                        const pc = pcs[i];
+                                        try {{
+                                            if (!pc || pc.connectionState === 'closed') continue;
+                                            const senders = pc.getSenders ? pc.getSenders() : [];
+                                            for (let j = 0; j < senders.length; j++) {{
+                                                const s = senders[j];
+                                                try {{
+                                                    if (!s || !s.track || s.track.kind !== kind) continue;
+                                                    await s.replaceTrack(newTrack);
+                                                    replaced++;
+                                                }} catch (e) {{}}
+                                            }}
+                                        }} catch (e) {{}}
+                                    }}
+                                    return replaced;
+                                }}
+
+                                window.__orhSwitchOutgoingMedia = async function (opts) {{
+                                    // opts: video=boolean, audio=boolean (properties optional)
+                                    const doVideo = !opts || opts.video === true;
+                                    const doAudio = !!opts && opts.audio === true;
+
+                                    const result = {{ ok: true, videoReplaced: 0, audioReplaced: 0, pcs: (window.__orhPeerConnections || []).length }};
+
+                                    try {{
+                                        if (doVideo) {{
+                                            const newVid = await getNewTrack('video');
+                                            try {{ if (window.__orhCurrentOutgoingVideoTrack) window.__orhCurrentOutgoingVideoTrack.stop(); }} catch (e) {{}}
+                                            window.__orhCurrentOutgoingVideoTrack = newVid;
+                                            result.videoReplaced = await replaceOutgoing('video', newVid);
+                                        }}
+                                        if (doAudio) {{
+                                            const newAud = await getNewTrack('audio');
+                                            try {{ if (window.__orhCurrentOutgoingAudioTrack) window.__orhCurrentOutgoingAudioTrack.stop(); }} catch (e) {{}}
+                                            window.__orhCurrentOutgoingAudioTrack = newAud;
+                                            result.audioReplaced = await replaceOutgoing('audio', newAud);
+                                        }}
+                                    }} catch (e) {{
+                                        result.ok = false;
+                                        result.error = (e && e.message) ? e.message : String(e);
+                                    }}
+
+                                    console.log('[ORH SWITCH] outgoing media switch result: ' + JSON.stringify(result));
+                                    return result;
+                                }};
+
+                                console.log('[ORH SWITCH] RTCPeerConnection patch installed; live switching enabled');
+                            }}
+                        }} catch (e) {{}}
                     }} catch (e) {{
                         // swallow
                     }}
@@ -3337,14 +3460,35 @@ public sealed partial class MainWindow : Window
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
             Logger.Log($"[CAMERA SELECT] Override applied");
 
-            // IMPORTANT: Do NOT auto-reload the WebView here.
-            // Reloading resets the entire call/session (including remote video), and in practice can lead to
-            // “no streams” when the page can't re-auth/join cleanly. We persist the preference so the next
-            // media acquisition uses the selected device.
+            // IMPORTANT: Do NOT auto-reload the WebView here (it resets the ACS call).
+            // Instead, attempt a live outgoing track switch via RTCRtpSender.replaceTrack().
             if (_isDebugMode)
             {
-                ShowStatus("Device Saved", "Camera selection saved. It will apply the next time the page acquires camera (or after a manual reload).");
+                ShowStatus("Switching Camera", "Attempting live switch without restarting the call...");
                 _ = Task.Delay(2500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+
+                // Fire-and-forget: this logs via console forwarder as [ORH SWITCH] ...
+                try
+                {
+                    _ = ExecuteScriptAsyncUi(@"
+                        (() => {
+                            try {
+                                if (typeof window.__orhSwitchOutgoingMedia === 'function') {
+                                    window.__orhSwitchOutgoingMedia({ video: true, audio: false });
+                                    console.log('[ORH SWITCH] Requested live camera switch');
+                                } else {
+                                    console.log('[ORH SWITCH] __orhSwitchOutgoingMedia not available yet');
+                                }
+                            } catch (e) {
+                                console.log('[ORH SWITCH] Error requesting live camera switch: ' + (e && e.message ? e.message : e));
+                            }
+                        })();
+                    ");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"[CAMERA SELECT] Failed to request live camera switch: {ex.Message}");
+                }
             }
         }
         else
@@ -3383,11 +3527,35 @@ public sealed partial class MainWindow : Window
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
             Logger.Log($"[MIC SELECT] Override applied");
 
-            // IMPORTANT: Do NOT auto-reload the WebView here (see camera selection rationale).
+            // IMPORTANT: Do NOT auto-reload the WebView here (it resets the ACS call).
+            // Instead, attempt a live outgoing track switch via RTCRtpSender.replaceTrack().
             if (_isDebugMode)
             {
-                ShowStatus("Device Saved", "Microphone selection saved. It will apply the next time the page acquires mic (or after a manual reload).");
+                ShowStatus("Switching Microphone", "Attempting live switch without restarting the call...");
                 _ = Task.Delay(2500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+
+                // Fire-and-forget: logs via console forwarder as [ORH SWITCH] ...
+                try
+                {
+                    _ = ExecuteScriptAsyncUi(@"
+                        (() => {
+                            try {
+                                if (typeof window.__orhSwitchOutgoingMedia === 'function') {
+                                    window.__orhSwitchOutgoingMedia({ video: false, audio: true });
+                                    console.log('[ORH SWITCH] Requested live microphone switch');
+                                } else {
+                                    console.log('[ORH SWITCH] __orhSwitchOutgoingMedia not available yet');
+                                }
+                            } catch (e) {
+                                console.log('[ORH SWITCH] Error requesting live microphone switch: ' + (e && e.message ? e.message : e));
+                            }
+                        })();
+                    ");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"[MIC SELECT] Failed to request live microphone switch: {ex.Message}");
+                }
             }
         }
         else
