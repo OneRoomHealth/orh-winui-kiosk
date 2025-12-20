@@ -128,7 +128,6 @@ public sealed partial class MainWindow : Window
     // WebView->Host message bridge for async media enumeration (ExecuteScriptAsync does not reliably await Promises)
     private readonly ConcurrentDictionary<string, TaskCompletionSource<string>> _pendingWebMessages = new();
     private bool _webMessageBridgeInitialized = false;
-    private bool _webConsoleLoggingInitialized = false;
     private bool _webProcessFailedLoggingInitialized = false;
 
     // Guard to prevent concurrent media device enumeration (avoids race conditions on _cameras/_microphones)
@@ -973,23 +972,6 @@ public sealed partial class MainWindow : Window
             KioskWebView.CoreWebView2.WebMessageReceived += CoreWebView2_WebMessageReceived;
         }
 
-        // Capture page console output to help diagnose cases where ExecuteScriptAsync runs but no postMessage arrives.
-        if (!_webConsoleLoggingInitialized)
-        {
-            _webConsoleLoggingInitialized = true;
-            KioskWebView.CoreWebView2.ConsoleMessageReceived += (sender, args) =>
-            {
-                try
-                {
-                    Logger.Log($"[WEB CONSOLE] {args.Level}: {args.Message} ({args.Source}:{args.LineNumber})");
-                }
-                catch
-                {
-                    // ignore logging failures
-                }
-            };
-        }
-
         // Capture WebView process failures (renderer/browser crashes) which can present as timeouts.
         if (!_webProcessFailedLoggingInitialized)
         {
@@ -1045,6 +1027,65 @@ public sealed partial class MainWindow : Window
                 // 1. Prevent WebView from consuming our hotkeys
                 // 2. Enable autoplay for all media elements
                 string script = @"
+                    // Forward page console + runtime errors to host logs (WebView2 SDK compatibility)
+                    (function () {
+                        try {
+                            if (window.__orhConsoleForwardInstalled) return;
+                            window.__orhConsoleForwardInstalled = true;
+
+                            function post(level, message, extra) {
+                                try {
+                                    if (window.chrome && chrome.webview && chrome.webview.postMessage) {
+                                        chrome.webview.postMessage({
+                                            type: 'orh.console',
+                                            requestId: 'console-' + Date.now() + '-' + Math.random().toString(16).slice(2),
+                                            level: level,
+                                            message: String(message || ''),
+                                            extra: extra || null
+                                        });
+                                    }
+                                } catch (e) { }
+                            }
+
+                            var orig = {
+                                log: console.log,
+                                info: console.info,
+                                warn: console.warn,
+                                error: console.error
+                            };
+                            ['log', 'info', 'warn', 'error'].forEach(function (k) {
+                                try {
+                                    console[k] = function () {
+                                        try {
+                                            var args = Array.prototype.slice.call(arguments);
+                                            post(k, args.map(function (a) {
+                                                try { return typeof a === 'string' ? a : JSON.stringify(a); } catch (e) { return String(a); }
+                                            }).join(' '), null);
+                                        } catch (e) { }
+                                        return orig[k].apply(console, arguments);
+                                    };
+                                } catch (e) { }
+                            });
+
+                            window.addEventListener('error', function (evt) {
+                                try {
+                                    post('error', 'window.onerror: ' + (evt && evt.message ? evt.message : ''), {
+                                        source: evt && evt.filename ? evt.filename : null,
+                                        line: evt && evt.lineno ? evt.lineno : null,
+                                        col: evt && evt.colno ? evt.colno : null
+                                    });
+                                } catch (e) { }
+                            });
+
+                            window.addEventListener('unhandledrejection', function (evt) {
+                                try {
+                                    var reason = evt && evt.reason ? evt.reason : null;
+                                    post('error', 'unhandledrejection', { reason: reason ? String(reason) : null });
+                                } catch (e) { }
+                            });
+                        } catch (e) { }
+                    })();
+
                     // Keyboard hotkey handling
                     document.addEventListener('keydown', function(e) {
                         // Check if this is one of our hotkeys
@@ -1414,7 +1455,7 @@ public sealed partial class MainWindow : Window
             }
 
             // Only handle our internal messages
-            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag" && type != "orh.media.override")
+            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag" && type != "orh.media.override" && type != "orh.console")
             {
                 Logger.Log($"[WEBMSG] Unknown type: {type}");
                 return;
@@ -1424,6 +1465,20 @@ public sealed partial class MainWindow : Window
             if (type == "orh.media.override")
             {
                 Logger.Log($"[MEDIA OVERRIDE] {json}");
+                return;
+            }
+            if (type == "orh.console")
+            {
+                try
+                {
+                    var level = doc.RootElement.TryGetProperty("level", out var lvl) ? lvl.GetString() : "log";
+                    var message = doc.RootElement.TryGetProperty("message", out var msg) ? msg.GetString() : "";
+                    Logger.Log($"[WEB CONSOLE] {level}: {message}");
+                }
+                catch
+                {
+                    Logger.Log($"[WEB CONSOLE] {json}");
+                }
                 return;
             }
 
