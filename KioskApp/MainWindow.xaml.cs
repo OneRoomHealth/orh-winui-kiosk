@@ -146,6 +146,12 @@ public sealed partial class MainWindow : Window
     private bool _mediaOverrideDocCreatedScriptAdded = false;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _mediaPreferenceSyncTimer = null;
 
+    // Debouncing and reload tracking for media device selection
+    private DateTime _lastMediaDeviceChangeTime = DateTime.MinValue;
+    private DateTime _lastWebViewReloadTime = DateTime.MinValue;
+    private const int MediaDeviceChangeDebounceMs = 2000; // Minimum time between camera/mic changes
+    private const int SkipEnumerationAfterReloadMs = 3000; // Skip enumeration if reload was recent
+
     /// <summary>
     /// Represents a media device (camera or microphone) for the selector dropdowns.
     /// </summary>
@@ -1445,13 +1451,22 @@ public sealed partial class MainWindow : Window
 
                     // If debug mode is active, refresh the media device lists after navigation.
                     // This avoids empty dropdowns when debug mode is entered before the target page finishes loading.
+                    // However, skip if a media device change reload was just triggered (to avoid race conditions).
                     if (_isDebugMode)
                     {
-                        _ = DispatcherQueue.EnqueueAsync(async () =>
+                        var timeSinceReload = (DateTime.UtcNow - _lastWebViewReloadTime).TotalMilliseconds;
+                        if (timeSinceReload < SkipEnumerationAfterReloadMs)
                         {
-                            await Task.Delay(250);
-                            await LoadAllMediaDevicesAsync();
-                        });
+                            Logger.Log($"[NAV COMPLETE] Skipping media enumeration - reload was {timeSinceReload:F0}ms ago (threshold: {SkipEnumerationAfterReloadMs}ms)");
+                        }
+                        else
+                        {
+                            _ = DispatcherQueue.EnqueueAsync(async () =>
+                            {
+                                await Task.Delay(250);
+                                await LoadAllMediaDevicesAsync();
+                            });
+                        }
                     }
                 }
                 else
@@ -2952,8 +2967,17 @@ public sealed partial class MainWindow : Window
             return;
         }
         
+        // Debounce rapid camera changes to prevent camera driver wedging
+        var timeSinceLastChange = (DateTime.UtcNow - _lastMediaDeviceChangeTime).TotalMilliseconds;
+        if (timeSinceLastChange < MediaDeviceChangeDebounceMs)
+        {
+            Logger.Log($"[CAMERA SELECT] Debounced - only {timeSinceLastChange:F0}ms since last change (threshold: {MediaDeviceChangeDebounceMs}ms)");
+            return;
+        }
+        
         if (CameraSelector.SelectedItem is MediaDeviceInfo camera)
         {
+            _lastMediaDeviceChangeTime = DateTime.UtcNow;
             Logger.Log($"[CAMERA SELECT] User selected: {camera.Label} (ID: {camera.DeviceId})");
             _selectedCameraId = camera.DeviceId;
             _selectedCameraLabel = camera.Label;
@@ -2986,8 +3010,17 @@ public sealed partial class MainWindow : Window
             return;
         }
         
+        // Debounce rapid microphone changes to prevent audio driver issues
+        var timeSinceLastChange = (DateTime.UtcNow - _lastMediaDeviceChangeTime).TotalMilliseconds;
+        if (timeSinceLastChange < MediaDeviceChangeDebounceMs)
+        {
+            Logger.Log($"[MIC SELECT] Debounced - only {timeSinceLastChange:F0}ms since last change (threshold: {MediaDeviceChangeDebounceMs}ms)");
+            return;
+        }
+        
         if (MicrophoneSelector.SelectedItem is MediaDeviceInfo microphone)
         {
+            _lastMediaDeviceChangeTime = DateTime.UtcNow;
             Logger.Log($"[MIC SELECT] User selected: {microphone.Label} (ID: {microphone.DeviceId})");
             _selectedMicrophoneId = microphone.DeviceId;
             _selectedMicrophoneLabel = microphone.Label;
@@ -3013,6 +3046,20 @@ public sealed partial class MainWindow : Window
         try
         {
             if (KioskWebView?.CoreWebView2 == null) return;
+
+            // Cancel all pending web message requests before reload.
+            // These requests will never complete since the JavaScript context is about to be destroyed.
+            // This prevents timeout delays and lock contention issues.
+            var pendingCount = _pendingWebMessages.Count;
+            if (pendingCount > 0)
+            {
+                Logger.Log($"[MEDIA RELOAD] Cancelling {pendingCount} pending web message request(s)");
+                foreach (var kvp in _pendingWebMessages)
+                {
+                    kvp.Value.TrySetCanceled();
+                }
+                _pendingWebMessages.Clear();
+            }
 
             // Best-effort: stop any active MediaStreams attached to <video> elements.
             // This reduces "gray screen" and NotReadableError cases when switching devices rapidly.
@@ -3041,9 +3088,12 @@ public sealed partial class MainWindow : Window
                 Logger.Log($"[MEDIA RELOAD] Failed to stop tracks before reload: {ex.Message}");
             }
             
-            // Brief delay to ensure ApplyMediaDeviceOverrideAsync's ExecuteScriptAsync has completed
-            // and localStorage is updated before the new document loads.
-            await Task.Delay(150);
+            // Longer delay to ensure camera driver fully releases the device before new page acquires it.
+            // This helps prevent "gray screen" issues when switching cameras rapidly.
+            await Task.Delay(500);
+            
+            // Track reload time so we can skip redundant enumeration after navigation completes
+            _lastWebViewReloadTime = DateTime.UtcNow;
             
             await DispatcherQueue.EnqueueAsync(() =>
             {
