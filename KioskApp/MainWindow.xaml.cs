@@ -1341,18 +1341,42 @@ public sealed partial class MainWindow : Window
         try
         {
             var json = e.WebMessageAsJson;
-            if (string.IsNullOrWhiteSpace(json)) return;
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                Logger.Log("[WEBMSG] Received empty WebMessage");
+                return;
+            }
+
+            // Log first 200 chars of every received message for debugging
+            var preview = json.Length > 200 ? json.Substring(0, 200) + "..." : json;
+            Logger.Log($"[WEBMSG] Received: {preview}");
 
             using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("type", out var typeEl)) return;
-            if (!doc.RootElement.TryGetProperty("requestId", out var reqEl)) return;
+            if (!doc.RootElement.TryGetProperty("type", out var typeEl))
+            {
+                Logger.Log("[WEBMSG] No 'type' property in message");
+                return;
+            }
+            if (!doc.RootElement.TryGetProperty("requestId", out var reqEl))
+            {
+                Logger.Log("[WEBMSG] No 'requestId' property in message");
+                return;
+            }
 
             var type = typeEl.GetString();
             var requestId = reqEl.GetString();
-            if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(requestId)) return;
+            if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(requestId))
+            {
+                Logger.Log("[WEBMSG] Empty type or requestId");
+                return;
+            }
 
             // Only handle our internal messages
-            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag" && type != "orh.media.override") return;
+            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag" && type != "orh.media.override")
+            {
+                Logger.Log($"[WEBMSG] Unknown type: {type}");
+                return;
+            }
 
             // Log-only message type (no request correlation needed)
             if (type == "orh.media.override")
@@ -1363,7 +1387,12 @@ public sealed partial class MainWindow : Window
 
             if (_pendingWebMessages.TryRemove(requestId, out var tcs))
             {
+                Logger.Log($"[WEBMSG] Matched requestId={requestId}, completing TCS");
                 tcs.TrySetResult(json);
+            }
+            else
+            {
+                Logger.Log($"[WEBMSG] No pending request for requestId={requestId} (pending count: {_pendingWebMessages.Count})");
             }
         }
         catch (Exception ex)
@@ -2300,17 +2329,25 @@ public sealed partial class MainWindow : Window
 
     private async Task<string?> SendWebMessageRequestAsync(string jsToExecute, string requestId, TimeSpan timeout)
     {
-        if (KioskWebView?.CoreWebView2 == null) return null;
+        if (KioskWebView?.CoreWebView2 == null)
+        {
+            Logger.Log($"[WEBMSG SEND] requestId={requestId} - CoreWebView2 is null");
+            return null;
+        }
 
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         if (!_pendingWebMessages.TryAdd(requestId, tcs))
         {
+            Logger.Log($"[WEBMSG SEND] requestId={requestId} - failed to add to pending (duplicate?)");
             return null;
         }
+
+        Logger.Log($"[WEBMSG SEND] requestId={requestId} - executing JS, waiting {timeout.TotalSeconds}s for response");
 
         try
         {
             await ExecuteScriptAsyncUi(jsToExecute);
+            Logger.Log($"[WEBMSG SEND] requestId={requestId} - JS executed, waiting for postMessage response");
 
             using var cts = new CancellationTokenSource(timeout);
             await using (cts.Token.Register(() => tcs.TrySetCanceled()))
@@ -2347,12 +2384,19 @@ public sealed partial class MainWindow : Window
                     const post = (payload) => {{
                         try {{
                             if (window.chrome && chrome.webview && chrome.webview.postMessage) {{
+                                console.log('[ORH ENUM] Posting message for requestId=' + requestId);
                                 chrome.webview.postMessage(payload);
+                                console.log('[ORH ENUM] postMessage called successfully');
+                            }} else {{
+                                console.error('[ORH ENUM] chrome.webview.postMessage not available! chrome=' + !!window.chrome + ', webview=' + !!(window.chrome && chrome.webview));
                             }}
-                        }} catch (e) {{}}
+                        }} catch (e) {{
+                            console.error('[ORH ENUM] postMessage error:', e);
+                        }}
                     }};
 
                     (async () => {{
+                        console.log('[ORH ENUM] Starting enumeration for kind=' + kind + ', requestId=' + requestId);
                         const result = {{ type: 'orh.mediaDevices.result', requestId, kind, context: '{context.Replace("'", "\\'")}', devices: [], error: null }};
                         try {{
                             if (!navigator || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {{
@@ -2367,28 +2411,36 @@ public sealed partial class MainWindow : Window
                                 new Promise((_, reject) => setTimeout(() => reject(new Error('getUserMedia timeout')), ms))
                             ]);
                             try {{
+                                console.log('[ORH ENUM] Attempting getUserMedia unlock for ' + kind);
                                 if (kind === 'videoinput') {{
                                     const s = await withTimeout(navigator.mediaDevices.getUserMedia({{ video: true }}), 1500);
                                     try {{ s.getTracks().forEach(t => t.stop()); }} catch (e) {{}}
+                                    console.log('[ORH ENUM] Video unlock succeeded');
                                 }} else if (kind === 'audioinput') {{
                                     const s = await withTimeout(navigator.mediaDevices.getUserMedia({{ audio: true }}), 1500);
                                     try {{ s.getTracks().forEach(t => t.stop()); }} catch (e) {{}}
+                                    console.log('[ORH ENUM] Audio unlock succeeded');
                                 }}
                             }} catch (e) {{
-                                // ignore
+                                console.log('[ORH ENUM] getUserMedia unlock failed (continuing): ' + (e && e.message ? e.message : e));
                             }}
 
+                            console.log('[ORH ENUM] Calling enumerateDevices...');
                             const devices = await navigator.mediaDevices.enumerateDevices();
+                            console.log('[ORH ENUM] enumerateDevices returned ' + devices.length + ' devices');
                             const filtered = devices.filter(d => d.kind === kind);
+                            console.log('[ORH ENUM] Filtered to ' + filtered.length + ' ' + kind + ' devices');
                             result.devices = filtered.map((d, idx) => {{
                                 const trimmed = ((d.label || '')).trim();
                                 const fallback = (kind === 'videoinput' ? 'Camera ' : 'Microphone ') + (idx + 1) + (d.deviceId ? (' (' + d.deviceId.substring(0, 8) + ')') : '');
                                 return {{ deviceId: d.deviceId || '', label: trimmed ? trimmed : fallback }};
                             }});
                         }} catch (e) {{
+                            console.error('[ORH ENUM] Enumeration error:', e);
                             result.error = {{ name: e && e.name ? e.name : null, message: e && e.message ? e.message : String(e) }};
                         }}
 
+                        console.log('[ORH ENUM] About to post result with ' + result.devices.length + ' devices');
                         post(result);
                     }})();
                 }} catch (e) {{
