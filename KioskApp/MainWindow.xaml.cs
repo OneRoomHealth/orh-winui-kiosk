@@ -1383,6 +1383,72 @@ public sealed partial class MainWindow : Window
                                 }} catch (e) {{}}
                             }};
 
+                            // Track only *local* userMedia streams we ourselves acquire via getUserMedia.
+                            // IMPORTANT: Do NOT stop tracks from <video> elements, since those may include remote/inbound RTC streams.
+                            try {{
+                                if (!window.__orhLocalUserMediaStreams) window.__orhLocalUserMediaStreams = [];
+
+                                window.__orhTrackLocalUserMediaStream = function (stream, note) {{
+                                    try {{
+                                        if (!stream || !stream.getTracks) return;
+                                        window.__orhLocalUserMediaStreams.push(stream);
+
+                                        // Best-effort cleanup when tracks end
+                                        try {{
+                                            stream.getTracks().forEach(t => {{
+                                                try {{
+                                                    t.addEventListener('ended', () => {{
+                                                        try {{
+                                                            window.__orhLocalUserMediaStreams = (window.__orhLocalUserMediaStreams || []).filter(s => s !== stream);
+                                                        }} catch (e) {{}}
+                                                    }}, {{ once: true }});
+                                                }} catch (e) {{}}
+                                            }});
+                                        }} catch (e) {{}}
+
+                                        const tracks = (stream.getTracks ? stream.getTracks() : []);
+                                        const kinds = tracks.map(t => t.kind).join(',');
+                                        console.log('[ORH LOCAL] Tracked getUserMedia stream (' + (note || 'unknown') + ') tracks=' + (tracks.length || 0) + ' [' + kinds + ']');
+                                    }} catch (e) {{}}
+                                }};
+
+                                window.__orhStopLocalTracks = function (kind) {{
+                                    // kind: 'video' | 'audio' | null/undefined => all
+                                    let stopped = 0;
+                                    try {{
+                                        const streams = window.__orhLocalUserMediaStreams || [];
+                                        for (let i = 0; i < streams.length; i++) {{
+                                            const s = streams[i];
+                                            if (!s || !s.getTracks) continue;
+                                            const tracks = s.getTracks();
+                                            tracks.forEach(t => {{
+                                                try {{
+                                                    if (!t) return;
+                                                    if (kind && t.kind !== kind) return;
+                                                    t.stop();
+                                                    stopped++;
+                                                }} catch (e) {{}}
+                                            }});
+                                        }}
+
+                                        // Prune ended tracks/streams
+                                        try {{
+                                            window.__orhLocalUserMediaStreams = streams.filter(s => {{
+                                                try {{
+                                                    if (!s || !s.getTracks) return false;
+                                                    return s.getTracks().some(t => t && t.readyState !== 'ended');
+                                                }} catch (e) {{
+                                                    return false;
+                                                }}
+                                            }});
+                                        }} catch (e) {{}}
+                                    }} catch (e) {{}}
+
+                                    console.log('[ORH LOCAL] Stopped ' + stopped + ' local track(s) kind=' + (kind || 'all'));
+                                    return stopped;
+                                }};
+                            }} catch (e) {{}}
+
                             const cloneConstraints = (c) => {{
                                 if (!c) return c;
                                 const out = {{ ...c }};
@@ -1435,7 +1501,9 @@ public sealed partial class MainWindow : Window
 
                                 // Fast path: no prefs set
                                 if (!camId && !micId) {{
-                                    return originalGetUserMedia(constraints);
+                                    const s0 = await originalGetUserMedia(constraints);
+                                    try {{ window.__orhTrackLocalUserMediaStream && window.__orhTrackLocalUserMediaStream(s0, 'no-prefs'); }} catch (e) {{}}
+                                    return s0;
                                 }}
 
                                 // Try exact first (honor user choice), then retry on transient errors,
@@ -1447,7 +1515,9 @@ public sealed partial class MainWindow : Window
                                         if (attempt > 1) {{
                                             report('info', 'Retrying getUserMedia with exact deviceId', {{ attempt, camIdSet: !!camId, micIdSet: !!micId }});
                                         }}
-                                        return await originalGetUserMedia(exactConstraints);
+                                        const s1 = await originalGetUserMedia(exactConstraints);
+                                        try {{ window.__orhTrackLocalUserMediaStream && window.__orhTrackLocalUserMediaStream(s1, 'exact'); }} catch (e) {{}}
+                                        return s1;
                                     }} catch (e) {{
                                         const name = e && e.name ? e.name : 'Error';
                                         const msg = e && e.message ? e.message : String(e);
@@ -1487,7 +1557,9 @@ public sealed partial class MainWindow : Window
 
                                     const resolvedExact = applyOverride(constraints, resolvedCam, resolvedMic, 'exact');
                                     report('info', 'Retrying getUserMedia with resolved deviceId(s)', {{ camResolved: !!resolvedCam, micResolved: !!resolvedMic }});
-                                    return await originalGetUserMedia(resolvedExact);
+                                    const s2 = await originalGetUserMedia(resolvedExact);
+                                    try {{ window.__orhTrackLocalUserMediaStream && window.__orhTrackLocalUserMediaStream(s2, 'resolved-exact'); }} catch (e) {{}}
+                                    return s2;
                                 }} catch (e3) {{
                                     // continue to ideal fallback
                                 }}
@@ -1496,7 +1568,9 @@ public sealed partial class MainWindow : Window
                                 try {{
                                     const idealConstraints = applyOverride(constraints, camId, micId, 'ideal');
                                     report('info', 'Retrying getUserMedia with ideal deviceId', {{ camIdSet: !!camId, micIdSet: !!micId }});
-                                    return await originalGetUserMedia(idealConstraints);
+                                    const s3 = await originalGetUserMedia(idealConstraints);
+                                    try {{ window.__orhTrackLocalUserMediaStream && window.__orhTrackLocalUserMediaStream(s3, 'ideal'); }} catch (e) {{}}
+                                    return s3;
                                 }} catch (e2) {{
                                     const name2 = e2 && e2.name ? e2.name : 'Error';
                                     const msg2 = e2 && e2.message ? e2.message : String(e2);
@@ -2817,7 +2891,8 @@ public sealed partial class MainWindow : Window
         {
             Logger.Log("[DEBUG MODE] Stopping active video tracks before enumeration...");
             
-            // Stop any active MediaStreams attached to <video> elements to release the camera
+            // Stop only locally-acquired getUserMedia tracks (do NOT stop tracks from <video> elements,
+            // since those may include remote/inbound RTC streams we don't control).
             if (KioskWebView?.CoreWebView2 != null)
             {
                 try
@@ -2825,24 +2900,17 @@ public sealed partial class MainWindow : Window
                     await ExecuteScriptAsyncUi(@"
                         (() => {
                             try {
-                                let stoppedCount = 0;
-                                document.querySelectorAll('video').forEach(v => {
-                                    try {
-                                        const s = v.srcObject;
-                                        if (s && s.getTracks) {
-                                            s.getTracks().forEach(t => { 
-                                                try { t.stop(); stoppedCount++; } catch (e) {} 
-                                            });
-                                        }
-                                        v.srcObject = null;
-                                    } catch (e) {}
-                                });
-                                console.log('[ORH DEBUG] Stopped ' + stoppedCount + ' track(s)');
-                                return stoppedCount;
+                                if (typeof window.__orhStopLocalTracks === 'function') {
+                                    const stopped = window.__orhStopLocalTracks('video');
+                                    console.log('[ORH DEBUG] Stopped ' + stopped + ' local video track(s)');
+                                    return stopped;
+                                }
+                                console.log('[ORH DEBUG] __orhStopLocalTracks not available; skipping stop');
+                                return 0;
                             } catch (e) { return 0; }
                         })();
                     ");
-                    Logger.Log("[DEBUG MODE] Stopped active video tracks");
+                    Logger.Log("[DEBUG MODE] Stopped active local video tracks");
                 }
                 catch (Exception ex)
                 {
@@ -3344,27 +3412,24 @@ public sealed partial class MainWindow : Window
                 _pendingWebMessages.Clear();
             }
 
-            // Best-effort: stop any active MediaStreams attached to <video> elements.
-            // This reduces "gray screen" and NotReadableError cases when switching devices rapidly.
+            // Best-effort: stop only locally-acquired getUserMedia tracks before reload.
+            // IMPORTANT: do NOT stop tracks from <video> elements, since those can be remote/inbound RTC streams.
             try
             {
                 await ExecuteScriptAsyncUi(@"
                     (() => {
                         try {
-                            document.querySelectorAll('video').forEach(v => {
-                                try {
-                                    const s = v.srcObject;
-                                    if (s && s.getTracks) {
-                                        s.getTracks().forEach(t => { try { t.stop(); } catch (e) {} });
-                                    }
-                                    v.srcObject = null;
-                                } catch (e) {}
-                            });
+                            if (typeof window.__orhStopLocalTracks === 'function') {
+                                const stoppedAll = window.__orhStopLocalTracks();
+                                console.log('[ORH RELOAD] Stopped ' + stoppedAll + ' local track(s) before reload');
+                                return stoppedAll;
+                            }
+                            console.log('[ORH RELOAD] __orhStopLocalTracks not available; skipping stop');
                         } catch (e) {}
                         return true;
                     })();
                 ");
-                Logger.Log("[MEDIA RELOAD] Stopped active video tracks before reload");
+                Logger.Log("[MEDIA RELOAD] Requested stop of local getUserMedia tracks before reload");
             }
             catch (Exception ex)
             {
