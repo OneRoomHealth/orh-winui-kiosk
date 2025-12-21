@@ -2040,9 +2040,9 @@ public sealed partial class MainWindow : Window
                         _suppressMediaSelectionEvents = false;
                     }
                     
-                    // Stop any active video tracks before enumeration to release the camera.
-                    // This prevents getUserMedia from hanging during the enumeration's label unlock.
-                    _ = StopActiveTracksAndEnumerateDevicesAsync();
+                    // Enumerate devices for dropdowns.
+                    // IMPORTANT: Never stop active local tracks just to enumerate devices (ACS call must stay alive).
+                    _ = LoadAllMediaDevicesAsync();
 
                     // Window the application
                     if (_appWindow?.Presenter.Kind == AppWindowPresenterKind.FullScreen)
@@ -3005,52 +3005,19 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Stop active video tracks and then enumerate media devices.
-    /// This is used when entering debug mode to release any camera streams before enumeration.
+    /// Enumerate media devices for debug UI without stopping any active tracks.
+    /// IMPORTANT: Never stop active local tracks just to enumerate devices (ACS call must stay alive).
     /// </summary>
     private async Task StopActiveTracksAndEnumerateDevicesAsync()
     {
         try
         {
-            Logger.Log("[DEBUG MODE] Stopping active video tracks before enumeration...");
-            
-            // Stop only locally-acquired getUserMedia tracks (do NOT stop tracks from <video> elements,
-            // since those may include remote/inbound RTC streams we don't control).
-            if (KioskWebView?.CoreWebView2 != null)
-            {
-                try
-                {
-                    await ExecuteScriptAsyncUi(@"
-                        (() => {
-                            try {
-                                if (typeof window.__orhStopLocalTracks === 'function') {
-                                    const stopped = window.__orhStopLocalTracks('video');
-                                    console.log('[ORH DEBUG] Stopped ' + stopped + ' local video track(s)');
-                                    return stopped;
-                                }
-                                console.log('[ORH DEBUG] __orhStopLocalTracks not available; skipping stop');
-                                return 0;
-                            } catch (e) { return 0; }
-                        })();
-                    ");
-                    Logger.Log("[DEBUG MODE] Stopped active local video tracks");
-                }
-                catch (Exception ex)
-                {
-                    Logger.Log($"[DEBUG MODE] Failed to stop video tracks: {ex.Message}");
-                }
-            }
-            
-            // Brief delay to let camera driver release
-            await Task.Delay(300);
-            
-            // Now enumerate devices
-            Logger.Log("[DEBUG MODE] Starting fresh media device enumeration...");
+            Logger.Log("[DEBUG MODE] Enumerating media devices (no track stopping)...");
             await LoadAllMediaDevicesAsync();
         }
         catch (Exception ex)
         {
-            Logger.Log($"[DEBUG MODE] StopActiveTracksAndEnumerateDevicesAsync failed: {ex.Message}");
+            Logger.Log($"[DEBUG MODE] Enumerate devices failed: {ex.Message}");
         }
     }
 
