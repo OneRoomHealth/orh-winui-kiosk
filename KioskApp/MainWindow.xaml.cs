@@ -1679,8 +1679,36 @@ public sealed partial class MainWindow : Window
 
                                     try {{
                                         if (doVideo) {{
+                                            // FIRST: stop all current video tracks across all peer connections
+                                            // This releases the camera driver BEFORE we try to acquire a new one.
+                                            const pcs = window.__orhPeerConnections || [];
+                                            let stoppedCount = 0;
+                                            for (let i = 0; i < pcs.length; i++) {{
+                                                try {{
+                                                    const pc = pcs[i];
+                                                    if (!pc || pc.connectionState === 'closed') continue;
+                                                    const senders = pc.getSenders ? pc.getSenders() : [];
+                                                    for (let j = 0; j < senders.length; j++) {{
+                                                        try {{
+                                                            const s = senders[j];
+                                                            if (s && s.track && s.track.kind === 'video' && s.track.readyState === 'live') {{
+                                                                s.track.stop();
+                                                                stoppedCount++;
+                                                            }}
+                                                        }} catch (e) {{}}
+                                                    }}
+                                                }} catch (e) {{}}
+                                            }}
+                                            // Also stop our tracked track if any
+                                            try {{ if (window.__orhCurrentOutgoingVideoTrack) {{ window.__orhCurrentOutgoingVideoTrack.stop(); stoppedCount++; }} }} catch (e) {{}}
+                                            
+                                            console.log('[ORH SWITCH] Stopped ' + stoppedCount + ' video track(s), waiting for driver release...');
+                                            
+                                            // Wait for camera driver to fully release before acquiring new camera
+                                            await new Promise(r => setTimeout(r, 400));
+                                            
+                                            // NOW acquire the new camera
                                             const newVid = await getNewTrack('video');
-                                            try {{ if (window.__orhCurrentOutgoingVideoTrack) window.__orhCurrentOutgoingVideoTrack.stop(); }} catch (e) {{}}
                                             window.__orhCurrentOutgoingVideoTrack = newVid;
                                             result.videoReplaced = await replaceOutgoing('video', newVid);
                                         }}
