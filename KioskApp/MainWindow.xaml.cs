@@ -2139,12 +2139,10 @@ public sealed partial class MainWindow : Window
                         settings.AreDefaultContextMenusEnabled = false;
                         settings.AreBrowserAcceleratorKeysEnabled = false;
 
-                        // Close developer tools if open
-                        try
-                        {
-                            _ = KioskWebView.CoreWebView2.CallDevToolsProtocolMethodAsync("Browser.close", "{}");
-                        }
-                        catch { /* Ignore if already closed */ }
+                        // Note: We intentionally do NOT close the DevTools window here.
+                        // The CDP "Browser.close" command closes the entire browser process, 
+                        // which corrupts WebView2 state and causes camera issues on re-entry.
+                        // The DevTools window will close when the user manually closes it.
                     }
 
                     // Hide log viewer if visible
