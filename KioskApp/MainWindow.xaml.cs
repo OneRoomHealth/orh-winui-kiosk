@@ -2244,57 +2244,21 @@ public sealed partial class MainWindow : Window
                             KioskWebView.Visibility = Visibility.Collapsed;
                         _ = _videoController.InitializeAsync();
                     }
-                    else if (!string.IsNullOrEmpty(_currentUrl))
+                    else
                     {
-                        // Wait a moment for window configuration to complete, then navigate
-                        // Use explicit navigation instead of Reload() to ensure proper page load
-                        _ = Task.Delay(100).ContinueWith(async _ => // Made this async to await DispatcherQueue.EnqueueAsync
+                        // The page is already loaded - we just changed the window frame from debug mode
+                        // (windowed) to kiosk mode (fullscreen). No need to navigate or reload.
+                        // This preserves the ACS call state and avoids gray screen issues.
+                        
+                        // Just trigger a resize event so the content adapts to the new window size
+                        _ = Task.Delay(300).ContinueWith(_ =>
                         {
-                            await DispatcherQueue.EnqueueAsync(() => // Use EnqueueAsync for awaitable DispatcherQueue operations
+                            DispatcherQueue.TryEnqueue(() =>
                             {
-                                if (KioskWebView?.CoreWebView2 != null && Uri.TryCreate(_currentUrl, UriKind.Absolute, out var uri))
+                                if (KioskWebView?.CoreWebView2 != null)
                                 {
-                                    KioskWebView.Source = uri;
-                                    Logger.Log($"Navigating to URL after debug mode: {_currentUrl}");
-                                    
-                                    // After re-navigating, force re-apply media overrides and reload to reacquire camera/mic.
-                                    // This mitigates occasional gray screens where the page keeps an old stream.
-                                    _ = DispatcherQueue.EnqueueAsync(async () =>
-                                    {
-                                        try
-                                        {
-                                            // Allow navigation to kick off
-                                            await Task.Delay(200);
-                                            await ApplyMediaDeviceOverrideAsync(showStatus: false);
-                                            Logger.Log("[DEBUG EXIT] Re-applied media override after navigation");
-                                            
-                                            // Force a reload to reacquire devices with the preferred IDs
-                                            await ReloadWebViewForMediaChangeAsync();
-                                            Logger.Log("[DEBUG EXIT] Forced WebView reload to reacquire media");
-                                        }
-                                        catch (Exception ex)
-                                        {
-                                            Logger.Log($"[DEBUG EXIT] Failed to reapply media override/reload: {ex.Message}");
-                                        }
-                                    });
-                                    
-                                    // Force a refresh to ensure content fills the WebView
-                                    _ = Task.Delay(500).ContinueWith(_ =>
-                                    {
-                                        DispatcherQueue.TryEnqueue(() =>
-                                        {
-                                            if (KioskWebView?.CoreWebView2 != null)
-                                            {
-                                                _ = KioskWebView.CoreWebView2.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));").AsTask();
-                                                Logger.Log("Triggered resize event in web content");
-                                            }
-                                        });
-                                    });
-                                }
-                                else if (!string.IsNullOrEmpty(_currentUrl))
-                                {
-                                    NavigateToUrl(_currentUrl);
-                                    Logger.Log($"Navigating to URL after debug mode (WebView2 not ready): {_currentUrl}");
+                                    _ = KioskWebView.CoreWebView2.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));").AsTask();
+                                    Logger.Log("[DEBUG EXIT] Triggered resize event in web content (no navigation/reload)");
                                 }
                             });
                         });
