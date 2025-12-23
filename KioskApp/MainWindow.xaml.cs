@@ -2506,6 +2506,50 @@ public sealed partial class MainWindow : Window
         {
             Logger.Log("========== APPLICATION EXIT START ==========");
             
+            // Stop local media tracks (camera/microphone) before closing WebView
+            // This ensures the camera is properly released and not left in a bad state
+            if (KioskWebView?.CoreWebView2 != null)
+            {
+                try
+                {
+                    Logger.Log("Stopping local media tracks...");
+                    await KioskWebView.CoreWebView2.ExecuteScriptAsync(@"
+                        (() => {
+                            try {
+                                // Stop all local getUserMedia tracks
+                                if (typeof window.__orhStopLocalTracks === 'function') {
+                                    const stopped = window.__orhStopLocalTracks();
+                                    console.log('[ORH EXIT] Stopped ' + stopped + ' local media track(s)');
+                                }
+                                
+                                // Also stop any tracks in tracked peer connections
+                                if (window.__orhPeerConnections) {
+                                    window.__orhPeerConnections.forEach(pc => {
+                                        try {
+                                            if (pc && pc.getSenders) {
+                                                pc.getSenders().forEach(s => {
+                                                    try {
+                                                        if (s && s.track) s.track.stop();
+                                                    } catch (e) {}
+                                                });
+                                            }
+                                        } catch (e) {}
+                                    });
+                                    console.log('[ORH EXIT] Stopped tracks from peer connections');
+                                }
+                            } catch (e) {
+                                console.log('[ORH EXIT] Error stopping tracks: ' + e);
+                            }
+                        })();
+                    ");
+                    Logger.Log("Local media tracks stopped");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Failed to stop media tracks (non-fatal): {ex.Message}");
+                }
+            }
+            
             // Stop media preference sync timer
             if (_mediaPreferenceSyncTimer != null)
             {
