@@ -2543,6 +2543,11 @@ public sealed partial class MainWindow : Window
                         })();
                     ");
                     Logger.Log("Local media tracks stopped");
+                    
+                    // Wait for camera/mic driver to fully release resources
+                    Logger.Log("Waiting for media resources to release...");
+                    await Task.Delay(750);
+                    Logger.Log("Media resource release delay completed");
                 }
                 catch (Exception ex)
                 {
