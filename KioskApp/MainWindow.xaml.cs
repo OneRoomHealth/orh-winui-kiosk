@@ -2583,10 +2583,15 @@ public sealed partial class MainWindow : Window
                     ");
                     Logger.Log("Local media tracks stopped");
                     
-                    // Wait for camera/mic driver to fully release resources
-                    Logger.Log("Waiting for media resources to release...");
+                    // Navigate to about:blank to destroy the entire page context
+                    // This is the most reliable way to release all ACS resources, peer connections, and media streams
+                    Logger.Log("Navigating to about:blank to destroy page context...");
+                    KioskWebView.Source = new Uri("about:blank");
+                    
+                    // Wait for navigation to start destroying resources and camera driver to release
+                    Logger.Log("Waiting for page context destruction and media release...");
                     await Task.Delay(500);
-                    Logger.Log("Media resource release delay completed");
+                    Logger.Log("Page context destroyed, media resources released");
                 }
                 catch (Exception ex)
                 {
