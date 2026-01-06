@@ -2506,12 +2506,40 @@ public sealed partial class MainWindow : Window
         {
             Logger.Log("========== APPLICATION EXIT START ==========");
             
-            // Stop local media tracks (camera/microphone) before closing WebView
-            // This ensures the camera is properly released and not left in a bad state
+            // Clean up ACS call and media tracks before closing WebView
             if (KioskWebView?.CoreWebView2 != null)
             {
                 try
                 {
+                    // First, try to hang up any active ACS call
+                    Logger.Log("Attempting to hang up ACS call...");
+                    await KioskWebView.CoreWebView2.ExecuteScriptAsync(@"
+                        (async () => {
+                            try {
+                                // Try to hang up ACS call if it exists
+                                // The web app may expose the call object in various ways
+                                if (window.call && typeof window.call.hangUp === 'function') {
+                                    console.log('[ORH EXIT] Hanging up ACS call...');
+                                    await window.call.hangUp();
+                                    console.log('[ORH EXIT] ACS call hung up successfully');
+                                } else if (window.currentCall && typeof window.currentCall.hangUp === 'function') {
+                                    console.log('[ORH EXIT] Hanging up currentCall...');
+                                    await window.currentCall.hangUp();
+                                    console.log('[ORH EXIT] currentCall hung up successfully');
+                                } else {
+                                    console.log('[ORH EXIT] No ACS call object found to hang up');
+                                }
+                            } catch (e) {
+                                console.log('[ORH EXIT] Error hanging up ACS call: ' + e);
+                            }
+                        })();
+                    ");
+                    Logger.Log("ACS hangup attempted");
+                    
+                    // Give ACS a moment to process the hangup
+                    await Task.Delay(300);
+                    
+                    // Now stop local media tracks
                     Logger.Log("Stopping local media tracks...");
                     await KioskWebView.CoreWebView2.ExecuteScriptAsync(@"
                         (() => {
@@ -2537,6 +2565,17 @@ public sealed partial class MainWindow : Window
                                     });
                                     console.log('[ORH EXIT] Stopped tracks from peer connections');
                                 }
+                                
+                                // Stop all video element srcObject streams as a fallback
+                                document.querySelectorAll('video').forEach(v => {
+                                    try {
+                                        if (v.srcObject && v.srcObject.getTracks) {
+                                            v.srcObject.getTracks().forEach(t => t.stop());
+                                            console.log('[ORH EXIT] Stopped tracks from video element');
+                                        }
+                                        v.srcObject = null;
+                                    } catch (e) {}
+                                });
                             } catch (e) {
                                 console.log('[ORH EXIT] Error stopping tracks: ' + e);
                             }
@@ -2546,12 +2585,12 @@ public sealed partial class MainWindow : Window
                     
                     // Wait for camera/mic driver to fully release resources
                     Logger.Log("Waiting for media resources to release...");
-                    await Task.Delay(750);
+                    await Task.Delay(500);
                     Logger.Log("Media resource release delay completed");
                 }
                 catch (Exception ex)
                 {
-                    Logger.Log($"Failed to stop media tracks (non-fatal): {ex.Message}");
+                    Logger.Log($"Failed to cleanup media (non-fatal): {ex.Message}");
                 }
             }
             
