@@ -2583,15 +2583,17 @@ public sealed partial class MainWindow : Window
                     ");
                     Logger.Log("Local media tracks stopped");
                     
-                    // Navigate to about:blank to destroy the entire page context
-                    // This is the most reliable way to release all ACS resources, peer connections, and media streams
-                    Logger.Log("Navigating to about:blank to destroy page context...");
-                    KioskWebView.Source = new Uri("about:blank");
+                    // Navigate to screensaver URL to destroy the ACS page context
+                    // This releases all ACS resources, peer connections, and media streams
+                    // while providing a smoother visual transition on exit
+                    var screensaverUrl = _config.Kiosk.DefaultUrl;
+                    Logger.Log($"Navigating to screensaver to destroy ACS context: {screensaverUrl}");
+                    KioskWebView.Source = new Uri(screensaverUrl);
                     
                     // Wait for navigation to start destroying resources and camera driver to release
                     Logger.Log("Waiting for page context destruction and media release...");
                     await Task.Delay(500);
-                    Logger.Log("Page context destroyed, media resources released");
+                    Logger.Log("ACS context destroyed, media resources released");
                 }
                 catch (Exception ex)
                 {
