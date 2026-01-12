@@ -80,10 +80,78 @@
                 </StackPanel>
                 
                 <Button x:Name="ViewLogsButton" Content="📋 View Logs" Margin="2" Click="ViewLogsButton_Click"/>
+                <Button x:Name="HardwareHealthButton" Content="💚 Hardware" Margin="2" Click="HardwareHealthButton_Click" ToolTipService.ToolTip="View hardware module health status"/>
                 <Button x:Name="SwitchMonitorButton" Content="🖥️ Switch Monitor" Margin="2" Click="SwitchMonitorButton_Click"/>
             </StackPanel>
         </Grid>
         
+        <!-- Hardware Health Panel (Hidden by default, shown via debug button) -->
+        <Grid x:Name="HardwareHealthPanel"
+              Background="#1E1E1E"
+              Visibility="Collapsed"
+              VerticalAlignment="Bottom"
+              Height="350">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Health Panel Header -->
+            <Grid Grid.Row="0" Background="#2B2B2B" Padding="10,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <TextBlock Text="Hardware Health Monitor"
+                               Foreground="White"
+                               FontWeight="Bold"
+                               VerticalAlignment="Center"/>
+                    <TextBlock x:Name="HealthSummaryText"
+                               Text="Loading..."
+                               Foreground="#888888"
+                               VerticalAlignment="Center"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5">
+                    <Button x:Name="RefreshHealthButton"
+                            Content="↻ Refresh"
+                            Click="RefreshHealthButton_Click"
+                            Padding="10,5"
+                            Margin="0,0,5,0"/>
+                    <Button x:Name="CloseHealthButton"
+                            Content="Close"
+                            Click="CloseHealthButton_Click"
+                            Padding="10,5"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Health Content - Module Cards -->
+            <ScrollViewer Grid.Row="1"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto"
+                          Padding="10">
+                <StackPanel x:Name="ModuleHealthCards" Orientation="Horizontal" Spacing="10"/>
+            </ScrollViewer>
+
+            <!-- Health Footer -->
+            <Grid Grid.Row="2" Background="#2B2B2B" Padding="10,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="HealthFooterText"
+                           Text="API: http://localhost:8081 | Uptime: 0s"
+                           Foreground="#888888"
+                           FontSize="10"/>
+                <TextBlock Grid.Column="1"
+                           x:Name="HealthLastRefreshText"
+                           Text="Last refresh: Never"
+                           Foreground="#666666"
+                           FontSize="10"/>
+            </Grid>
+        </Grid>
+
         <!-- Log Viewer Panel (Hidden by default, shown in debug mode) -->
         <Grid x:Name="LogViewerPanel"
               Background="#1E1E1E"

@@ -25,7 +25,13 @@ public partial class App : Application
 	private ServiceProvider? _serviceProvider;
 	private HardwareApiServer? _hardwareApiServer;
 	private HealthMonitorService? _healthMonitorService;
+	private HealthVisualizationService? _healthVisualizationService;
 	private CancellationTokenSource? _servicesCts;
+
+	/// <summary>
+	/// Provides access to the hardware health visualization service for the debug panel.
+	/// </summary>
+	public static HealthVisualizationService? HealthVisualization { get; private set; }
 
 	public App()
 	{
@@ -332,6 +338,13 @@ public partial class App : Application
 		_ = _healthMonitorService.StartAsync(_servicesCts.Token);
 
 		Logger.Log("Health monitoring service started");
+
+		// Create health visualization service for debug UI
+		var vizLogger = _serviceProvider.GetService<ILogger<HealthVisualizationService>>();
+		_healthVisualizationService = new HealthVisualizationService(hardwareManager, vizLogger);
+		HealthVisualization = _healthVisualizationService;
+		Logger.Log("Health visualization service created");
+
 		Logger.Log("All hardware services initialized successfully");
 	}
 
@@ -341,6 +354,14 @@ public partial class App : Application
 
 		try
 		{
+			// Dispose health visualization service
+			if (_healthVisualizationService != null)
+			{
+				_healthVisualizationService.Dispose();
+				HealthVisualization = null;
+				Logger.Log("Health visualization service disposed");
+			}
+
 			// Stop health monitoring
 			if (_healthMonitorService != null && _servicesCts != null)
 			{
