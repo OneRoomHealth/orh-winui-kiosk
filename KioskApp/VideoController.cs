@@ -226,10 +226,23 @@ namespace KioskApp
                 args.Add($"\"{videoPath}\"");
 
                 // Kill existing MPV process if running
-                if (_mpvProcess != null && !_mpvProcess.HasExited)
+                if (_mpvProcess != null)
                 {
-                    _mpvProcess.Kill();
-                    await Task.Delay(100);
+                    if (!_mpvProcess.HasExited)
+                    {
+                        try
+                        {
+                            Logger.Log("Killing existing MPV process before starting new one");
+                            _mpvProcess.Kill();
+                            _mpvProcess.WaitForExit(500); // Wait for process to fully exit
+                        }
+                        catch (Exception ex)
+                        {
+                            Logger.Log($"Error killing existing MPV process: {ex.Message}");
+                        }
+                    }
+                    _mpvProcess.Dispose();
+                    _mpvProcess = null;
                 }
 
                 // Start new MPV process
@@ -352,14 +365,34 @@ namespace KioskApp
         {
             Logger.Log("Stopping video playback...");
             
+            // Set flag FIRST to prevent monitoring task from starting new videos
+            _isDemoPlaying = false;
+            
+            // Cancel monitoring task
             _cancellationSource?.Cancel();
             
+            // Kill MPV process
             if (_mpvProcess != null && !_mpvProcess.HasExited)
             {
-                _mpvProcess.Kill();
-                await Task.Delay(100);
+                try
+                {
+                    _mpvProcess.Kill();
+                    _mpvProcess.WaitForExit(500); // Wait for process to fully exit
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Error killing MPV process: {ex.Message}");
+                }
+            }
+            
+            // Dispose the process handle
+            if (_mpvProcess != null)
+            {
+                _mpvProcess.Dispose();
+                _mpvProcess = null;
             }
 
+            // Wait for monitoring task to complete
             if (_monitoringTask != null)
             {
                 try
@@ -371,9 +404,13 @@ namespace KioskApp
                     // Expected when cancellation is requested
                     Logger.Log("Monitoring task canceled as expected");
                 }
+                _monitoringTask = null;
             }
             
-            _isDemoPlaying = false;
+            // Reset cancellation source for future use
+            _cancellationSource?.Dispose();
+            _cancellationSource = new CancellationTokenSource();
+            
             Logger.Log("Video playback stopped");
         }
 
