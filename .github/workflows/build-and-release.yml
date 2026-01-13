@@ -54,34 +54,60 @@ jobs:
       run: |
         # Extract version from tag or input
         $version = "${{ github.ref_name }}"
-        if ($version -match '^v(.*)$') {
+        Write-Host "Raw ref_name: $version"
+        
+        # Check if this is a workflow_dispatch with version input
+        $inputVersion = "${{ github.event.inputs.version }}"
+        if ($inputVersion -ne "") {
+          $version = $inputVersion
+          Write-Host "Using workflow_dispatch input version: $version"
+        }
+        
+        # Always strip 'v' prefix if present
+        if ($version -match '^v(.+)$') {
           $version = $matches[1]
-        } elseif ("${{ github.event.inputs.version }}" -ne "") {
-          $version = "${{ github.event.inputs.version }}"
+          Write-Host "Stripped 'v' prefix, version is now: $version"
         }
         
-        # Ensure version is in X.Y.Z.W format
-        if ($version -match '^\d+\.\d+\.\d+$') {
-          $version = "$version.0"
+        # Ensure version is in X.Y.Z.W format (4 parts required for MSIX)
+        $parts = $version -split '\.'
+        while ($parts.Count -lt 4) {
+          $parts += '0'
+        }
+        $version = $parts[0..3] -join '.'
+        
+        Write-Host "Final version (4-part): $version"
+        
+        # Validate version format
+        if ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+          Write-Error "Invalid version format: $version. Must be X.Y.Z.W format."
+          exit 1
         }
         
-        Write-Host "Setting version to: $version"
-        
-        # Update Package.appxmanifest using XML manipulation to preserve encoding
+        # Update Package.appxmanifest
         $manifestPath = "KioskApp/Package.appxmanifest"
+        Write-Host "Updating manifest at: $manifestPath"
+        
         [xml]$manifest = Get-Content $manifestPath -Encoding UTF8
+        $oldVersion = $manifest.Package.Identity.Version
+        Write-Host "Old version in manifest: $oldVersion"
+        
         $manifest.Package.Identity.Version = $version
         
-        # Save with proper XML formatting and UTF-8 encoding
-        $xmlSettings = New-Object System.Xml.XmlWriterSettings
-        $xmlSettings.Indent = $true
-        $xmlSettings.IndentChars = "  "
-        $xmlSettings.Encoding = [System.Text.Encoding]::UTF8
-        $xmlSettings.OmitXmlDeclaration = $false
+        # Save using simple Save method (more reliable than XmlWriter)
+        $manifest.Save((Resolve-Path $manifestPath).Path)
         
-        $xmlWriter = [System.Xml.XmlWriter]::Create($manifestPath, $xmlSettings)
-        $manifest.Save($xmlWriter)
-        $xmlWriter.Close()
+        # Verify the update
+        [xml]$verifyManifest = Get-Content $manifestPath -Encoding UTF8
+        $savedVersion = $verifyManifest.Package.Identity.Version
+        Write-Host "Verified version in manifest: $savedVersion"
+        
+        if ($savedVersion -ne $version) {
+          Write-Error "Version mismatch! Expected $version but found $savedVersion"
+          exit 1
+        }
+        
+        Write-Host "Successfully updated manifest version to: $version"
         
         # Store version for later steps
         echo "APP_VERSION=$version" >> $env:GITHUB_ENV
