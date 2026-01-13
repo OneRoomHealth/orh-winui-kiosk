@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*.*.*'  # Trigger on version tags like v1.0.0
+      - '[0-9]*.*.*'  # Also trigger on tags without v prefix like 1.0.108
   workflow_dispatch:  # Allow manual triggering
     inputs:
       version:
@@ -54,18 +55,34 @@ jobs:
       run: |
         # Extract version from tag or input
         $version = "${{ github.ref_name }}"
-        if ($version -match '^v(.*)$') {
+        Write-Host "Raw version from ref_name: $version"
+        
+        # Strip 'v' prefix if present
+        if ($version -match '^v(.+)$') {
           $version = $matches[1]
-        } elseif ("${{ github.event.inputs.version }}" -ne "") {
-          $version = "${{ github.event.inputs.version }}"
+          Write-Host "Stripped v prefix, version is now: $version"
         }
         
-        # Ensure version is in X.Y.Z.W format
+        # Check for manual input override
+        if ("${{ github.event.inputs.version }}" -ne "") {
+          $version = "${{ github.event.inputs.version }}"
+          Write-Host "Using manual input version: $version"
+          # Also strip v prefix from manual input if present
+          if ($version -match '^v(.+)$') {
+            $version = $matches[1]
+          }
+        }
+        
+        # Ensure version is in X.Y.Z.W format (MSIX requires 4 parts)
         if ($version -match '^\d+\.\d+\.\d+$') {
           $version = "$version.0"
+          Write-Host "Added .0 suffix for 4-part version: $version"
+        } elseif ($version -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+          Write-Error "Invalid version format: $version. Expected X.Y.Z or X.Y.Z.W"
+          exit 1
         }
         
-        Write-Host "Setting version to: $version"
+        Write-Host "Final version to set: $version"
         
         # Update Package.appxmanifest using XML manipulation to preserve encoding
         $manifestPath = "KioskApp/Package.appxmanifest"
