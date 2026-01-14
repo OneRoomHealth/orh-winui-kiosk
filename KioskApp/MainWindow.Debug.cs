@@ -27,6 +27,11 @@ public sealed partial class MainWindow
     private ModuleHealthViewModel? _selectedModule;
     private DateTime _debugModeStartTime;
 
+    // Panel resize state
+    private bool _isResizingPanel = false;
+    private double _resizeStartY;
+    private double _resizeStartHeight;
+
     #endregion
 
     #region Debug Mode
@@ -42,7 +47,75 @@ public sealed partial class MainWindow
         }
         else
         {
-            await EnterDebugMode();
+            // Require password to enter debug mode
+            if (await ValidateDebugModePassword())
+            {
+                await EnterDebugMode();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Shows a password dialog and validates the password before entering debug mode.
+    /// </summary>
+    private async Task<bool> ValidateDebugModePassword()
+    {
+        Logger.LogSecurityEvent("DebugModeRequested", "User requested to enter debug mode");
+
+        var dialog = new ContentDialog
+        {
+            Title = "Enter Debug Mode",
+            Content = new PasswordBox
+            {
+                PlaceholderText = "Enter password",
+                Width = 300
+            },
+            PrimaryButtonText = "Enter",
+            CloseButtonText = "Cancel",
+            XamlRoot = this.Content.XamlRoot,
+            DefaultButton = ContentDialogButton.Primary
+        };
+
+        var result = await dialog.ShowAsync();
+        if (result != ContentDialogResult.Primary)
+        {
+            Logger.Log("Debug mode entry cancelled by user");
+            return false;
+        }
+
+        var passwordBox = (PasswordBox)dialog.Content;
+        var enteredPassword = passwordBox.Password;
+
+        bool isValid = false;
+
+        // Use the same password validation logic as exit
+        if (string.IsNullOrEmpty(_config.Exit.PasswordHash))
+        {
+            // Default to admin123 if no password is set
+            isValid = enteredPassword == "admin123";
+        }
+        else if (_config.Exit.PasswordHash.Length < 64)
+        {
+            // Treat as plain text password
+            isValid = enteredPassword == _config.Exit.PasswordHash;
+        }
+        else
+        {
+            // Treat as SHA256 hash
+            isValid = SecurityHelper.ValidatePassword(enteredPassword, _config.Exit.PasswordHash);
+        }
+
+        if (isValid)
+        {
+            Logger.LogSecurityEvent("DebugModeAuthorized", "Correct password provided for debug mode");
+            return true;
+        }
+        else
+        {
+            Logger.LogSecurityEvent("DebugModeDenied", "Incorrect password provided for debug mode");
+            ShowStatus("Access Denied", "Incorrect password");
+            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+            return false;
         }
     }
 
@@ -218,7 +291,7 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Exits debug mode: returns to fullscreen kiosk mode.
+    /// Exits debug mode: returns to fullscreen kiosk mode seamlessly.
     /// </summary>
     private async Task ExitDebugMode()
     {
@@ -260,77 +333,11 @@ public sealed partial class MainWindow
                 DebugStatusBar.Visibility = Visibility.Collapsed;
                 ModuleDetailPanel.Visibility = Visibility.Collapsed;
 
-                // Reset WebView margin
-                if (KioskWebView != null)
-                    KioskWebView.Margin = new Thickness(0);
-
                 // Update window title
                 this.Title = "OneRoom Health Kiosk";
 
-                // Set presenter to Overlapped
-                if (_appWindow != null)
-                {
-                    _appWindow.SetPresenter(Microsoft.UI.Windowing.AppWindowPresenterKind.Overlapped);
-                    Logger.Log("Set presenter to Overlapped before configuration");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Log($"Error in ExitDebugMode UI cleanup: {ex.Message}");
-            }
-        });
-
-        // Wait for presenter change to take effect
-        await Task.Delay(300);
-
-        // Now restore kiosk window configuration
-        await DispatcherQueue.EnqueueAsync(() =>
-        {
-            try
-            {
+                // Restore fullscreen kiosk window
                 ConfigureAsKioskWindow();
-
-                // Reset WebView to fill window
-                if (_appWindow != null && KioskWebView != null)
-                {
-                    KioskWebView.Width = double.NaN;
-                    KioskWebView.Height = double.NaN;
-                    KioskWebView.HorizontalAlignment = HorizontalAlignment.Stretch;
-                    KioskWebView.VerticalAlignment = VerticalAlignment.Stretch;
-                    KioskWebView.Margin = new Thickness(0);
-                    Logger.Log("Reset WebView size to Auto/Stretch");
-                }
-
-                // Force layout update
-                if (this.Content is UIElement content)
-                {
-                    content.UpdateLayout();
-                }
-                if (KioskWebView != null)
-                {
-                    KioskWebView.UpdateLayout();
-                    Logger.Log("Forced WebView layout update");
-                }
-
-                // Re-run ConfigureAsKioskWindow after delay to ensure proper sizing
-                _ = Task.Delay(200).ContinueWith(async _ =>
-                {
-                    await DispatcherQueue.EnqueueAsync(() =>
-                    {
-                        ConfigureAsKioskWindow();
-                        Logger.Log("Re-ran ConfigureAsKioskWindow after delay to ensure proper sizing");
-
-                        if (this.Content is UIElement content2)
-                        {
-                            content2.UpdateLayout();
-                        }
-                        if (KioskWebView != null)
-                        {
-                            KioskWebView.UpdateLayout();
-                            Logger.Log("Forced final layout update");
-                        }
-                    });
-                });
 
                 // In video mode, hide WebView and restart video
                 if (_isVideoMode && _videoController != null)
@@ -338,21 +345,6 @@ public sealed partial class MainWindow
                     if (KioskWebView != null)
                         KioskWebView.Visibility = Visibility.Collapsed;
                     _ = _videoController.InitializeAsync();
-                }
-                else
-                {
-                    // Trigger a resize event so the content adapts to the new window size
-                    _ = Task.Delay(300).ContinueWith(_ =>
-                    {
-                        DispatcherQueue.TryEnqueue(() =>
-                        {
-                            if (KioskWebView?.CoreWebView2 != null)
-                            {
-                                _ = KioskWebView.CoreWebView2.ExecuteScriptAsync("window.dispatchEvent(new Event('resize'));").AsTask();
-                                Logger.Log("[DEBUG EXIT] Triggered resize event in web content (no navigation/reload)");
-                            }
-                        });
-                    });
                 }
 
                 _isDebugMode = false;
@@ -566,6 +558,91 @@ public sealed partial class MainWindow
                 break;
         }
         Logger.Log($"Manual refresh triggered for {_activeTab} tab");
+    }
+
+    #endregion
+
+    #region Panel Resize
+
+    private void PanelResizeGrip_PointerPressed(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (sender is UIElement element)
+        {
+            _isResizingPanel = true;
+            _resizeStartY = e.GetCurrentPoint(this.Content as UIElement).Position.Y;
+            _resizeStartHeight = TabbedBottomPanel.Height;
+            element.CapturePointer(e.Pointer);
+            e.Handled = true;
+
+            // Visual feedback - highlight grip
+            if (PanelResizeGrip != null)
+            {
+                PanelResizeGrip.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 60, 60, 60));
+            }
+        }
+    }
+
+    private void PanelResizeGrip_PointerMoved(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_isResizingPanel) return;
+
+        var currentY = e.GetCurrentPoint(this.Content as UIElement).Position.Y;
+        var deltaY = _resizeStartY - currentY; // Negative when dragging down, positive when dragging up
+
+        var newHeight = _resizeStartHeight + deltaY;
+
+        // Clamp to min/max
+        newHeight = Math.Max(TabbedBottomPanel.MinHeight, Math.Min(TabbedBottomPanel.MaxHeight, newHeight));
+
+        TabbedBottomPanel.Height = newHeight;
+        e.Handled = true;
+    }
+
+    private void PanelResizeGrip_PointerReleased(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (_isResizingPanel && sender is UIElement element)
+        {
+            _isResizingPanel = false;
+            element.ReleasePointerCapture(e.Pointer);
+            e.Handled = true;
+
+            // Reset visual feedback
+            if (PanelResizeGrip != null)
+            {
+                PanelResizeGrip.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 37, 37, 38));
+            }
+
+            Logger.Log($"Panel resized to {TabbedBottomPanel.Height}px");
+        }
+    }
+
+    private void PanelResizeGrip_PointerCaptureLost(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        _isResizingPanel = false;
+
+        // Reset visual feedback
+        if (PanelResizeGrip != null)
+        {
+            PanelResizeGrip.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 37, 37, 38));
+        }
+    }
+
+    private void PanelResizeGrip_PointerEntered(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_isResizingPanel && PanelResizeGrip != null)
+        {
+            // Highlight on hover
+            PanelResizeGrip.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 45, 45, 45));
+        }
+    }
+
+    private void PanelResizeGrip_PointerExited(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+    {
+        if (!_isResizingPanel && PanelResizeGrip != null)
+        {
+            // Reset background
+            PanelResizeGrip.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 37, 37, 38));
+        }
     }
 
     #endregion
