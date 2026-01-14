@@ -403,6 +403,9 @@ public class SystemAudioModule : HardwareModuleBase
         _microphoneDevice?.Dispose();
         _deviceEnumerator?.Dispose();
 
+        // Dispose synchronization primitives
+        _stateLock.Dispose();
+
         Logger.LogInformation("{ModuleName}: Shutdown complete", ModuleName);
     }
 }

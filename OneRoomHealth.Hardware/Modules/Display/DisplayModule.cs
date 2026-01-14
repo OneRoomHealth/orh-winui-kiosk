@@ -371,4 +371,12 @@ public class DisplayModule : HardwareModuleBase
             _stateLock.Release();
         }
     }
+
+    public override async Task ShutdownAsync()
+    {
+        await base.ShutdownAsync();
+        _stateLock.Dispose();
+        _httpClient.Dispose();
+        Logger.LogInformation("{ModuleName}: Resources disposed", ModuleName);
+    }
 }

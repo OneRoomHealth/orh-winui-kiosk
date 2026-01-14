@@ -13,10 +13,11 @@ This application provides a secure, full-screen browser experience for Windows 1
 - ✅ **Automatic navigation** to default URL on startup
 - ✅ **Video Mode** - MPV player integration with Flic button support
 - ✅ **Hardware Control API** on `http://localhost:8081` - RESTful API for AV equipment control
-- ✅ **Integrated Hardware Modules** - Display (Novastar LED), Chromium browser control
+- ✅ **Integrated Hardware Modules** - Display, Camera, Lighting, System Audio, Microphone, Speaker
 - ✅ **Shell Launcher v2 integration** - replaces Explorer.exe as the Windows shell
 - ✅ **Security hardened** - disables dev tools, context menus, and browser shortcuts
-- ✅ **Debug Mode** - Ctrl+Shift+F12 for developer access
+- ✅ **Debug Mode** - Ctrl+Shift+F12 for developer access with health monitoring and logging
+- ✅ **Performance Monitoring** - GC metrics, memory tracking, CPU usage in debug panel
 - ✅ **Exit Mechanism** - Password-protected exit from kiosk mode
 
 ---
@@ -226,54 +227,71 @@ The app integrates hardware control capabilities with a comprehensive RESTful AP
 **Base URL:** `http://localhost:8081/api/v1`
 **Swagger UI:** `http://localhost:8081/swagger`
 
-### Implemented Modules (Phase 2 Complete)
+### Implemented Modules
 
 #### Display Module - Novastar LED Controllers
-Control LED displays via HTTP API:
 ```powershell
 # Set brightness (0-100)
 Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/displays/0/brightness `
   -Body '{"brightness": 75}' -ContentType "application/json"
 
-# Disable display (blackout)
+# Enable/disable display
 Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/displays/0/enable `
   -Body '{"enabled": false}' -ContentType "application/json"
 ```
 
-**Endpoints:**
-- `GET /api/v1/displays` - List all displays
-- `GET /api/v1/displays/{id}` - Display status
-- `PUT /api/v1/displays/{id}/brightness` - Set brightness (0-100)
-- `PUT /api/v1/displays/{id}/enable` - Enable/disable
-
-#### Chromium Module - Browser Control
-Manage embedded Chromium browser instances:
+#### Camera Module - Huddly PTZ Control
 ```powershell
-# Open browser
-Invoke-RestMethod -Method POST -Uri http://localhost:8081/api/v1/chromium/0/open
+# Set PTZ position
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/cameras/0/ptz `
+  -Body '{"pan": 0.5, "tilt": 0.3, "zoom": 0.8}' -ContentType "application/json"
 
-# Navigate to URL
-Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/chromium/0/url `
-  -Body '{"url": "https://example.com"}' -ContentType "application/json"
-
-# Close browser
-Invoke-RestMethod -Method POST -Uri http://localhost:8081/api/v1/chromium/0/close
+# Enable auto-tracking
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/cameras/0/auto-tracking `
+  -Body '{"enabled": true}' -ContentType "application/json"
 ```
 
-**Endpoints:**
-- `GET /api/v1/chromium` - List browser instances
-- `GET /api/v1/chromium/{id}` - Browser status
-- `POST /api/v1/chromium/{id}/open` - Start browser
-- `POST /api/v1/chromium/{id}/close` - Stop browser
-- `PUT /api/v1/chromium/{id}/url` - Navigate to URL
+#### Lighting Module - DMX512 RGB Control
+```powershell
+# Set color (RGBW values 0-255)
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/lighting/0/color `
+  -Body '{"red": 255, "green": 100, "blue": 50, "white": 0}' -ContentType "application/json"
 
-### Coming Soon (Phase 3-4)
+# Set brightness (0-100)
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/lighting/0/brightness `
+  -Body '{"brightness": 80}' -ContentType "application/json"
+```
 
-- **System Audio** - Windows audio volume/mute control
-- **Microphones** - Per-device microphone control
-- **Speakers** - Per-device speaker control
-- **Camera** - Huddly PTZ camera control (auto-tracking, auto-framing)
-- **Lighting** - DMX512 RGB lighting control
+#### System Audio Module - Windows Volume Control
+```powershell
+# Set system volume (0-100)
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/system/volume `
+  -Body '{"volume": 75}' -ContentType "application/json"
+
+# Volume up/down
+Invoke-RestMethod -Method POST -Uri http://localhost:8081/api/v1/system/volume-up
+```
+
+#### Microphone & Speaker Modules - Per-Device Control
+```powershell
+# List microphones
+Invoke-RestMethod -Uri http://localhost:8081/api/v1/microphones
+
+# Set microphone volume
+Invoke-RestMethod -Method PUT -Uri http://localhost:8081/api/v1/microphones/0/volume `
+  -Body '{"volume": 80}' -ContentType "application/json"
+```
+
+### API Endpoints Summary
+
+| Module | Endpoints |
+|--------|-----------|
+| Display | GET/PUT brightness, GET/PUT enable |
+| Camera | GET/PUT ptz, GET/PUT auto-tracking, GET/PUT auto-framing |
+| Lighting | GET/PUT color, GET/PUT brightness, GET/PUT enable |
+| System Audio | GET/PUT volume, POST volume-up/down |
+| Microphone | GET list, GET/PUT volume, GET/PUT mute |
+| Speaker | GET list, GET/PUT volume |
 
 For complete API documentation, visit:
 - **Swagger UI:** http://localhost:8081/swagger
@@ -427,18 +445,44 @@ orh-winui-kiosk/
 ├── KioskApp/                          # WinUI 3 Desktop kiosk app
 │   ├── KioskApp.csproj                # Project file (.NET 8 + Windows App SDK 1.6)
 │   ├── Package.appxmanifest           # MSIX package manifest
-│   ├── App.xaml / App.xaml.cs         # Application initialization
-│   ├── MainWindow.xaml.cs             # Main window with full-screen WebView2
-│   ├── LocalCommandServer.cs          # HTTP API for navigation control
+│   ├── App.xaml / App.xaml.cs         # Application initialization & DI setup
+│   ├── MainWindow.xaml                # UI layout
+│   ├── MainWindow.xaml.cs             # Core window logic
+│   ├── MainWindow.Debug.cs            # Debug mode & exit handling
+│   ├── MainWindow.Keyboard.cs         # Keyboard hooks & hotkeys
+│   ├── MainWindow.MediaDevices.cs     # Camera/mic selection
+│   ├── MainWindow.Panels.cs           # Health panel, log viewer, performance
+│   ├── MainWindow.VideoMode.cs        # Video/screensaver mode
+│   ├── MainWindow.WebView.cs          # WebView2 lifecycle
+│   ├── MainWindow.Window.cs           # Window positioning
+│   ├── Helpers/                       # Utility classes
+│   │   ├── UnifiedLogger.cs           # Unified logging with Serilog
+│   │   ├── PerformanceMonitor.cs      # GC & performance metrics
+│   │   └── Win32Interop.cs            # P/Invoke declarations
 │   └── Assets/                        # App icons and splash screen
 │
-├── provision_kiosk_user.ps1           # Shell Launcher provisioning script
+├── OneRoomHealth.Hardware/            # Hardware control library
+│   ├── Abstractions/                  # IHardwareModule, DeviceInfo
+│   ├── Configuration/                 # Hardware config models
+│   ├── Services/                      # HardwareManager, HardwareApiServer
+│   ├── Modules/
+│   │   ├── Display/                   # Novastar LED control
+│   │   ├── Camera/                    # Huddly PTZ camera
+│   │   ├── Lighting/                  # DMX512 RGB lighting
+│   │   ├── SystemAudio/               # Windows volume control
+│   │   ├── Microphone/                # Per-device mic control
+│   │   └── Speaker/                   # Per-device speaker control
+│   └── Api/Controllers/               # REST API endpoints
 │
-├── build/certs/
-│   ├── generate-dev-cert.ps1          # Development certificate generator
-│   └── README.md                      # Certificate documentation
+├── scripts/                           # PowerShell provisioning
+│   └── provision_kiosk_user.ps1       # Shell Launcher v2 setup
 │
-└── DEPLOYMENT_GUIDE.md                # Detailed deployment instructions
+├── build/certs/                       # Certificate management
+│
+└── docs/                              # Documentation
+    ├── CONFIGURATION.md               # Config reference
+    ├── TROUBLESHOOTING.md             # Common issues
+    └── VIDEO_MODE_GUIDE.md            # Video mode setup
 ```
 
 ---
@@ -513,13 +557,25 @@ The kiosk app implements multiple security layers:
 
 All detailed documentation is available in the [`docs/`](docs/) folder:
 
-- **[Video Mode Guide](docs/VIDEO_MODE_GUIDE.md)** - Flic button video control with MPV integration
-- **[Deployment Guide](docs/DEPLOYMENT_GUIDE.md)** - Complete installation and deployment instructions
-- **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+### Core Documentation
 - **[Configuration Reference](docs/CONFIGURATION.md)** - All configuration options
-- **[Local Build Guide](docs/LOCAL_BUILD_GUIDE.md)** - Building from source
+- **[Debug Mode](docs/DEBUG_MODE.md)** - Developer tools, health monitoring, performance
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** - Common issues and solutions
+
+### Build & Deployment
+- **[Quick Start Build](QUICK_START_BUILD.md)** - Fast build instructions
+- **[Local Build Guide](docs/LOCAL_BUILD_GUIDE.md)** - Detailed build from source
+- **[Deployment Guide](DEPLOYMENT_GUIDE.md)** - Installation and deployment
 - **[GitHub CI/CD Setup](docs/GITHUB_SETUP_QUICKSTART.md)** - Automated builds and releases
-- **[build/certs/README.md](build/certs/README.md)** - Certificate generation and management
+- **[Certificate Management](build/certs/README.md)** - Code signing certificates
+
+### Feature Guides
+- **[Video Mode Guide](docs/VIDEO_MODE_GUIDE.md)** - MPV player integration with Flic buttons
+- **[Flic Integration](docs/FLIC_INTEGRATION_PLAN.md)** - Flic button setup
+
+### Technical Reference
+- **[Hardware Integration](HARDWARE_INTEGRATION_ANALYSIS.md)** - Hardware module architecture
+- **[Integration Status](docs/INTEGRATION_GAP_ANALYSIS.md)** - workstation-api port status
 
 ---
 

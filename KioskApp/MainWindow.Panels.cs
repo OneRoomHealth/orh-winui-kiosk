@@ -1,4 +1,6 @@
 using System;
+using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI;
@@ -9,6 +11,7 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
+using KioskApp.Helpers;
 
 namespace KioskApp;
 
@@ -171,44 +174,8 @@ public sealed partial class MainWindow
     private bool _healthPanelVisible = false;
     private Timer? _healthRefreshTimer;
 
-    private void HardwareHealthButton_Click(object sender, RoutedEventArgs e)
-    {
-        ToggleHealthPanel();
-    }
-
-    private void ToggleHealthPanel()
-    {
-        _healthPanelVisible = !_healthPanelVisible;
-
-        if (_healthPanelVisible)
-        {
-            // Hide log viewer if visible
-            if (_logsVisible)
-            {
-                LogViewerPanel.Visibility = Visibility.Collapsed;
-                _logsVisible = false;
-            }
-
-            HardwareHealthPanel.Visibility = Visibility.Visible;
-            RefreshHealthDisplay();
-
-            // Start refresh timer (every 2 seconds)
-            _healthRefreshTimer = new Timer(
-                _ => DispatcherQueue.TryEnqueue(() => RefreshHealthDisplay()),
-                null,
-                TimeSpan.FromSeconds(2),
-                TimeSpan.FromSeconds(2));
-
-            Logger.Log("Hardware health panel shown");
-        }
-        else
-        {
-            HardwareHealthPanel.Visibility = Visibility.Collapsed;
-            _healthRefreshTimer?.Dispose();
-            _healthRefreshTimer = null;
-            Logger.Log("Hardware health panel hidden");
-        }
-    }
+    // Note: ToggleHealthPanel removed - now using tabbed interface in Debug.cs
+    // The tab switching logic handles visibility and timer management
 
     private void RefreshHealthButton_Click(object sender, RoutedEventArgs e)
     {
@@ -220,7 +187,7 @@ public sealed partial class MainWindow
         var service = App.HealthVisualization;
         if (service == null)
         {
-            HealthSummaryText.Text = "Service not available";
+            HealthFooterText.Text = "Health visualization service not available";
             return;
         }
 
@@ -233,76 +200,135 @@ public sealed partial class MainWindow
         var service = App.HealthVisualization;
         if (service == null)
         {
-            HealthSummaryText.Text = "Service not available";
+            HealthFooterText.Text = "Health visualization service not available";
             return;
         }
 
         var modules = service.GetModuleHealthSummaries();
         var summary = service.SystemSummary;
 
-        // Update summary text
-        HealthSummaryText.Text = $"{summary.ActiveModules}/{summary.TotalModules} modules active | {summary.HealthyDevices}/{summary.TotalDevices} devices healthy";
-
-        // Update footer
-        HealthFooterText.Text = $"API: http://localhost:8081 | Uptime: {summary.UptimeDisplay}";
+        // Update footer with summary info
+        HealthFooterText.Text = $"API: http://localhost:{_config.HttpApi.Port} | {summary.ActiveModules}/{summary.TotalModules} modules | Uptime: {summary.UptimeDisplay}";
         HealthLastRefreshText.Text = $"Last refresh: {summary.LastUpdate.ToLocalTime():HH:mm:ss}";
 
-        // Build module cards
-        ModuleHealthCards.Children.Clear();
+        // Build module cards using the new ItemsControl
+        var cardList = new System.Collections.Generic.List<UIElement>();
         foreach (var module in modules)
         {
             var card = CreateModuleHealthCard(module);
-            ModuleHealthCards.Children.Add(card);
+            cardList.Add(card);
+        }
+
+        // Update the ItemsControl
+        ModuleHealthItemsControl.ItemsSource = null;
+        ModuleHealthItemsControl.Items.Clear();
+        foreach (var card in cardList)
+        {
+            ModuleHealthItemsControl.Items.Add(card);
         }
     }
 
     private Border CreateModuleHealthCard(OneRoomHealth.Hardware.ViewModels.ModuleHealthViewModel module)
     {
+        // New VS Code style colors
+        var healthBorderColor = module.OverallHealth switch
+        {
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Healthy => Windows.UI.Color.FromArgb(255, 78, 201, 176),   // #4EC9B0 teal
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Degraded => Windows.UI.Color.FromArgb(255, 220, 220, 170), // #DCDCAA yellow
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Unhealthy => Windows.UI.Color.FromArgb(255, 244, 135, 113), // #F48771 coral
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Offline => Windows.UI.Color.FromArgb(255, 244, 135, 113),
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Disabled => Windows.UI.Color.FromArgb(255, 60, 60, 60),
+            _ => Windows.UI.Color.FromArgb(255, 60, 60, 60)
+        };
+
         var card = new Border
         {
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 43, 43, 43)),
-            CornerRadius = new CornerRadius(8),
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 37, 37, 38)), // #252526
+            CornerRadius = new CornerRadius(6),
             Padding = new Thickness(12),
-            Width = 180,
-            BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 59, 59, 59)),
-            BorderThickness = new Thickness(1)
+            MinWidth = 200,
+            MinHeight = 120,
+            BorderBrush = new SolidColorBrush(healthBorderColor),
+            BorderThickness = new Thickness(1, 1, 1, 3), // Thicker bottom border for status indication
+            Tag = module // Store module reference for click handler
+        };
+
+        // Make card clickable
+        card.PointerPressed += (s, e) =>
+        {
+            if (s is Border b && b.Tag is OneRoomHealth.Hardware.ViewModels.ModuleHealthViewModel m)
+            {
+                ShowModuleDetail(m);
+            }
+        };
+
+        // Hover effect
+        card.PointerEntered += (s, e) =>
+        {
+            if (s is Border b)
+            {
+                b.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 45, 45, 45)); // #2D2D2D
+            }
+        };
+        card.PointerExited += (s, e) =>
+        {
+            if (s is Border b)
+            {
+                b.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 37, 37, 38)); // #252526
+            }
         };
 
         var stack = new StackPanel();
 
-        // Header row
+        // Header row with module icon and name
         var headerGrid = new Grid();
+        headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        // Module type icon
+        var moduleIcon = new TextBlock
+        {
+            Text = GetModuleIcon(module.ModuleName),
+            FontSize = 16,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 133, 133, 133)), // #858585
+            Margin = new Thickness(0, 0, 8, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        Grid.SetColumn(moduleIcon, 0);
 
         var nameText = new TextBlock
         {
             Text = module.DisplayName,
             FontWeight = FontWeights.SemiBold,
-            Foreground = new SolidColorBrush(Colors.White),
-            FontSize = 14
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 204, 204, 204)), // #CCCCCC
+            FontSize = 13,
+            FontFamily = new FontFamily("Cascadia Code, Consolas"),
+            VerticalAlignment = VerticalAlignment.Center
         };
-        Grid.SetColumn(nameText, 0);
+        Grid.SetColumn(nameText, 1);
 
-        // Health indicator color
+        // Health indicator
         var healthColor = module.OverallHealth switch
         {
-            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Healthy => Windows.UI.Color.FromArgb(255, 16, 124, 16),
-            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Degraded => Windows.UI.Color.FromArgb(255, 255, 185, 0),
-            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Unhealthy => Windows.UI.Color.FromArgb(255, 209, 52, 56),
-            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Offline => Windows.UI.Color.FromArgb(255, 209, 52, 56),
-            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Disabled => Windows.UI.Color.FromArgb(255, 121, 119, 117),
-            _ => Windows.UI.Color.FromArgb(255, 121, 119, 117)
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Healthy => Windows.UI.Color.FromArgb(255, 78, 201, 176),
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Degraded => Windows.UI.Color.FromArgb(255, 220, 220, 170),
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Unhealthy => Windows.UI.Color.FromArgb(255, 244, 135, 113),
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Offline => Windows.UI.Color.FromArgb(255, 244, 135, 113),
+            OneRoomHealth.Hardware.ViewModels.ModuleHealthStatus.Disabled => Windows.UI.Color.FromArgb(255, 133, 133, 133),
+            _ => Windows.UI.Color.FromArgb(255, 133, 133, 133)
         };
 
         var healthIndicator = new TextBlock
         {
             Text = module.HealthIcon,
-            FontSize = 16,
-            Foreground = new SolidColorBrush(healthColor)
+            FontSize = 14,
+            Foreground = new SolidColorBrush(healthColor),
+            VerticalAlignment = VerticalAlignment.Center
         };
-        Grid.SetColumn(healthIndicator, 1);
+        Grid.SetColumn(healthIndicator, 2);
 
+        headerGrid.Children.Add(moduleIcon);
         headerGrid.Children.Add(nameText);
         headerGrid.Children.Add(healthIndicator);
         stack.Children.Add(headerGrid);
@@ -311,153 +337,180 @@ public sealed partial class MainWindow
         var statusText = new TextBlock
         {
             Text = module.StatusSummary,
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 136, 136, 136)),
-            FontSize = 12,
-            Margin = new Thickness(0, 4, 0, 0)
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 133, 133, 133)), // #858585
+            FontSize = 11,
+            FontFamily = new FontFamily("Cascadia Code, Consolas"),
+            Margin = new Thickness(0, 6, 0, 0)
         };
         stack.Children.Add(statusText);
 
-        // Device list (show first 3 devices)
-        if (module.Devices.Count > 0)
+        // Device count summary
+        if (module.DeviceCount > 0)
         {
-            var deviceStack = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-            foreach (var device in module.Devices.Take(3))
+            var deviceSummary = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0), Spacing = 12 };
+
+            if (module.HealthyCount > 0)
             {
-                var deviceGrid = new Grid { Margin = new Thickness(0, 2, 0, 0) };
-                deviceGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                deviceGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-                var deviceHealthColor = device.Health switch
-                {
-                    OneRoomHealth.Hardware.Abstractions.DeviceHealth.Healthy => Windows.UI.Color.FromArgb(255, 16, 124, 16),
-                    OneRoomHealth.Hardware.Abstractions.DeviceHealth.Unhealthy => Windows.UI.Color.FromArgb(255, 255, 185, 0),
-                    OneRoomHealth.Hardware.Abstractions.DeviceHealth.Offline => Windows.UI.Color.FromArgb(255, 209, 52, 56),
-                    _ => Windows.UI.Color.FromArgb(255, 121, 119, 117)
-                };
-
-                var deviceIndicator = new TextBlock
-                {
-                    Text = device.HealthIcon,
-                    Foreground = new SolidColorBrush(deviceHealthColor),
-                    FontSize = 10,
-                    Margin = new Thickness(0, 0, 6, 0)
-                };
-                Grid.SetColumn(deviceIndicator, 0);
-
-                var deviceName = new TextBlock
-                {
-                    Text = device.DeviceName,
-                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 204, 204, 204)),
-                    FontSize = 11,
-                    TextTrimming = TextTrimming.CharacterEllipsis
-                };
-                Grid.SetColumn(deviceName, 1);
-
-                deviceGrid.Children.Add(deviceIndicator);
-                deviceGrid.Children.Add(deviceName);
-                deviceStack.Children.Add(deviceGrid);
+                var healthyBadge = CreateDeviceCountBadge(module.HealthyCount, "healthy", Windows.UI.Color.FromArgb(255, 78, 201, 176));
+                deviceSummary.Children.Add(healthyBadge);
+            }
+            if (module.UnhealthyCount > 0)
+            {
+                var unhealthyBadge = CreateDeviceCountBadge(module.UnhealthyCount, "unhealthy", Windows.UI.Color.FromArgb(255, 220, 220, 170));
+                deviceSummary.Children.Add(unhealthyBadge);
+            }
+            if (module.OfflineCount > 0)
+            {
+                var offlineBadge = CreateDeviceCountBadge(module.OfflineCount, "offline", Windows.UI.Color.FromArgb(255, 244, 135, 113));
+                deviceSummary.Children.Add(offlineBadge);
             }
 
-            if (module.Devices.Count > 3)
+            if (deviceSummary.Children.Count > 0)
             {
-                var moreText = new TextBlock
-                {
-                    Text = $"+{module.Devices.Count - 3} more...",
-                    Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 102, 102, 102)),
-                    FontSize = 10,
-                    Margin = new Thickness(0, 2, 0, 0)
-                };
-                deviceStack.Children.Add(moreText);
+                stack.Children.Add(deviceSummary);
             }
-
-            stack.Children.Add(deviceStack);
         }
 
         // Last update
         var updateText = new TextBlock
         {
             Text = $"Updated: {module.LastUpdateDisplay}",
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 102, 102, 102)),
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 102, 102, 102)), // #666666
             FontSize = 10,
+            FontFamily = new FontFamily("Cascadia Code, Consolas"),
             Margin = new Thickness(0, 8, 0, 0)
         };
         stack.Children.Add(updateText);
 
-        // Error message if any
+        // Error message if any (truncated)
         if (!string.IsNullOrEmpty(module.LastError))
         {
             var errorText = new TextBlock
             {
-                Text = module.LastError,
-                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 209, 52, 56)),
+                Text = module.LastError.Length > 50 ? module.LastError.Substring(0, 47) + "..." : module.LastError,
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 244, 135, 113)), // #F48771
                 FontSize = 10,
-                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new FontFamily("Cascadia Code, Consolas"),
+                TextWrapping = TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Margin = new Thickness(0, 4, 0, 0)
             };
             stack.Children.Add(errorText);
         }
 
+        // "Click to expand" hint
+        var hintText = new TextBlock
+        {
+            Text = "Click for details \u2192",
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 86, 156, 214)), // #569CD6 accent blue
+            FontSize = 10,
+            FontFamily = new FontFamily("Cascadia Code, Consolas"),
+            Margin = new Thickness(0, 8, 0, 0),
+            Opacity = 0.7
+        };
+        stack.Children.Add(hintText);
+
         card.Child = stack;
         return card;
     }
 
-    private void CloseHealthButton_Click(object sender, RoutedEventArgs e)
+    private static Border CreateDeviceCountBadge(int count, string label, Windows.UI.Color color)
     {
-        _healthPanelVisible = false;
-        HardwareHealthPanel.Visibility = Visibility.Collapsed;
-        _healthRefreshTimer?.Dispose();
-        _healthRefreshTimer = null;
-        Logger.Log("Hardware health panel closed");
+        var badge = new Border
+        {
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(40, color.R, color.G, color.B)),
+            CornerRadius = new CornerRadius(3),
+            Padding = new Thickness(6, 2, 6, 2)
+        };
+
+        var text = new TextBlock
+        {
+            Text = $"{count} {label}",
+            Foreground = new SolidColorBrush(color),
+            FontSize = 10,
+            FontFamily = new FontFamily("Cascadia Code, Consolas")
+        };
+
+        badge.Child = text;
+        return badge;
     }
+
+    private static string GetModuleIcon(string moduleName)
+    {
+        return moduleName.ToLowerInvariant() switch
+        {
+            "display" => "\U0001F4FA",      // TV
+            "camera" => "\U0001F4F7",       // Camera
+            "lighting" => "\U0001F4A1",     // Light bulb
+            "microphone" => "\U0001F3A4",   // Microphone
+            "speaker" => "\U0001F50A",      // Speaker
+            "systemaudio" => "\U0001F3B5",  // Musical note
+            _ => "\U0001F50C"               // Electric plug (default)
+        };
+    }
+
+    // Note: CloseHealthButton_Click removed - tabs are managed in Debug.cs
 
     #endregion
 
     #region Log Viewer
 
     private bool _logsVisible = false;
+    private LogLevel _currentLogLevel = LogLevel.Debug;
+    private string? _currentModuleFilter = null;
 
-    private void ViewLogsButton_Click(object sender, RoutedEventArgs e)
+    // Note: ToggleLogViewer removed - now using tabbed interface in Debug.cs
+
+    private void InitializeLogFilters()
     {
-        ToggleLogViewer();
+        // Initialize log level filter if not already done
+        if (LogLevelSelector != null && LogLevelSelector.Items.Count == 0)
+        {
+            LogLevelSelector.Items.Add(new ComboBoxItem { Content = "Debug", Tag = LogLevel.Debug });
+            LogLevelSelector.Items.Add(new ComboBoxItem { Content = "Info", Tag = LogLevel.Info });
+            LogLevelSelector.Items.Add(new ComboBoxItem { Content = "Warning", Tag = LogLevel.Warning });
+            LogLevelSelector.Items.Add(new ComboBoxItem { Content = "Error", Tag = LogLevel.Error });
+            LogLevelSelector.SelectedIndex = 0; // Debug by default
+        }
+
+        // Initialize module filter if not already done
+        if (ModuleFilterSelector != null && ModuleFilterSelector.Items.Count == 0)
+        {
+            ModuleFilterSelector.Items.Add(new ComboBoxItem { Content = "All Modules", Tag = (string?)null });
+            foreach (var module in UnifiedLogger.KnownModules)
+            {
+                ModuleFilterSelector.Items.Add(new ComboBoxItem { Content = module, Tag = module });
+            }
+            ModuleFilterSelector.SelectedIndex = 0; // All modules by default
+        }
     }
 
-    private void ToggleLogViewer()
+    private void LogLevelSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        _logsVisible = !_logsVisible;
-
-        if (_logsVisible)
+        if (LogLevelSelector?.SelectedItem is ComboBoxItem item && item.Tag is LogLevel level)
         {
-            // Hide health panel if visible
-            if (_healthPanelVisible)
-            {
-                HardwareHealthPanel.Visibility = Visibility.Collapsed;
-                _healthPanelVisible = false;
-                _healthRefreshTimer?.Dispose();
-                _healthRefreshTimer = null;
-            }
-
-            LogViewerPanel.Visibility = Visibility.Visible;
+            _currentLogLevel = level;
+            UnifiedLogger.Instance.SetMinimumLevel(level);
             RefreshLogDisplay();
-
-            // Adjust WebView margin to make room for log viewer
-            if (KioskWebView != null)
-            {
-                KioskWebView.Margin = new Thickness(0, 80, 0, 300);
-            }
-
-            Logger.Log("Log viewer shown");
         }
-        else
+    }
+
+    private void ModuleFilterSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ModuleFilterSelector?.SelectedItem is ComboBoxItem item)
         {
-            LogViewerPanel.Visibility = Visibility.Collapsed;
+            _currentModuleFilter = item.Tag as string;
 
-            // Restore WebView margin (accounting for debug panel)
-            if (KioskWebView != null)
+            if (_currentModuleFilter == null)
             {
-                KioskWebView.Margin = new Thickness(0, 80, 0, 0);
+                UnifiedLogger.Instance.EnableAllModules();
             }
-
-            Logger.Log("Log viewer hidden");
+            else
+            {
+                UnifiedLogger.Instance.EnableAllModules();
+                // Filter to just this module by checking in ShouldShow
+            }
+            RefreshLogDisplay();
         }
     }
 
@@ -465,19 +518,33 @@ public sealed partial class MainWindow
     {
         try
         {
-            var logs = Logger.GetRecentLogs(500); // Get last 500 entries
-            var logText = string.Join(Environment.NewLine, logs);
+            var allLogs = UnifiedLogger.Instance.GetAllLogs(1000);
+            var filteredLogs = allLogs
+                .Where(l => l.Level >= _currentLogLevel)
+                .Where(l => _currentModuleFilter == null || l.Module == _currentModuleFilter)
+                .TakeLast(500)
+                .ToList();
 
-            LogContentTextBlock.Text = logText;
-            LogCountTextBlock.Text = $"{logs.Count} log entries (showing last 500 of {Logger.GetLogs().Count} total)";
+            var sb = new StringBuilder();
+            foreach (var log in filteredLogs)
+            {
+                sb.AppendLine(log.FormattedMessage);
+                if (!string.IsNullOrEmpty(log.Exception))
+                {
+                    sb.AppendLine($"    Exception: {log.Exception}");
+                }
+            }
+
+            LogContentTextBlock.Text = sb.ToString();
+
+            // Update statistics
+            var stats = UnifiedLogger.Instance.GetStats();
+            LogCountTextBlock.Text = $"Showing {filteredLogs.Count} of {stats.Total} | D:{stats.Debug} I:{stats.Info} W:{stats.Warning} E:{stats.Error}";
 
             // Auto-scroll to bottom
-            if (LogViewerPanel.Visibility == Visibility.Visible)
+            if (LogsTabContent.Visibility == Visibility.Visible)
             {
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    ScrollToBottom();
-                });
+                DispatcherQueue.TryEnqueue(ScrollToBottom);
             }
         }
         catch (Exception ex)
@@ -501,47 +568,62 @@ public sealed partial class MainWindow
 
     private void OnLogAdded(string logEntry)
     {
-        // Update log display in real-time if viewer is visible
-        if (_logsVisible && LogViewerPanel.Visibility == Visibility.Visible)
+        // Legacy handler for original Logger - kept for compatibility
+        // The unified logger will also receive this via its subscription
+    }
+
+    private void OnUnifiedLogAdded(UnifiedLogEntry entry)
+    {
+        // Update log display in real-time if viewer is visible and entry passes filters
+        if (!_logsVisible || LogsTabContent.Visibility != Visibility.Visible)
+            return;
+
+        if (entry.Level < _currentLogLevel)
+            return;
+
+        if (_currentModuleFilter != null && entry.Module != _currentModuleFilter)
+            return;
+
+        DispatcherQueue.TryEnqueue(() =>
         {
-            DispatcherQueue.TryEnqueue(() =>
+            try
             {
-                try
+                // Append new log entry
+                if (!string.IsNullOrEmpty(LogContentTextBlock.Text))
                 {
-                    // Append new log entry
-                    if (!string.IsNullOrEmpty(LogContentTextBlock.Text))
-                    {
-                        LogContentTextBlock.Text += Environment.NewLine;
-                    }
-                    LogContentTextBlock.Text += logEntry;
-
-                    // Update count
-                    var totalLogs = Logger.GetLogs().Count;
-                    var displayedLogs = LogContentTextBlock.Text.Split(new[] { Environment.NewLine }, StringSplitOptions.None).Length;
-                    LogCountTextBlock.Text = $"{displayedLogs} log entries (showing last 500 of {totalLogs} total)";
-
-                    // Auto-scroll to bottom
-                    ScrollToBottom();
+                    LogContentTextBlock.Text += Environment.NewLine;
                 }
-                catch (Exception ex)
+                LogContentTextBlock.Text += entry.FormattedMessage;
+
+                if (!string.IsNullOrEmpty(entry.Exception))
                 {
-                    Logger.Log($"Error in OnLogAdded: {ex.Message}");
+                    LogContentTextBlock.Text += Environment.NewLine + $"    Exception: {entry.Exception}";
                 }
-            });
-        }
+
+                // Update statistics
+                var stats = UnifiedLogger.Instance.GetStats();
+                var displayedLines = LogContentTextBlock.Text.Split(Environment.NewLine).Length;
+                LogCountTextBlock.Text = $"Showing ~{displayedLines} of {stats.Total} | D:{stats.Debug} I:{stats.Info} W:{stats.Warning} E:{stats.Error}";
+
+                // Auto-scroll to bottom
+                ScrollToBottom();
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error in OnUnifiedLogAdded: {ex.Message}");
+            }
+        });
     }
 
     private void ClearLogsButton_Click(object sender, RoutedEventArgs e)
     {
+        UnifiedLogger.Instance.Clear();
         LogContentTextBlock.Text = "";
         LogCountTextBlock.Text = "0 log entries";
         Logger.Log("Log viewer cleared by user");
     }
 
-    private void CloseLogsButton_Click(object sender, RoutedEventArgs e)
-    {
-        ToggleLogViewer();
-    }
+    // Note: CloseLogsButton_Click removed - tabs are managed in Debug.cs
 
     private void CopyLogsButton_Click(object sender, RoutedEventArgs e)
     {
@@ -565,6 +647,99 @@ public sealed partial class MainWindow
             _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
         }
     }
+
+    #endregion
+
+    #region Performance/GC Panel
+
+    private bool _perfPanelVisible = false;
+
+    // Note: TogglePerformancePanel removed - now using tabbed interface in Debug.cs
+
+    private void OnPerformanceSnapshot(PerformanceSnapshot snapshot)
+    {
+        if (!_perfPanelVisible || PerfTabContent.Visibility != Visibility.Visible)
+            return;
+
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            try
+            {
+                UpdatePerformanceUI(snapshot);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error updating performance UI: {ex.Message}");
+            }
+        });
+    }
+
+    private void RefreshPerformanceDisplay()
+    {
+        var snapshot = PerformanceMonitor.Instance.GetLatestSnapshot();
+        if (snapshot != null)
+        {
+            UpdatePerformanceUI(snapshot);
+        }
+    }
+
+    private void UpdatePerformanceUI(PerformanceSnapshot snapshot)
+    {
+        // Uptime
+        PerfUptimeText.Text = $"Uptime: {PerformanceMonitor.Instance.GetUptimeFormatted()}";
+
+        // Memory stats
+        PerfWorkingSet.Text = snapshot.WorkingSetMB;
+        PerfGcMemory.Text = snapshot.GcTotalMemoryMB;
+
+        // Memory bar (visual indicator - percentage of 1GB max assumed)
+        var memoryPercent = Math.Min(100, (snapshot.WorkingSetBytes / (1024.0 * 1024.0 * 1024.0)) * 100);
+        PerfMemoryBar.Width = PerfMemoryBar.Parent is Grid parent ? (parent.ActualWidth * memoryPercent / 100) : 0;
+
+        // Memory pressure with color
+        var pressure = PerformanceMonitor.Instance.GetMemoryPressureStatus();
+        PerfMemoryPressure.Text = pressure;
+        PerfMemoryPressure.Foreground = pressure switch
+        {
+            "Critical" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 244, 135, 113)), // #F48771
+            "High" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 220, 170)),     // #DCDCAA
+            "Moderate" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 220, 170)), // #DCDCAA
+            _ => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 78, 201, 176))            // #4EC9B0 (Healthy teal)
+        };
+
+        // GC collections
+        PerfGen0.Text = snapshot.Gen0Collections.ToString();
+        PerfGen1.Text = snapshot.Gen1Collections.ToString();
+        PerfGen2.Text = snapshot.Gen2Collections.ToString();
+
+        // Process stats
+        PerfCpuUsage.Text = $"{snapshot.CpuUsagePercent:F1}%";
+        PerfThreadCount.Text = snapshot.ThreadCount.ToString();
+        PerfHandleCount.Text = snapshot.HandleCount.ToString();
+    }
+
+    private void ForceGCButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var (before, after, freed) = PerformanceMonitor.Instance.ForceGarbageCollection();
+            PerfLastGcResult.Text = $"Freed {freed / 1024.0 / 1024.0:F2} MB\n" +
+                                    $"Before: {before / 1024.0 / 1024.0:F2} MB\n" +
+                                    $"After: {after / 1024.0 / 1024.0:F2} MB";
+            PerfLastGcResult.Foreground = new SolidColorBrush(Microsoft.UI.ColorHelper.FromArgb(255, 76, 175, 80));
+
+            // Refresh display immediately after GC
+            RefreshPerformanceDisplay();
+        }
+        catch (Exception ex)
+        {
+            PerfLastGcResult.Text = $"GC failed: {ex.Message}";
+            PerfLastGcResult.Foreground = new SolidColorBrush(Colors.Red);
+            Logger.Log($"Force GC failed: {ex.Message}");
+        }
+    }
+
+    // Note: ClosePerfButton_Click removed - tabs are managed in Debug.cs
 
     #endregion
 }

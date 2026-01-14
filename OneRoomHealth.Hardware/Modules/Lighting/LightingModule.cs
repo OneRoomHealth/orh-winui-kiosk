@@ -480,6 +480,10 @@ public class LightingModule : HardwareModuleBase
 
         await base.ShutdownAsync();
 
+        // Dispose synchronization primitives
+        _stateLock.Dispose();
+        _dmxCts?.Dispose();
+
         Logger.LogInformation("{ModuleName}: Shutdown complete", ModuleName);
     }
 }

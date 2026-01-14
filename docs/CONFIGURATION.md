@@ -56,8 +56,16 @@ The app automatically creates a default configuration file if it doesn't exist.
   },
   "httpApi": {
     "enabled": true,
-    "port": 8787,
+    "port": 8081,
     "allowRemote": false
+  },
+  "hardware": {
+    "displays": { "enabled": true },
+    "cameras": { "enabled": true },
+    "lighting": { "enabled": true },
+    "systemAudio": { "enabled": true },
+    "microphones": { "enabled": true },
+    "speakers": { "enabled": true }
   }
 }
 ```
@@ -191,8 +199,8 @@ See [Video Mode Guide](VIDEO_MODE_GUIDE.md) for details.
 
 ### `port`
 - **Type:** Integer
-- **Default:** `8787`
-- **Description:** Port number for HTTP API
+- **Default:** `8081`
+- **Description:** Port number for Hardware Control API
 - **Range:** 1024-65535
 
 ### `allowRemote`
@@ -200,6 +208,98 @@ See [Video Mode Guide](VIDEO_MODE_GUIDE.md) for details.
 - **Default:** `false`
 - **Description:** Allow connections from remote machines (not just localhost)
 - **Security:** Keep `false` unless you need remote control
+
+---
+
+## Hardware Settings
+
+The `hardware` section configures all hardware control modules.
+
+### Quick Reference
+
+```json
+{
+  "hardware": {
+    "displays": {
+      "enabled": true,
+      "monitorInterval": 1.0,
+      "devices": [
+        {
+          "id": "0",
+          "name": "Main LED Display",
+          "model": "Novastar KU20",
+          "ipAddresses": ["10.1.1.40"],
+          "port": 8001
+        }
+      ]
+    },
+    "cameras": {
+      "enabled": true,
+      "monitorInterval": 5.0,
+      "controllerExePath": "hardware/huddly/CameraController.exe",
+      "controllerApiPort": 5000,
+      "devices": [
+        {
+          "id": "0",
+          "name": "Main Camera",
+          "model": "Huddly L1",
+          "deviceId": "52446F0141"
+        }
+      ]
+    },
+    "lighting": {
+      "enabled": true,
+      "monitorInterval": 5.0,
+      "dmxFps": 25,
+      "devices": [
+        {
+          "id": "0",
+          "name": "Room Lights",
+          "channels": { "red": 17, "green": 18, "blue": 19, "white": 20 }
+        }
+      ]
+    },
+    "systemAudio": {
+      "enabled": true
+    },
+    "microphones": {
+      "enabled": true,
+      "devices": [
+        {
+          "id": "0",
+          "name": "Jabra Speak 750",
+          "friendlyNameMatch": "Jabra"
+        }
+      ]
+    },
+    "speakers": {
+      "enabled": true,
+      "devices": [
+        {
+          "id": "0",
+          "name": "Main Speakers",
+          "friendlyNameMatch": "Speakers"
+        }
+      ]
+    }
+  }
+}
+```
+
+### Module Enable/Disable
+
+Each hardware module can be individually enabled or disabled:
+
+```json
+{
+  "hardware": {
+    "displays": { "enabled": false },
+    "cameras": { "enabled": true }
+  }
+}
+```
+
+Disabled modules will not be initialized or monitored.
 
 ---
 

@@ -559,7 +559,10 @@ public class CameraModule : HardwareModuleBase
             }
         }
 
+        // Dispose all resources
+        _controllerProcess?.Dispose();
         _httpClient.Dispose();
+        _stateLock.Dispose();
 
         Logger.LogInformation("{ModuleName}: Shutdown complete", ModuleName);
     }

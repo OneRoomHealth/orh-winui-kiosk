@@ -24,9 +24,6 @@ public class HardwareConfiguration
 
     [JsonPropertyName("speakers")]
     public SpeakerConfiguration? Speakers { get; set; }
-
-    [JsonPropertyName("chromium")]
-    public ChromiumConfiguration? Chromium { get; set; }
 }
 
 /// <summary>
@@ -198,46 +195,4 @@ public class AudioDeviceConfig
 
     [JsonPropertyName("deviceId")]
     public string? DeviceId { get; set; }
-}
-
-/// <summary>
-/// Chromium browser module configuration.
-/// </summary>
-public class ChromiumConfiguration : ModuleConfigurationBase
-{
-    [JsonPropertyName("devices")]
-    public List<ChromiumInstanceConfig> Devices { get; set; } = new();
-}
-
-public class ChromiumInstanceConfig
-{
-    [JsonPropertyName("id")]
-    public required string Id { get; set; }
-
-    [JsonPropertyName("name")]
-    public required string Name { get; set; }
-
-    [JsonPropertyName("chromiumPath")]
-    public string? ChromiumPath { get; set; }
-
-    [JsonPropertyName("userDataDir")]
-    public string? UserDataDir { get; set; }
-
-    [JsonPropertyName("defaultUrl")]
-    public string? DefaultUrl { get; set; }
-
-    [JsonPropertyName("displayMode")]
-    public string DisplayMode { get; set; } = "kiosk";
-
-    [JsonPropertyName("targetDisplay")]
-    public string TargetDisplay { get; set; } = "primary";
-
-    [JsonPropertyName("windowSize")]
-    public int[]? WindowSize { get; set; }
-
-    [JsonPropertyName("muteAudio")]
-    public bool MuteAudio { get; set; } = false;
-
-    [JsonPropertyName("autoStart")]
-    public bool AutoStart { get; set; } = false;
 }

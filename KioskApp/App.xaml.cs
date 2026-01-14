@@ -6,12 +6,12 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using OneRoomHealth.Hardware.Services;
 using OneRoomHealth.Hardware.Modules.Display;
-using OneRoomHealth.Hardware.Modules.Chromium;
 using OneRoomHealth.Hardware.Modules.Camera;
 using OneRoomHealth.Hardware.Modules.Lighting;
 using OneRoomHealth.Hardware.Modules.SystemAudio;
 using OneRoomHealth.Hardware.Modules.Microphone;
 using OneRoomHealth.Hardware.Modules.Speaker;
+using KioskApp.Helpers;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace KioskApp;
@@ -32,6 +32,16 @@ public partial class App : Application
 	/// Provides access to the hardware health visualization service for the debug panel.
 	/// </summary>
 	public static HealthVisualizationService? HealthVisualization { get; private set; }
+
+	/// <summary>
+	/// Provides access to the hardware API server for debug panel status display.
+	/// </summary>
+	public static HardwareApiServer? HardwareApiServer { get; private set; }
+
+	/// <summary>
+	/// Provides access to the service provider for dependency injection.
+	/// </summary>
+	public static IServiceProvider? Services { get; private set; }
 
 	public App()
 	{
@@ -152,9 +162,11 @@ public partial class App : Application
 				rollingInterval: RollingInterval.Day,
 				fileSizeLimitBytes: config.Logging.MaxSizeKb * 1024,
 				retainedFileCountLimit: config.Logging.MaxFiles)
+			.WriteTo.Sink(UnifiedLogger.Instance) // Route to unified logger for debug panel
 			.CreateLogger();
 
 		Logger.Log($"Serilog configured, hardware logs at: {logFile}");
+		Logger.Log("UnifiedLogger sink connected for debug panel integration");
 
 		// Build service container
 		var services = new ServiceCollection();
@@ -179,17 +191,6 @@ public partial class App : Application
 				return new DisplayModule(logger, config.Hardware.Displays, httpClient);
 			});
 			Logger.Log("DisplayModule registered");
-		}
-
-		if (config.Hardware.Chromium != null && config.Hardware.Chromium.Enabled)
-		{
-			services.AddSingleton(sp =>
-			{
-				var logger = sp.GetRequiredService<ILogger<ChromiumModule>>();
-				var httpClient = sp.GetRequiredService<HttpClient>();
-				return new ChromiumModule(logger, config.Hardware.Chromium, httpClient);
-			});
-			Logger.Log("ChromiumModule registered");
 		}
 
 		// Register Camera module
@@ -263,6 +264,7 @@ public partial class App : Application
 
 		// Build the service provider
 		_serviceProvider = services.BuildServiceProvider();
+		Services = _serviceProvider;
 
 		Logger.Log("Service provider built");
 
@@ -275,13 +277,6 @@ public partial class App : Application
 		{
 			hardwareManager.RegisterModule(displayModule);
 			Logger.Log("DisplayModule registered with HardwareManager");
-		}
-
-		var chromiumModule = _serviceProvider.GetService<ChromiumModule>();
-		if (chromiumModule != null)
-		{
-			hardwareManager.RegisterModule(chromiumModule);
-			Logger.Log("ChromiumModule registered with HardwareManager");
 		}
 
 		var cameraModule = _serviceProvider.GetService<CameraModule>();
@@ -328,6 +323,7 @@ public partial class App : Application
 		if (config.HttpApi.Enabled)
 		{
 			_hardwareApiServer = _serviceProvider.GetRequiredService<HardwareApiServer>();
+			HardwareApiServer = _hardwareApiServer;
 			await _hardwareApiServer.StartAsync();
 			Logger.Log($"Hardware API server started on port {config.HttpApi.Port}");
 		}

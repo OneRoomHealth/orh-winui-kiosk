@@ -315,6 +315,11 @@ public class SpeakerModule : HardwareModuleBase
     {
         Logger.LogInformation("{ModuleName}: Shutting down", ModuleName);
         await base.ShutdownAsync();
+
+        // Dispose resources
+        _stateLock.Dispose();
+        _httpClient.Dispose();
+
         Logger.LogInformation("{ModuleName}: Shutdown complete", ModuleName);
     }
 }

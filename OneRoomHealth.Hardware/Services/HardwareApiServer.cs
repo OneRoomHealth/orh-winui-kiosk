@@ -229,20 +229,6 @@ public class HardwareApiServer
 
         try
         {
-            var chromiumModule = app.Services.GetService<Modules.Chromium.ChromiumModule>();
-            if (chromiumModule != null)
-            {
-                app.MapChromiumEndpoints(_logger);
-                _logger.LogInformation("Chromium endpoints registered");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not register Chromium endpoints");
-        }
-
-        try
-        {
             var cameraModule = app.Services.GetService<Modules.Camera.CameraModule>();
             if (cameraModule != null)
             {

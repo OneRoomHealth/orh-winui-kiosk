@@ -71,7 +71,6 @@ public class HealthVisualizationService : IDisposable
         var moduleDefinitions = new Dictionary<string, (string DisplayName, string Icon, string Description)>
         {
             ["Display"] = ("Display", "\uE7F4", "Novastar LED wall controller"),
-            ["Chromium"] = ("Chromium", "\uE774", "Chrome browser instances"),
             ["SystemAudio"] = ("System Audio", "\uE767", "Windows audio devices"),
             ["Microphone"] = ("Microphone", "\uE720", "Network microphones"),
             ["Speaker"] = ("Speaker", "\uE7F5", "Network speakers"),

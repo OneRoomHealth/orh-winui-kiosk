@@ -190,6 +190,7 @@ public class HardwareManager
         finally
         {
             _lock.Release();
+            _lock.Dispose();
         }
     }
 

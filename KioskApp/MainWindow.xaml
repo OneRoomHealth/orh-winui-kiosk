@@ -7,242 +7,633 @@
     xmlns:controls="using:Microsoft.UI.Xaml.Controls"
     mc:Ignorable="d">
 
-    <Grid KeyboardAcceleratorPlacementMode="Hidden">
-        <!-- Debug Navigation Panel (Hidden by default) -->
-        <Grid x:Name="DebugPanel" 
-              Height="80" 
-              VerticalAlignment="Top" 
-              Background="#2B2B2B"
-              Visibility="Collapsed">
+    <Grid x:Name="RootGrid" KeyboardAcceleratorPlacementMode="Hidden" Background="#1E1E1E">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- Debug UI Container -->
+            <RowDefinition Height="*"/>      <!-- WebView -->
+        </Grid.RowDefinitions>
+
+        <!-- ==================== DEBUG MODE UI ==================== -->
+        <!-- This entire section is hidden when not in debug mode -->
+        <Grid x:Name="DebugModeContainer" Grid.Row="0" Visibility="Collapsed">
             <Grid.RowDefinitions>
-                <RowDefinition Height="40"/>
-                <RowDefinition Height="40"/>
-            </Grid.RowDefinitions>
-            
-            <!-- URL Bar -->
-            <Grid Grid.Row="0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                
-                <TextBlock Text="URL:" 
-                           Foreground="White" 
-                           VerticalAlignment="Center" 
-                           Margin="10,0,5,0"/>
-                
-                <TextBox x:Name="UrlTextBox" 
-                         Grid.Column="1" 
-                         Margin="5"
-                         VerticalAlignment="Center"
-                         KeyDown="UrlTextBox_KeyDown"/>
-                
-                <Button x:Name="GoButton"
-                        Grid.Column="2" 
-                        Content="Go" 
-                        Width="50"
-                        Margin="5"
-                        Click="GoButton_Click"/>
-            </Grid>
-            
-            <!-- Debug Tools -->
-            <StackPanel Grid.Row="1" 
-                        Orientation="Horizontal" 
-                        Margin="10,0">
-                <Button x:Name="BackButton" Content="← Back" Margin="2" Click="BackButton_Click"/>
-                <Button x:Name="ForwardButton" Content="→ Forward" Margin="2" Click="ForwardButton_Click"/>
-                <Button x:Name="RefreshButton" Content="⟳ Refresh" Margin="2" Click="RefreshButton_Click"/>
-                <Button x:Name="DevToolsButton" Content="DevTools (F12)" Margin="2" Click="DevToolsButton_Click"/>
-                
-                <!-- Camera Selector -->
-                <StackPanel Orientation="Horizontal" Margin="2" VerticalAlignment="Center">
-                    <TextBlock Text="📷" VerticalAlignment="Center" Foreground="White" Margin="5,0,5,0"/>
-                    <ComboBox x:Name="CameraSelector" 
-                              Width="160" 
-                              Height="28"
-                              DisplayMemberPath="Label"
-                              PlaceholderText="Select Camera..."
-                              SelectionChanged="CameraSelector_SelectionChanged"/>
-                    <Button x:Name="RefreshCamerasButton" Content="↻" Margin="2" Padding="6,2" Click="RefreshCamerasButton_Click" ToolTipService.ToolTip="Refresh camera list"/>
-                </StackPanel>
-                
-                <!-- Microphone Selector -->
-                <StackPanel Orientation="Horizontal" Margin="2" VerticalAlignment="Center">
-                    <TextBlock Text="🎤" VerticalAlignment="Center" Foreground="White" Margin="5,0,5,0"/>
-                    <ComboBox x:Name="MicrophoneSelector" 
-                              Width="160" 
-                              Height="28"
-                              DisplayMemberPath="Label"
-                              PlaceholderText="Select Mic..."
-                              SelectionChanged="MicrophoneSelector_SelectionChanged"/>
-                    <Button x:Name="RefreshMicrophonesButton" Content="↻" Margin="2" Padding="6,2" Click="RefreshMicrophonesButton_Click" ToolTipService.ToolTip="Refresh microphone list"/>
-                </StackPanel>
-                
-                <Button x:Name="ViewLogsButton" Content="📋 View Logs" Margin="2" Click="ViewLogsButton_Click"/>
-                <Button x:Name="HardwareHealthButton" Content="💚 Hardware" Margin="2" Click="HardwareHealthButton_Click" ToolTipService.ToolTip="View hardware module health status"/>
-                <Button x:Name="SwitchMonitorButton" Content="🖥️ Switch Monitor" Margin="2" Click="SwitchMonitorButton_Click"/>
-            </StackPanel>
-        </Grid>
-        
-        <!-- Hardware Health Panel (Hidden by default, shown via debug button) -->
-        <Grid x:Name="HardwareHealthPanel"
-              Background="#1E1E1E"
-              Visibility="Collapsed"
-              VerticalAlignment="Bottom"
-              Height="350">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="28"/>   <!-- Title Bar -->
+                <RowDefinition Height="40"/>   <!-- Main Toolbar -->
+                <RowDefinition Height="36"/>   <!-- Secondary Toolbar -->
             </Grid.RowDefinitions>
 
-            <!-- Health Panel Header -->
-            <Grid Grid.Row="0" Background="#2B2B2B" Padding="10,5">
+            <!-- ===== 1. TITLE BAR ===== -->
+            <Grid Grid.Row="0" Background="#323233">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="Hardware Health Monitor"
+
+                <!-- Left: App Icon + Debug Badge + App Name -->
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="12,0">
+                    <TextBlock Text="&#x2B21;" Foreground="#569CD6" FontWeight="SemiBold" FontSize="14"/>
+                    <Border Background="#3C3C3C" CornerRadius="3" Padding="6,2">
+                        <TextBlock Text="DEBUG MODE" Foreground="#DCDCAA" FontSize="10" FontWeight="SemiBold"/>
+                    </Border>
+                    <TextBlock Text="OneRoom Health Kiosk" Foreground="#4EC9B0" FontSize="12"
+                               FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- Right: API Status + Uptime -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" Margin="12,0" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="API:" Foreground="#858585" FontSize="11"
+                                   FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TitleBarApiStatusIcon" Text="&#x25CF;" Foreground="#4EC9B0" FontSize="10" VerticalAlignment="Center"/>
+                        <TextBlock x:Name="TitleBarApiEndpoint" Text="localhost:8081" Foreground="#858585" FontSize="11"
+                                   FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock x:Name="TitleBarUptimeText" Text="Uptime: 0s" Foreground="#858585" FontSize="11"
+                               FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- ===== 2. MAIN TOOLBAR ===== -->
+            <Grid Grid.Row="1" Background="#252526" Padding="8,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>  <!-- Navigation Buttons -->
+                    <ColumnDefinition Width="*"/>     <!-- URL Bar -->
+                    <ColumnDefinition Width="Auto"/>  <!-- DevTools -->
+                </Grid.ColumnDefinitions>
+
+                <!-- Navigation Buttons -->
+                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                    <Button x:Name="BackButton" Content="&#x2190;" ToolTipService.ToolTip="Back"
+                            Style="{StaticResource DebugToolbarButtonStyle}" Click="BackButton_Click"/>
+                    <Button x:Name="ForwardButton" Content="&#x2192;" ToolTipService.ToolTip="Forward"
+                            Style="{StaticResource DebugToolbarButtonStyle}" Click="ForwardButton_Click"/>
+                    <Button x:Name="RefreshButton" Content="&#x21BB;" ToolTipService.ToolTip="Refresh"
+                            Style="{StaticResource DebugToolbarButtonStyle}" Click="RefreshButton_Click"/>
+                </StackPanel>
+
+                <!-- URL Bar -->
+                <Border Grid.Column="1" Style="{StaticResource DebugUrlBarContainerStyle}"
+                        Margin="12,4" VerticalAlignment="Center">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="URL:" Foreground="#858585" FontSize="11"
+                                   FontFamily="Cascadia Code, Consolas"
+                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBox x:Name="UrlTextBox" Grid.Column="1"
+                                 Style="{StaticResource DebugTextBoxStyle}"
+                                 VerticalAlignment="Center"
+                                 KeyDown="UrlTextBox_KeyDown"/>
+                        <Button x:Name="GoButton" Grid.Column="2" Content="Go"
+                                Style="{StaticResource DebugToolbarButtonStyle}"
+                                Padding="12,4" Click="GoButton_Click"/>
+                    </Grid>
+                </Border>
+
+                <!-- DevTools Button -->
+                <Button x:Name="DevToolsButton" Grid.Column="2"
+                        Style="{StaticResource DebugToolbarButtonStyle}"
+                        Click="DevToolsButton_Click" Margin="0,0,4,0">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="&#x1F6E0;" FontSize="12"/>
+                        <TextBlock Text="DevTools" FontSize="12"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+
+            <!-- ===== 3. SECONDARY TOOLBAR ===== -->
+            <Grid Grid.Row="2" Background="#2D2D2D" Padding="8,0" BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>   <!-- Device Selectors -->
+                    <ColumnDefinition Width="Auto"/> <!-- Quick Actions -->
+                </Grid.ColumnDefinitions>
+
+                <!-- Device Selectors -->
+                <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                    <!-- Camera Selector -->
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="&#x1F4F7;" Foreground="#858585" VerticalAlignment="Center" FontSize="12"/>
+                        <ComboBox x:Name="CameraSelector" Width="180"
+                                  Style="{StaticResource DebugComboBoxStyle}"
+                                  DisplayMemberPath="Label"
+                                  PlaceholderText="Select Camera..."
+                                  SelectionChanged="CameraSelector_SelectionChanged"/>
+                        <Button x:Name="RefreshCamerasButton" Content="&#x21BB;"
+                                Style="{StaticResource DebugToolbarButtonStyle}"
+                                Padding="6,4" Click="RefreshCamerasButton_Click"
+                                ToolTipService.ToolTip="Refresh camera list"/>
+                    </StackPanel>
+
+                    <!-- Microphone Selector -->
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="&#x1F3A4;" Foreground="#858585" VerticalAlignment="Center" FontSize="12"/>
+                        <ComboBox x:Name="MicrophoneSelector" Width="180"
+                                  Style="{StaticResource DebugComboBoxStyle}"
+                                  DisplayMemberPath="Label"
+                                  PlaceholderText="Select Mic..."
+                                  SelectionChanged="MicrophoneSelector_SelectionChanged"/>
+                        <Button x:Name="RefreshMicrophonesButton" Content="&#x21BB;"
+                                Style="{StaticResource DebugToolbarButtonStyle}"
+                                Padding="6,4" Click="RefreshMicrophonesButton_Click"
+                                ToolTipService.ToolTip="Refresh microphone list"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- Quick Action Buttons -->
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button x:Name="ExportDiagnosticsButton"
+                            Style="{StaticResource DebugToolbarButtonAccentStyle}"
+                            Click="ExportDiagnosticsButton_Click"
+                            ToolTipService.ToolTip="Export logs, config, and health snapshot">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="&#x1F4E6;" FontSize="12"/>
+                            <TextBlock Text="Export Diagnostics" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="ResetWebViewButton"
+                            Style="{StaticResource DebugToolbarButtonWarningStyle}"
+                            Click="ResetWebViewButton_Click"
+                            ToolTipService.ToolTip="Reset WebView2 to default URL">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="&#x1F504;" FontSize="12"/>
+                            <TextBlock Text="Reset WebView" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <!-- ==================== MAIN CONTENT AREA ==================== -->
+        <Grid Grid.Row="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>      <!-- WebView -->
+                <RowDefinition Height="Auto"/>   <!-- Bottom Panel (debug mode only) -->
+                <RowDefinition Height="Auto"/>   <!-- Status Bar (debug mode only) -->
+            </Grid.RowDefinitions>
+
+            <!-- WebView -->
+            <controls:WebView2 x:Name="KioskWebView"
+                               Grid.Row="0"
+                               HorizontalAlignment="Stretch"
+                               VerticalAlignment="Stretch"
+                               DefaultBackgroundColor="Transparent"/>
+
+            <!-- Status overlay shown during loading/errors -->
+            <Border x:Name="StatusOverlay"
+                    Grid.Row="0"
+                    Background="#80000000"
+                    Visibility="Collapsed">
+                <StackPanel HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Spacing="8">
+                    <TextBlock x:Name="StatusTitle"
+                               Text="Loading kiosk..."
                                Foreground="White"
-                               FontWeight="Bold"
-                               VerticalAlignment="Center"/>
-                    <TextBlock x:Name="HealthSummaryText"
-                               Text="Loading..."
-                               Foreground="#888888"
-                               VerticalAlignment="Center"/>
+                               FontSize="20"
+                               TextAlignment="Center"/>
+                    <TextBlock x:Name="StatusDetail"
+                               Text=""
+                               Foreground="White"
+                               Opacity="0.8"
+                               TextAlignment="Center"
+                               TextWrapping="WrapWholeWords"
+                               MaxWidth="800"/>
                 </StackPanel>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5">
-                    <Button x:Name="RefreshHealthButton"
-                            Content="↻ Refresh"
-                            Click="RefreshHealthButton_Click"
-                            Padding="10,5"
-                            Margin="0,0,5,0"/>
-                    <Button x:Name="CloseHealthButton"
-                            Content="Close"
-                            Click="CloseHealthButton_Click"
-                            Padding="10,5"/>
-                </StackPanel>
+            </Border>
+
+            <!-- ===== TABBED BOTTOM PANEL ===== -->
+            <Grid x:Name="TabbedBottomPanel" Grid.Row="1"
+                  Background="#252526"
+                  Height="280"
+                  Visibility="Collapsed"
+                  BorderBrush="#3C3C3C" BorderThickness="0,1,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="36"/>   <!-- Tab Bar -->
+                    <RowDefinition Height="*"/>    <!-- Tab Content -->
+                </Grid.RowDefinitions>
+
+                <!-- Tab Bar -->
+                <Grid Grid.Row="0" Background="#252526">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="HealthTabButton"
+                                Style="{StaticResource DebugTabButtonActiveStyle}"
+                                Click="HealthTabButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="&#x1F49A;" FontSize="12"/>
+                                <TextBlock Text="Hardware Health" FontSize="12"/>
+                                <Border x:Name="HealthIssueBadge"
+                                        Background="#3D3A1E" CornerRadius="10"
+                                        Padding="6,2" Margin="4,0,0,0"
+                                        Visibility="Collapsed">
+                                    <TextBlock x:Name="HealthIssueBadgeText" Text="0 issues"
+                                               Foreground="#DCDCAA" FontSize="10"/>
+                                </Border>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="LogsTabButton"
+                                Style="{StaticResource DebugTabButtonStyle}"
+                                Click="LogsTabButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="&#x1F4CB;" FontSize="12"/>
+                                <TextBlock Text="Logs" FontSize="12"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="PerfTabButton"
+                                Style="{StaticResource DebugTabButtonStyle}"
+                                Click="PerfTabButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="&#x1F4CA;" FontSize="12"/>
+                                <TextBlock Text="Performance" FontSize="12"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- Panel Controls -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" Margin="8,0">
+                        <Button x:Name="RefreshPanelButton" Content="&#x21BB;"
+                                Style="{StaticResource DebugToolbarButtonStyle}"
+                                Click="RefreshPanelButton_Click"
+                                ToolTipService.ToolTip="Refresh panel data"/>
+                    </StackPanel>
+                </Grid>
+
+                <!-- Tab Content Container -->
+                <Grid Grid.Row="1" Background="#1E1E1E">
+
+                    <!-- ===== HARDWARE HEALTH TAB CONTENT ===== -->
+                    <Grid x:Name="HealthTabContent" Visibility="Visible">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Module Cards Grid -->
+                        <ScrollViewer Grid.Row="0"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      Padding="12">
+                            <ItemsControl x:Name="ModuleHealthItemsControl">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="12"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <!-- Health Footer -->
+                        <Grid Grid.Row="1" Background="#252526" Padding="12,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="HealthFooterText"
+                                       Text="API: http://localhost:8081 | Uptime: 0s"
+                                       Foreground="#858585" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                            <TextBlock Grid.Column="1"
+                                       x:Name="HealthLastRefreshText"
+                                       Text="Last refresh: Never"
+                                       Foreground="#666666" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                        </Grid>
+                    </Grid>
+
+                    <!-- ===== MODULE DETAIL PANEL (Overlay) ===== -->
+                    <Border x:Name="ModuleDetailPanel"
+                            Background="#1E1E1E"
+                            BorderBrush="#3C3C3C" BorderThickness="1"
+                            Visibility="Collapsed"
+                            Margin="12">
+                        <Grid Padding="16">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Detail Header -->
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock x:Name="DetailModuleName" Text="Module Details"
+                                               Foreground="#CCCCCC" FontSize="14" FontWeight="SemiBold"
+                                               FontFamily="Cascadia Code, Consolas"/>
+                                    <TextBlock x:Name="DetailModuleStatus" Text="&#x25CF;"
+                                               Foreground="#4EC9B0" FontSize="14" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <Button x:Name="DetailReconnectButton"
+                                            Style="{StaticResource DebugToolbarButtonAccentStyle}"
+                                            Click="DetailReconnectButton_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="&#x21BB;" FontSize="12"/>
+                                            <TextBlock Text="Reconnect" FontSize="12"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="CloseDetailButton" Content="&#x2715;"
+                                            Style="{StaticResource DebugToolbarButtonStyle}"
+                                            Click="CloseDetailButton_Click"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <!-- Detail Content: Properties + Events -->
+                            <Grid Grid.Row="1" Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Properties Column -->
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="PROPERTIES" Style="{StaticResource DebugSectionHeaderStyle}" Margin="0,0,0,8"/>
+                                    <StackPanel x:Name="DetailPropertiesPanel" Spacing="4"/>
+                                </StackPanel>
+
+                                <!-- Recent Events Column -->
+                                <StackPanel Grid.Column="2">
+                                    <TextBlock Text="RECENT EVENTS" Style="{StaticResource DebugSectionHeaderStyle}" Margin="0,0,0,8"/>
+                                    <StackPanel x:Name="DetailEventsPanel" Spacing="4"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+
+                    <!-- ===== LOGS TAB CONTENT ===== -->
+                    <Grid x:Name="LogsTabContent" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Log Filters Bar -->
+                        <Grid Grid.Row="0" Background="#2D2D2D" Padding="12,8"
+                              BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="Level:" Foreground="#858585" FontSize="11"
+                                               FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="LogLevelSelector" Width="100"
+                                              Style="{StaticResource DebugComboBoxStyle}"
+                                              SelectionChanged="LogLevelSelector_SelectionChanged"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="Module:" Foreground="#858585" FontSize="11"
+                                               FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="ModuleFilterSelector" Width="140"
+                                              Style="{StaticResource DebugComboBoxStyle}"
+                                              SelectionChanged="ModuleFilterSelector_SelectionChanged"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="ClearLogsButton"
+                                        Style="{StaticResource DebugToolbarButtonErrorStyle}"
+                                        Click="ClearLogsButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock Text="&#x1F5D1;" FontSize="12"/>
+                                        <TextBlock Text="Clear" FontSize="12"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button x:Name="CopyLogsButton"
+                                        Style="{StaticResource DebugToolbarButtonAccentStyle}"
+                                        Click="CopyLogsButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock Text="&#x1F4CB;" FontSize="12"/>
+                                        <TextBlock Text="Copy All" FontSize="12"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Log Content -->
+                        <ScrollViewer x:Name="LogScrollViewer" Grid.Row="1"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto"
+                                      Background="#1E1E1E">
+                            <TextBlock x:Name="LogContentTextBlock"
+                                       FontFamily="Cascadia Code, Consolas"
+                                       FontSize="11"
+                                       Foreground="#CCCCCC"
+                                       TextWrapping="NoWrap"
+                                       IsTextSelectionEnabled="True"
+                                       Padding="12"/>
+                        </ScrollViewer>
+
+                        <!-- Log Footer -->
+                        <Grid Grid.Row="2" Background="#252526" Padding="12,6">
+                            <TextBlock x:Name="LogCountTextBlock"
+                                       Text="0 log entries"
+                                       Foreground="#858585" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                        </Grid>
+                    </Grid>
+
+                    <!-- ===== PERFORMANCE TAB CONTENT ===== -->
+                    <Grid x:Name="PerfTabContent" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Performance Cards -->
+                        <ScrollViewer Grid.Row="0" Padding="12"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+
+                                <!-- Memory Card -->
+                                <Border Style="{StaticResource DebugPerformanceCardStyle}" Width="200">
+                                    <StackPanel>
+                                        <TextBlock Text="MEMORY" Style="{StaticResource DebugSectionHeaderStyle}"/>
+                                        <TextBlock x:Name="PerfWorkingSet" Text="0 MB"
+                                                   Style="{StaticResource DebugLargeValueStyle}" Margin="0,8,0,0"/>
+                                        <TextBlock Text="Working Set" Foreground="#858585" FontSize="11"
+                                                   FontFamily="Cascadia Code, Consolas"/>
+
+                                        <Grid Height="4" Background="#3C3C3C" CornerRadius="2" Margin="0,12,0,8">
+                                            <Border x:Name="PerfMemoryBar" Background="#4EC9B0"
+                                                    CornerRadius="2" HorizontalAlignment="Left" Width="0"/>
+                                        </Grid>
+
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="GC Memory:" Foreground="#858585" FontSize="11"
+                                                       FontFamily="Cascadia Code, Consolas"/>
+                                            <TextBlock Grid.Column="1" x:Name="PerfGcMemory" Text="0 MB"
+                                                       Foreground="#CCCCCC" FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+                                        </Grid>
+                                        <Grid Margin="0,4,0,0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="Pressure:" Foreground="#858585" FontSize="11"
+                                                       FontFamily="Cascadia Code, Consolas"/>
+                                            <TextBlock Grid.Column="1" x:Name="PerfMemoryPressure" Text="Normal"
+                                                       Foreground="#4EC9B0" FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- GC Collections Card -->
+                                <Border Style="{StaticResource DebugPerformanceCardStyle}" Width="180">
+                                    <StackPanel>
+                                        <TextBlock Text="GC COLLECTIONS" Style="{StaticResource DebugSectionHeaderStyle}"/>
+
+                                        <Grid Margin="0,12,0,0">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Grid.Row="0" Text="Gen 0 (fast):" Foreground="#858585"
+                                                       FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="PerfGen0" Text="0"
+                                                       Foreground="#CCCCCC" FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+
+                                            <TextBlock Grid.Row="1" Text="Gen 1 (med):" Foreground="#858585"
+                                                       FontSize="11" FontFamily="Cascadia Code, Consolas" Margin="0,4,0,0"/>
+                                            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="PerfGen1" Text="0"
+                                                       Foreground="#CCCCCC" FontSize="11" FontFamily="Cascadia Code, Consolas" Margin="0,4,0,0"/>
+
+                                            <TextBlock Grid.Row="2" Text="Gen 2 (full):" Foreground="#858585"
+                                                       FontSize="11" FontFamily="Cascadia Code, Consolas" Margin="0,4,0,0"/>
+                                            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="PerfGen2" Text="0"
+                                                       Foreground="#DCDCAA" FontSize="11" FontFamily="Cascadia Code, Consolas" Margin="0,4,0,0"/>
+                                        </Grid>
+
+                                        <Button x:Name="ForceGCButton" Margin="0,16,0,0"
+                                                Style="{StaticResource DebugToolbarButtonWarningStyle}"
+                                                Click="ForceGCButton_Click"
+                                                HorizontalAlignment="Stretch">
+                                            <TextBlock Text="Force GC" FontSize="11"/>
+                                        </Button>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Process Card -->
+                                <Border Style="{StaticResource DebugPerformanceCardStyle}" Width="180">
+                                    <StackPanel>
+                                        <TextBlock Text="PROCESS" Style="{StaticResource DebugSectionHeaderStyle}"/>
+
+                                        <Grid Margin="0,12,0,0">
+                                            <Grid.RowDefinitions>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                                <RowDefinition Height="Auto"/>
+                                            </Grid.RowDefinitions>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <TextBlock Grid.Row="0" Text="CPU:" Foreground="#858585"
+                                                       FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+                                            <TextBlock Grid.Row="0" Grid.Column="1" x:Name="PerfCpuUsage" Text="0%"
+                                                       Foreground="#CCCCCC" FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+
+                                            <TextBlock Grid.Row="1" Text="Threads:" Foreground="#858585"
+                                                       FontSize="11" FontFamily="Cascadia Code, Consolas" Margin="0,4,0,0"/>
+                                            <TextBlock Grid.Row="1" Grid.Column="1" x:Name="PerfThreadCount" Text="0"
+                                                       Foreground="#CCCCCC" FontSize="11" FontFamily="Cascadia Code, Consolas" Margin="0,4,0,0"/>
+
+                                            <TextBlock Grid.Row="2" Text="Handles:" Foreground="#858585"
+                                                       FontSize="11" FontFamily="Cascadia Code, Consolas" Margin="0,4,0,0"/>
+                                            <TextBlock Grid.Row="2" Grid.Column="1" x:Name="PerfHandleCount" Text="0"
+                                                       Foreground="#CCCCCC" FontSize="11" FontFamily="Cascadia Code, Consolas" Margin="0,4,0,0"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Last GC Result Card -->
+                                <Border Style="{StaticResource DebugPerformanceCardStyle}" Width="220">
+                                    <StackPanel>
+                                        <TextBlock Text="LAST GC RESULT" Style="{StaticResource DebugSectionHeaderStyle}"/>
+                                        <TextBlock x:Name="PerfLastGcResult"
+                                                   Text="No forced GC yet"
+                                                   Foreground="#858585" FontSize="11"
+                                                   FontFamily="Cascadia Code, Consolas"
+                                                   TextWrapping="Wrap"
+                                                   Margin="0,12,0,0"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- Performance Footer -->
+                        <Grid Grid.Row="1" Background="#252526" Padding="12,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="PerfFooterText"
+                                       Text="Sampling every 1 second"
+                                       Foreground="#858585" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                            <TextBlock Grid.Column="1" x:Name="PerfUptimeText"
+                                       Text="Uptime: 0s"
+                                       Foreground="#666666" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                        </Grid>
+                    </Grid>
+                </Grid>
             </Grid>
 
-            <!-- Health Content - Module Cards -->
-            <ScrollViewer Grid.Row="1"
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Auto"
-                          Padding="10">
-                <StackPanel x:Name="ModuleHealthCards" Orientation="Horizontal" Spacing="10"/>
-            </ScrollViewer>
-
-            <!-- Health Footer -->
-            <Grid Grid.Row="2" Background="#2B2B2B" Padding="10,5">
+            <!-- ===== STATUS BAR ===== -->
+            <Grid x:Name="DebugStatusBar" Grid.Row="2"
+                  Height="22" Background="#007ACC"
+                  Visibility="Collapsed">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="HealthFooterText"
-                           Text="API: http://localhost:8081 | Uptime: 0s"
-                           Foreground="#888888"
-                           FontSize="10"/>
-                <TextBlock Grid.Column="1"
-                           x:Name="HealthLastRefreshText"
-                           Text="Last refresh: Never"
-                           Foreground="#666666"
-                           FontSize="10"/>
-            </Grid>
-        </Grid>
 
-        <!-- Log Viewer Panel (Hidden by default, shown in debug mode) -->
-        <Grid x:Name="LogViewerPanel"
-              Background="#1E1E1E"
-              Visibility="Collapsed"
-              VerticalAlignment="Bottom"
-              Height="300">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
-            
-            <!-- Log Viewer Header -->
-            <Grid Grid.Row="0" Background="#2B2B2B" Padding="10,5">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Text="Application Logs" 
-                           Foreground="White" 
-                           FontWeight="Bold"
-                           VerticalAlignment="Center"/>
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5">
-                    <Button x:Name="CopyLogsButton" 
-                            Content="Copy" 
-                            Click="CopyLogsButton_Click"
-                            Padding="10,5"
-                            Margin="0,0,5,0"/>
-                    <Button x:Name="ClearLogsButton" 
-                            Content="Clear" 
-                            Click="ClearLogsButton_Click"
-                            Padding="10,5"
-                            Margin="0,0,5,0"/>
-                    <Button x:Name="CloseLogsButton" 
-                            Content="Close" 
-                            Click="CloseLogsButton_Click"
-                            Padding="10,5"/>
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="12,0" VerticalAlignment="Center">
+                    <TextBlock Text="&#x2B21; OneRoom Health Kiosk v2.1.0"
+                               Foreground="White" FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+                    <TextBlock Text="|" Foreground="White" Opacity="0.5"/>
+                    <TextBlock x:Name="StatusBarModuleCount" Text="&#x1F50C; 0/0 modules connected"
+                               Foreground="White" FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" Margin="12,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="StatusBarLastRefresh" Text="Last refresh: --:--:--"
+                               Foreground="White" FontSize="11" FontFamily="Cascadia Code, Consolas"/>
+                    <TextBlock Text="|" Foreground="White" Opacity="0.5"/>
+                    <TextBlock Text="Ctrl+Shift+Q to exit" Foreground="White" FontSize="11"
+                               FontFamily="Cascadia Code, Consolas" Opacity="0.7"/>
                 </StackPanel>
             </Grid>
-            
-            <!-- Log Content -->
-            <ScrollViewer x:Name="LogScrollViewer"
-                          Grid.Row="1" 
-                          VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Auto">
-                <TextBlock x:Name="LogContentTextBlock"
-                           FontFamily="Consolas"
-                           FontSize="11"
-                           Foreground="#D4D4D4"
-                           TextWrapping="NoWrap"
-                           IsTextSelectionEnabled="True"
-                           Padding="10"/>
-            </ScrollViewer>
-            
-            <!-- Log Footer -->
-            <Grid Grid.Row="2" Background="#2B2B2B" Padding="10,5">
-                <TextBlock x:Name="LogCountTextBlock"
-                           Text="0 log entries"
-                           Foreground="#888888"
-                           FontSize="10"/>
-            </Grid>
         </Grid>
-        
-        <!-- WebView -->
-        <controls:WebView2 x:Name="KioskWebView"
-                  HorizontalAlignment="Stretch"
-                  VerticalAlignment="Stretch"
-                  Margin="0,0,0,0"
-                  DefaultBackgroundColor="Transparent" />
 
-        <!-- Status overlay shown during loading/errors -->
-        <Border x:Name="StatusOverlay"
-                Background="#80000000"
-                Visibility="Collapsed">
-            <StackPanel HorizontalAlignment="Center"
-                        VerticalAlignment="Center"
-                        Spacing="8">
-                <TextBlock x:Name="StatusTitle"
-                           Text="Loading kiosk..."
-                           Foreground="White"
-                           FontSize="20"
-                           TextAlignment="Center"/>
-                <TextBlock x:Name="StatusDetail"
-                           Text=""
-                           Foreground="White"
-                           Opacity="0.8"
-                           TextAlignment="Center"
-                           TextWrapping="WrapWholeWords"
-                           MaxWidth="800"/>
-            </StackPanel>
-        </Border>
+        <!-- Legacy panels removed - functionality moved to tabbed panel -->
+        <!-- HardwareHealthPanel, LogViewerPanel, PerformancePanel are now tabs -->
+
     </Grid>
 </Window>
-
