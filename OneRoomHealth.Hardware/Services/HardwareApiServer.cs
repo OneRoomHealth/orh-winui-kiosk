@@ -25,8 +25,6 @@ public class HardwareApiServer
     private readonly int _port;
     private WebApplication? _app;
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
-    private Func<string, Task>? _navigateHandler;
-
     /// <summary>
     /// Gets whether the API server is currently running.
     /// </summary>
@@ -40,15 +38,6 @@ public class HardwareApiServer
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hardwareManager = hardwareManager ?? throw new ArgumentNullException(nameof(hardwareManager));
         _port = port;
-    }
-
-    /// <summary>
-    /// Provide a host callback to handle navigation requests (e.g., navigate the kiosk WebView).
-    /// </summary>
-    public void SetNavigationHandler(Func<string, Task> handler)
-    {
-        _navigateHandler = handler ?? throw new ArgumentNullException(nameof(handler));
-        _logger.LogInformation("Navigation handler registered");
     }
 
     /// <summary>
@@ -113,7 +102,6 @@ public class HardwareApiServer
         // Map API endpoints
         MapSystemEndpoints(_app);
         MapModuleEndpoints(_app);
-        MapNavigationEndpoints(_app);
 
         // Start the server
         await _app.StartAsync();
@@ -303,92 +291,6 @@ public class HardwareApiServer
         }
     }
 
-    private void MapNavigationEndpoints(WebApplication app)
-    {
-        // Back-compat endpoint to support existing local automation:
-        // POST http://127.0.0.1:{port}/navigate  { "url": "https://example.com" }
-        app.MapPost("/navigate", async (HttpRequest request) =>
-        {
-            try
-            {
-                _logger.LogDebug("POST /navigate");
-
-                // Read raw body for robust parsing + diagnostics (curl/PowerShell quoting issues are common).
-                string rawBody;
-                using (var reader = new StreamReader(request.Body))
-                {
-                    rawBody = await reader.ReadToEndAsync();
-                }
-
-                _logger.LogInformation("POST /navigate Content-Type={ContentType} RawBody={RawBody}", request.ContentType, rawBody);
-
-                string? url = null;
-
-                // Try JSON first: {"url":"https://..."}
-                if (!string.IsNullOrWhiteSpace(rawBody))
-                {
-                    try
-                    {
-                        using var doc = JsonDocument.Parse(rawBody);
-                        if (doc.RootElement.ValueKind == JsonValueKind.Object &&
-                            doc.RootElement.TryGetProperty("url", out var urlEl) &&
-                            urlEl.ValueKind == JsonValueKind.String)
-                        {
-                            url = urlEl.GetString();
-                        }
-                    }
-                    catch (JsonException)
-                    {
-                        // fall through to other parsing options below
-                    }
-                }
-
-                // Fallback: allow plain text body containing just the URL
-                if (string.IsNullOrWhiteSpace(url) && !string.IsNullOrWhiteSpace(rawBody) &&
-                    Uri.TryCreate(rawBody.Trim().Trim('"', '\''), UriKind.Absolute, out _))
-                {
-                    url = rawBody.Trim().Trim('"', '\'');
-                }
-
-                if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
-                {
-                    return Results.BadRequest(new
-                    {
-                        success = false,
-                        message = "Invalid request body. Send JSON: {\"url\":\"https://example.com\"}",
-                        received = rawBody
-                    });
-                }
-
-                var handler = _navigateHandler;
-                if (handler == null)
-                {
-                    return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
-                }
-
-                await handler(url);
-                return Results.Ok(new { success = true, message = $"Navigating to {url}" });
-            }
-            catch (JsonException ex)
-            {
-                _logger.LogWarning(ex, "Invalid JSON for /navigate");
-                return Results.BadRequest(new { success = false, message = "Invalid JSON. Expected: {\"url\":\"https://example.com\"}" });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error handling /navigate");
-                return Results.Problem(ex.Message);
-            }
-        })
-        .WithTags("Navigation")
-        .WithSummary("Navigate kiosk to a URL")
-        .WithDescription("Back-compat endpoint. POST /navigate with JSON body {\"url\":\"https://...\"}");
-    }
-}
-
-internal sealed class NavigateRequest
-{
-    public string? Url { get; set; }
 }
 
 /// <summary>

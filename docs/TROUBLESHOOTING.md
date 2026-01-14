@@ -113,26 +113,26 @@ Add-AppxPackage -Path ".\OneRoomHealthKioskApp_x.x.x.x_x64.msix"
 2. Run installer: `MicrosoftEdgeWebview2Setup.exe`
 3. Restart app
 
-### Error: "Access is denied" (Port 8787)
+### Error: "Access is denied" (Port 8081)
 
-**Cause:** HTTP server can't bind to port 8787
+**Cause:** HTTP server can't bind to port 8081
 
 **Solution:**
 - App will still work, just without HTTP API
 - To fix, run app as Administrator (not recommended for kiosk)
 - Or configure URL ACL:
   ```powershell
-  netsh http add urlacl url=http://127.0.0.1:8787/ user=Everyone
+  netsh http add urlacl url=http://127.0.0.1:8081/ user=Everyone
   ```
 
-### Error: "Port 8787 already in use"
+### Error: "Port 8081 already in use"
 
-**Cause:** Another application is using port 8787
+**Cause:** Another application is using port 8081
 
 **Solution:**
 ```powershell
 # Find what's using the port
-netstat -ano | findstr :8787
+netstat -ano | findstr :8081
 
 # Kill the process (replace PID with actual process ID)
 taskkill /PID <PID> /F
@@ -211,14 +211,14 @@ if ($cert) {
     Write-Host "✗ Certificate NOT installed" -ForegroundColor Red
 }
 
-# 5. Check port 8787
-Write-Host "`n[5] Checking port 8787..." -ForegroundColor Yellow
-$port = netstat -ano | Select-String ":8787"
+# 5. Check port 8081
+Write-Host "`n[5] Checking port 8081..." -ForegroundColor Yellow
+$port = netstat -ano | Select-String ":8081"
 if ($port) {
-    Write-Host "○ Port 8787 in use:" -ForegroundColor Yellow
+    Write-Host "○ Port 8081 in use:" -ForegroundColor Yellow
     Write-Host "  $port"
 } else {
-    Write-Host "✓ Port 8787 available" -ForegroundColor Green
+    Write-Host "✓ Port 8081 available" -ForegroundColor Green
 }
 
 # 6. Check recent errors in Event Log
@@ -299,7 +299,7 @@ The latest version (v1.0.10+) includes extensive debug logging:
    - You'll see messages like:
      - `=== OneRoom Health Kiosk App Starting ===`
      - `MainWindow created and activated`
-     - `HTTP Command Server started on http://127.0.0.1:8787`
+     - `Hardware API Server started on http://127.0.0.1:8081`
      - Any errors or exceptions
 
 ---
@@ -367,7 +367,7 @@ When the app is working correctly, you should see:
 
 3. **HTTP server listening:**
    ```powershell
-   Test-NetConnection -ComputerName 127.0.0.1 -Port 8787
+   Test-NetConnection -ComputerName 127.0.0.1 -Port 8081
    # TcpTestSucceeded : True
    ```
 

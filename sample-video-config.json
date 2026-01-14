@@ -35,7 +35,7 @@
   },
   "httpApi": {
     "enabled": true,
-    "port": 8787,
+    "port": 8081,
     "allowRemote": false
   },
   "hardware": {
@@ -98,11 +98,6 @@
       "devices": []
     },
     "speakers": {
-      "enabled": false,
-      "monitorInterval": 5.0,
-      "devices": []
-    },
-    "chromium": {
       "enabled": false,
       "monitorInterval": 5.0,
       "devices": []

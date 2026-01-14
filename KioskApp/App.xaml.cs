@@ -111,23 +111,6 @@ public partial class App : Application
 			Debug.WriteLine("Window activated");
 			Logger.Log("MainWindow created and activated");
 
-			// Wire navigation endpoint on the already-running HTTP API server (often port 8787 in config).
-			if (m_window is MainWindow mainWindow)
-			{
-				_hardwareApiServer?.SetNavigationHandler(async (url) =>
-				{
-					await mainWindow.DispatcherQueue.EnqueueAsync(() => mainWindow.NavigateToUrl(url));
-				});
-			}
-
-			// Start LocalCommandServer only if it won't conflict with the configured HTTP API port.
-			// (LocalCommandServer is fixed to port 8787; if the API server is also 8787, LocalCommandServer cannot bind.)
-			if (m_window is MainWindow mainWindow2 && config.HttpApi.Port != 8787)
-			{
-				_ = LocalCommandServer.StartAsync(mainWindow2);
-				Logger.Log("LocalCommandServer start requested");
-			}
-
 			Debug.WriteLine("OnLaunched completed successfully");
 		}
 		catch (Exception ex)

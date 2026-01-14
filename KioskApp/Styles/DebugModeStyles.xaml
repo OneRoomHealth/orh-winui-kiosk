@@ -150,11 +150,13 @@
         <Setter Property="Background" Value="#3C3C3C"/>
         <Setter Property="BorderBrush" Value="#3C3C3C"/>
         <Setter Property="Foreground" Value="#CCCCCC"/>
+        <Setter Property="PlaceholderForeground" Value="#858585"/>
         <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="MinHeight" Value="28"/>
         <Setter Property="Padding" Value="8,4"/>
         <Setter Property="CornerRadius" Value="4"/>
+        <Setter Property="RequestedTheme" Value="Dark"/>
     </Style>
 
     <!-- TextBox Dark Theme Style -->
@@ -162,9 +164,11 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Foreground" Value="#CCCCCC"/>
+        <Setter Property="PlaceholderForeground" Value="#858585"/>
         <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New"/>
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="Padding" Value="4,2"/>
+        <Setter Property="RequestedTheme" Value="Dark"/>
     </Style>
 
     <!-- Section Header Style -->

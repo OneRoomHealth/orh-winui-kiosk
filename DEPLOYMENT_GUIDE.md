@@ -212,21 +212,6 @@ Restart-Computer
 
 ---
 
-## Part 5: Test Runtime Navigation
-
-From another machine or admin session on the same device:
-
-```powershell
-# Navigate to a different URL
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8787/navigate `
-  -Body '{"url": "https://example.com"}' `
-  -ContentType "application/json"
-```
-
-The kiosk should immediately navigate to the new URL.
-
----
-
 ## Configuration Options
 
 ### Change Default URL

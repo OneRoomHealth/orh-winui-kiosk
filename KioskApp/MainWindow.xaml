@@ -140,6 +140,17 @@
                                 Padding="6,4" Click="RefreshMicrophonesButton_Click"
                                 ToolTipService.ToolTip="Refresh microphone list"/>
                     </StackPanel>
+
+                    <!-- Switch Monitor -->
+                    <Button x:Name="SwitchMonitorButton"
+                            Style="{StaticResource DebugToolbarButtonStyle}"
+                            Click="SwitchMonitorButton_Click"
+                            ToolTipService.ToolTip="Move window to another monitor">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <TextBlock Text="&#x1F5B5;" FontSize="12"/>
+                            <TextBlock Text="Switch Monitor" FontSize="12"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
 
                 <!-- Quick Action Buttons -->

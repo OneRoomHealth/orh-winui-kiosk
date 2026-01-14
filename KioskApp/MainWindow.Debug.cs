@@ -1281,10 +1281,6 @@ public sealed partial class MainWindow
                 Logger.Log("Video controller stopped");
             }
 
-            // Stop command server if running
-            Logger.Log("Stopping command server...");
-            LocalCommandServer.Stop();
-
             // Unhook keyboard hook
             RemoveKeyboardHook();
 
