@@ -27,6 +27,11 @@ public class HardwareApiServer
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
     private Func<string, Task>? _navigateHandler;
 
+    /// <summary>
+    /// Gets whether the API server is currently running.
+    /// </summary>
+    public bool IsRunning => _app != null;
+
     public HardwareApiServer(
         ILogger<HardwareApiServer> logger,
         HardwareManager hardwareManager,
