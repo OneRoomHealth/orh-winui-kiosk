@@ -213,17 +213,20 @@ public sealed partial class MainWindow
                         settings.AreBrowserAcceleratorKeysEnabled = true;
                     }
 
-                    // Clear stale camera/microphone dropdown data
+                    // Clear stale camera/microphone/speaker dropdown data
                     _suppressMediaSelectionEvents = true;
                     try
                     {
                         var oldCameraCount = CameraSelector.Items.Count;
                         var oldMicCount = MicrophoneSelector.Items.Count;
+                        var oldSpkCount = SpeakerSelector.Items.Count;
                         CameraSelector.Items.Clear();
                         MicrophoneSelector.Items.Clear();
+                        SpeakerSelector.Items.Clear();
                         CameraSelector.SelectedIndex = -1;
                         MicrophoneSelector.SelectedIndex = -1;
-                        Logger.Log($"[DEBUG MODE] Cleared stale dropdown data (was: {oldCameraCount} cameras, {oldMicCount} mics)");
+                        SpeakerSelector.SelectedIndex = -1;
+                        Logger.Log($"[DEBUG MODE] Cleared stale dropdown data (was: {oldCameraCount} cameras, {oldMicCount} mics, {oldSpkCount} speakers)");
                     }
                     finally
                     {

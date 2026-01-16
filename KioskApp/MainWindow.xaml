@@ -141,6 +141,20 @@
                                 ToolTipService.ToolTip="Refresh microphone list"/>
                     </StackPanel>
 
+                    <!-- Speaker Selector -->
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBlock Text="&#x1F50A;" Foreground="#858585" VerticalAlignment="Center" FontSize="12"/>
+                        <ComboBox x:Name="SpeakerSelector" Width="180"
+                                  Style="{StaticResource DebugComboBoxStyle}"
+                                  DisplayMemberPath="Label"
+                                  PlaceholderText="Select Speaker..."
+                                  SelectionChanged="SpeakerSelector_SelectionChanged"/>
+                        <Button x:Name="RefreshSpeakersButton" Content="&#x21BB;"
+                                Style="{StaticResource DebugToolbarButtonStyle}"
+                                Padding="6,4" Click="RefreshSpeakersButton_Click"
+                                ToolTipService.ToolTip="Refresh speaker list"/>
+                    </StackPanel>
+
                     <!-- Switch Monitor -->
                     <Button x:Name="SwitchMonitorButton"
                             Style="{StaticResource DebugToolbarButtonStyle}"

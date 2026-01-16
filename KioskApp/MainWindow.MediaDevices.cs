@@ -20,24 +20,31 @@ public sealed partial class MainWindow
     // Media device selection for debug mode
     private List<MediaDeviceInfo> _cameras = new();
     private List<MediaDeviceInfo> _microphones = new();
+    private List<MediaDeviceInfo> _speakers = new();
     private string? _selectedCameraId = null;
     private string? _selectedMicrophoneId = null;
+    private string? _selectedSpeakerId = null;
     private string? _selectedCameraLabel = null;
     private string? _selectedMicrophoneLabel = null;
+    private string? _selectedSpeakerLabel = null;
 
-    // Guard to prevent concurrent media device enumeration (avoids race conditions on _cameras/_microphones)
+    // Guard to prevent concurrent media device enumeration (avoids race conditions on _cameras/_microphones/_speakers)
     private readonly SemaphoreSlim _mediaEnumerationLock = new(1, 1);
 
     // Persistence keys for media device preferences
     private const string PreferredCameraIdKey = "PreferredCameraId";
     private const string PreferredMicrophoneIdKey = "PreferredMicrophoneId";
+    private const string PreferredSpeakerIdKey = "PreferredSpeakerId";
     private const string PreferredCameraLabelKey = "PreferredCameraLabel";
     private const string PreferredMicrophoneLabelKey = "PreferredMicrophoneLabel";
+    private const string PreferredSpeakerLabelKey = "PreferredSpeakerLabel";
 
     private const string WebStoragePreferredCameraKey = "__orhPreferredCameraId";
     private const string WebStoragePreferredMicrophoneKey = "__orhPreferredMicrophoneId";
+    private const string WebStoragePreferredSpeakerKey = "__orhPreferredSpeakerId";
     private const string WebStoragePreferredCameraLabelKey = "__orhPreferredCameraLabel";
     private const string WebStoragePreferredMicrophoneLabelKey = "__orhPreferredMicrophoneLabel";
+    private const string WebStoragePreferredSpeakerLabelKey = "__orhPreferredSpeakerLabel";
 
     private bool _suppressMediaSelectionEvents = false;
 
@@ -72,10 +79,12 @@ public sealed partial class MainWindow
             var values = ApplicationData.Current.LocalSettings.Values;
             _selectedCameraId = values.TryGetValue(PreferredCameraIdKey, out var camVal) ? camVal as string : null;
             _selectedMicrophoneId = values.TryGetValue(PreferredMicrophoneIdKey, out var micVal) ? micVal as string : null;
+            _selectedSpeakerId = values.TryGetValue(PreferredSpeakerIdKey, out var spkVal) ? spkVal as string : null;
             _selectedCameraLabel = values.TryGetValue(PreferredCameraLabelKey, out var camLabelVal) ? camLabelVal as string : null;
             _selectedMicrophoneLabel = values.TryGetValue(PreferredMicrophoneLabelKey, out var micLabelVal) ? micLabelVal as string : null;
+            _selectedSpeakerLabel = values.TryGetValue(PreferredSpeakerLabelKey, out var spkLabelVal) ? spkLabelVal as string : null;
 
-            Logger.Log($"Loaded persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}");
+            Logger.Log($"Loaded persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}, SpeakerId set: {!string.IsNullOrWhiteSpace(_selectedSpeakerId)}");
         }
         catch (Exception ex)
         {
@@ -99,6 +108,11 @@ public sealed partial class MainWindow
             else
                 values[PreferredMicrophoneIdKey] = _selectedMicrophoneId!;
 
+            if (string.IsNullOrWhiteSpace(_selectedSpeakerId))
+                values.Remove(PreferredSpeakerIdKey);
+            else
+                values[PreferredSpeakerIdKey] = _selectedSpeakerId!;
+
             if (string.IsNullOrWhiteSpace(_selectedCameraLabel))
                 values.Remove(PreferredCameraLabelKey);
             else
@@ -109,7 +123,12 @@ public sealed partial class MainWindow
             else
                 values[PreferredMicrophoneLabelKey] = _selectedMicrophoneLabel!;
 
-            Logger.Log($"Saved persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}");
+            if (string.IsNullOrWhiteSpace(_selectedSpeakerLabel))
+                values.Remove(PreferredSpeakerLabelKey);
+            else
+                values[PreferredSpeakerLabelKey] = _selectedSpeakerLabel!;
+
+            Logger.Log($"Saved persisted media preferences. CameraId set: {!string.IsNullOrWhiteSpace(_selectedCameraId)}, MicId set: {!string.IsNullOrWhiteSpace(_selectedMicrophoneId)}, SpeakerId set: {!string.IsNullOrWhiteSpace(_selectedSpeakerId)}");
         }
         catch (Exception ex)
         {
@@ -376,6 +395,11 @@ public sealed partial class MainWindow
         await LoadMicrophonesAsync();
     }
 
+    private async void RefreshSpeakersButton_Click(object sender, RoutedEventArgs e)
+    {
+        await LoadSpeakersAsync();
+    }
+
     private async Task LoadAllMediaDevicesAsync()
     {
         if (!await _mediaEnumerationLock.WaitAsync(TimeSpan.FromSeconds(12)))
@@ -388,6 +412,7 @@ public sealed partial class MainWindow
         {
             await LoadCamerasAsyncCore();
             await LoadMicrophonesAsyncCore();
+            await LoadSpeakersAsyncCore();
         }
         finally
         {
@@ -635,6 +660,126 @@ public sealed partial class MainWindow
         }
     }
 
+    private async Task LoadSpeakersAsync()
+    {
+        if (!await _mediaEnumerationLock.WaitAsync(TimeSpan.FromSeconds(10)))
+        {
+            Logger.Log("LoadSpeakersAsync: timed out waiting for lock");
+            return;
+        }
+
+        try
+        {
+            await LoadSpeakersAsyncCore();
+        }
+        finally
+        {
+            _mediaEnumerationLock.Release();
+        }
+    }
+
+    private async Task LoadSpeakersAsyncCore()
+    {
+        if (KioskWebView?.CoreWebView2 == null)
+        {
+            Logger.Log("Cannot load speakers: WebView2 not initialized");
+            return;
+        }
+
+        try
+        {
+            Logger.Log("Loading available speakers...");
+            var speakers = await EnumerateMediaDevicesViaWebMessageAsync("audiooutput", "LoadSpeakersAsync");
+
+            if (speakers != null && speakers.Count > 0)
+            {
+                // Ensure labels are never blank
+                for (int i = 0; i < speakers.Count; i++)
+                {
+                    if (string.IsNullOrWhiteSpace(speakers[i].Label))
+                    {
+                        var idPart = !string.IsNullOrWhiteSpace(speakers[i].DeviceId)
+                            ? $" ({speakers[i].DeviceId.Substring(0, Math.Min(8, speakers[i].DeviceId.Length))})"
+                            : "";
+                        speakers[i].Label = $"Speaker {i + 1}{idPart}";
+                    }
+                }
+
+                var localSpeakers = speakers;
+                var localSelectedId = _selectedSpeakerId;
+                var localSelectedLabel = _selectedSpeakerLabel;
+
+                _speakers = speakers;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    _suppressMediaSelectionEvents = true;
+                    try
+                    {
+                        SpeakerSelector.SelectedIndex = -1;
+                        SpeakerSelector.Items.Clear();
+                        foreach (var spk in localSpeakers)
+                        {
+                            SpeakerSelector.Items.Add(spk);
+                        }
+                        Logger.Log($"Loaded {localSpeakers.Count} speaker(s)");
+
+                        // Restore previous selection
+                        RestoreSpeakerSelection(localSpeakers, localSelectedId, localSelectedLabel);
+                    }
+                    finally
+                    {
+                        _suppressMediaSelectionEvents = false;
+                    }
+                });
+            }
+            else if (speakers != null && speakers.Count == 0)
+            {
+                Logger.Log("LoadSpeakersAsync: enumeration returned 0 speakers");
+                _ = LogWebRtcDeviceDiagnosticsAsync("LoadSpeakersAsync: no audiooutput devices");
+            }
+            else
+            {
+                Logger.Log("LoadSpeakersAsync: enumeration returned null (timeout or error)");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Failed to load speakers: {ex.Message}");
+        }
+    }
+
+    private void RestoreSpeakerSelection(List<MediaDeviceInfo> speakers, string? selectedId, string? selectedLabel)
+    {
+        // Try to restore by DeviceId first
+        if (!string.IsNullOrWhiteSpace(selectedId))
+        {
+            var selectedIndex = speakers.FindIndex(s => s.DeviceId == selectedId);
+            if (selectedIndex >= 0)
+            {
+                SpeakerSelector.SelectedIndex = selectedIndex;
+                _selectedSpeakerLabel = speakers[selectedIndex].Label;
+                SavePersistedMediaDevicePreferences();
+                Logger.Log($"Restored speaker selection to index {selectedIndex}: {speakers[selectedIndex].Label}");
+                return;
+            }
+            Logger.Log($"Could not restore speaker selection by DeviceId: {selectedId}");
+        }
+
+        // Fallback: try to match by label
+        if (!string.IsNullOrWhiteSpace(selectedLabel))
+        {
+            var labelMatchIndex = speakers.FindIndex(s => string.Equals(s.Label?.Trim(), selectedLabel.Trim(), StringComparison.OrdinalIgnoreCase));
+            if (labelMatchIndex >= 0)
+            {
+                SpeakerSelector.SelectedIndex = labelMatchIndex;
+                _selectedSpeakerId = speakers[labelMatchIndex].DeviceId;
+                _selectedSpeakerLabel = speakers[labelMatchIndex].Label;
+                SavePersistedMediaDevicePreferences();
+                Logger.Log($"Restored speaker selection by Label to index {labelMatchIndex}: {_selectedSpeakerLabel}");
+            }
+        }
+    }
+
     #endregion
 
     #region Selection Change Handlers
@@ -733,6 +878,63 @@ public sealed partial class MainWindow
         }
     }
 
+    private async void SpeakerSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressMediaSelectionEvents) return;
+
+        // Debounce rapid speaker changes
+        var timeSinceLastChange = (DateTime.UtcNow - _lastMediaDeviceChangeTime).TotalMilliseconds;
+        if (timeSinceLastChange < MediaDeviceChangeDebounceMs)
+        {
+            Logger.Log($"[SPEAKER SELECT] Debounced - only {timeSinceLastChange:F0}ms since last change");
+            return;
+        }
+
+        if (SpeakerSelector.SelectedItem is MediaDeviceInfo speaker)
+        {
+            _lastMediaDeviceChangeTime = DateTime.UtcNow;
+            Logger.Log($"[SPEAKER SELECT] User selected: {speaker.Label} (ID: {speaker.DeviceId})");
+            _selectedSpeakerId = speaker.DeviceId;
+            _selectedSpeakerLabel = speaker.Label;
+            SavePersistedMediaDevicePreferences();
+            await ApplyMediaDeviceOverrideAsync(showStatus: true);
+
+            // Attempt live speaker switch using setSinkId
+            if (_isDebugMode)
+            {
+                ShowStatus("Switching Speaker", "Attempting live switch...");
+                _ = Task.Delay(2500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+
+                try
+                {
+                    var speakerIdJson = System.Text.Json.JsonSerializer.Serialize(speaker.DeviceId);
+                    _ = ExecuteScriptAsyncUi($@"
+                        (() => {{
+                            try {{
+                                const speakerId = {speakerIdJson};
+                                // Try to switch audio output on all audio/video elements
+                                const mediaElements = document.querySelectorAll('audio, video');
+                                mediaElements.forEach(el => {{
+                                    if (typeof el.setSinkId === 'function') {{
+                                        el.setSinkId(speakerId).catch(e => console.log('setSinkId failed:', e));
+                                    }}
+                                }});
+                                // Also call ACS-specific speaker switch if available
+                                if (typeof window.__orhSwitchSpeaker === 'function') {{
+                                    window.__orhSwitchSpeaker(speakerId);
+                                }}
+                            }} catch (e) {{}}
+                        }})();
+                    ");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"[SPEAKER SELECT] Failed to request live switch: {ex.Message}");
+                }
+            }
+        }
+    }
+
     #endregion
 
     #region Media Override
@@ -743,22 +945,28 @@ public sealed partial class MainWindow
 
         var cameraIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraId) ? null : _selectedCameraId);
         var microphoneIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneId) ? null : _selectedMicrophoneId);
+        var speakerIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedSpeakerId) ? null : _selectedSpeakerId);
         var cameraLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraLabel) ? null : _selectedCameraLabel);
         var microphoneLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneLabel) ? null : _selectedMicrophoneLabel);
+        var speakerLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedSpeakerLabel) ? null : _selectedSpeakerLabel);
 
         var script = $@"
             (() => {{
                 try {{
                     window.__preferredCameraId = {cameraIdJson};
                     window.__preferredMicrophoneId = {microphoneIdJson};
+                    window.__preferredSpeakerId = {speakerIdJson};
                     window.__preferredCameraLabel = {cameraLabelJson};
                     window.__preferredMicrophoneLabel = {microphoneLabelJson};
+                    window.__preferredSpeakerLabel = {speakerLabelJson};
 
                     try {{
                         localStorage.setItem('{WebStoragePreferredCameraKey}', JSON.stringify(window.__preferredCameraId));
                         localStorage.setItem('{WebStoragePreferredMicrophoneKey}', JSON.stringify(window.__preferredMicrophoneId));
+                        localStorage.setItem('{WebStoragePreferredSpeakerKey}', JSON.stringify(window.__preferredSpeakerId));
                         localStorage.setItem('{WebStoragePreferredCameraLabelKey}', JSON.stringify(window.__preferredCameraLabel));
                         localStorage.setItem('{WebStoragePreferredMicrophoneLabelKey}', JSON.stringify(window.__preferredMicrophoneLabel));
+                        localStorage.setItem('{WebStoragePreferredSpeakerLabelKey}', JSON.stringify(window.__preferredSpeakerLabel));
                     }} catch (e) {{}}
 
                     return {{ status: 'ok' }};
@@ -776,9 +984,11 @@ public sealed partial class MainWindow
             // Build status message
             var cameraName = _cameras.FirstOrDefault(c => c.DeviceId == _selectedCameraId)?.Label;
             var micName = _microphones.FirstOrDefault(m => m.DeviceId == _selectedMicrophoneId)?.Label;
+            var speakerName = _speakers.FirstOrDefault(s => s.DeviceId == _selectedSpeakerId)?.Label;
             var statusParts = new List<string>();
             if (cameraName != null) statusParts.Add($"Camera: {cameraName}");
             if (micName != null) statusParts.Add($"Mic: {micName}");
+            if (speakerName != null) statusParts.Add($"Speaker: {speakerName}");
 
             if (showStatus && statusParts.Count > 0)
             {
@@ -862,16 +1072,20 @@ public sealed partial class MainWindow
 
             var initialCameraIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraId) ? null : _selectedCameraId);
             var initialMicrophoneIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneId) ? null : _selectedMicrophoneId);
+            var initialSpeakerIdJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedSpeakerId) ? null : _selectedSpeakerId);
             var initialCameraLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedCameraLabel) ? null : _selectedCameraLabel);
             var initialMicrophoneLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneLabel) ? null : _selectedMicrophoneLabel);
+            var initialSpeakerLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedSpeakerLabel) ? null : _selectedSpeakerLabel);
 
             // This is a simplified version of the full media override script
             // The full script is quite long - it installs getUserMedia override, RTCPeerConnection tracking, etc.
             var script = GetMediaOverrideDocumentScript(
                 initialCameraIdJson,
                 initialMicrophoneIdJson,
+                initialSpeakerIdJson,
                 initialCameraLabelJson,
-                initialMicrophoneLabelJson);
+                initialMicrophoneLabelJson,
+                initialSpeakerLabelJson);
 
             await KioskWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
             _mediaOverrideDocCreatedScriptAdded = true;
@@ -883,13 +1097,14 @@ public sealed partial class MainWindow
         }
     }
 
-    private string GetMediaOverrideDocumentScript(string camIdJson, string micIdJson, string camLabelJson, string micLabelJson)
+    private string GetMediaOverrideDocumentScript(string camIdJson, string micIdJson, string spkIdJson, string camLabelJson, string micLabelJson, string spkLabelJson)
     {
         // This returns the full media override script that:
         // 1. Seeds localStorage with initial preferences
         // 2. Overrides navigator.mediaDevices.getUserMedia to apply device selection
         // 3. Tracks local getUserMedia streams for cleanup
         // 4. Patches RTCPeerConnection for live track switching
+        // 5. Sets up speaker preference for setSinkId
         return $@"
             (() => {{
                 try {{
@@ -898,12 +1113,16 @@ public sealed partial class MainWindow
 
                     const camKey = '{WebStoragePreferredCameraKey}';
                     const micKey = '{WebStoragePreferredMicrophoneKey}';
+                    const spkKey = '{WebStoragePreferredSpeakerKey}';
                     const camLabelKey = '{WebStoragePreferredCameraLabelKey}';
                     const micLabelKey = '{WebStoragePreferredMicrophoneLabelKey}';
+                    const spkLabelKey = '{WebStoragePreferredSpeakerLabelKey}';
                     const initialCam = {camIdJson};
                     const initialMic = {micIdJson};
+                    const initialSpk = {spkIdJson};
                     const initialCamLabel = {camLabelJson};
                     const initialMicLabel = {micLabelJson};
+                    const initialSpkLabel = {spkLabelJson};
 
                     try {{
                         const sessionMarker = 'orh_media_session_seeded';
@@ -911,8 +1130,10 @@ public sealed partial class MainWindow
                         if (isFirstOfSession) {{
                             localStorage.setItem(camKey, JSON.stringify(initialCam));
                             localStorage.setItem(micKey, JSON.stringify(initialMic));
+                            localStorage.setItem(spkKey, JSON.stringify(initialSpk));
                             localStorage.setItem(camLabelKey, JSON.stringify(initialCamLabel));
                             localStorage.setItem(micLabelKey, JSON.stringify(initialMicLabel));
+                            localStorage.setItem(spkLabelKey, JSON.stringify(initialSpkLabel));
                             sessionStorage.setItem(sessionMarker, 'true');
                         }}
                     }} catch (e) {{}}
@@ -929,8 +1150,35 @@ public sealed partial class MainWindow
 
                     window.__preferredCameraId = readPref(camKey);
                     window.__preferredMicrophoneId = readPref(micKey);
+                    window.__preferredSpeakerId = readPref(spkKey);
                     window.__preferredCameraLabel = readPref(camLabelKey);
                     window.__preferredMicrophoneLabel = readPref(micLabelKey);
+                    window.__preferredSpeakerLabel = readPref(spkLabelKey);
+
+                    // Helper function to switch speaker on audio/video elements
+                    window.__orhSwitchSpeaker = function(speakerId) {{
+                        try {{
+                            const mediaElements = document.querySelectorAll('audio, video');
+                            mediaElements.forEach(el => {{
+                                if (typeof el.setSinkId === 'function') {{
+                                    el.setSinkId(speakerId).catch(e => console.log('setSinkId failed:', e));
+                                }}
+                            }});
+                        }} catch (e) {{}}
+                    }};
+
+                    // Apply speaker preference on page load
+                    const applyInitialSpeaker = () => {{
+                        const spkId = readPref(spkKey);
+                        if (spkId) {{
+                            window.__orhSwitchSpeaker(spkId);
+                        }}
+                    }};
+                    if (document.readyState === 'complete') {{
+                        setTimeout(applyInitialSpeaker, 500);
+                    }} else {{
+                        window.addEventListener('load', () => setTimeout(applyInitialSpeaker, 500));
+                    }}
 
                     if (navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {{
                         const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
