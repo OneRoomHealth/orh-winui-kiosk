@@ -195,6 +195,39 @@ public class HardwareManager
     }
 
     /// <summary>
+    /// Shutdown a specific module by name and remove it from the manager.
+    /// </summary>
+    public async Task ShutdownModuleAsync(string moduleName)
+    {
+        await _lock.WaitAsync();
+        try
+        {
+            if (_modules.TryGetValue(moduleName, out var module))
+            {
+                _logger.LogInformation("Shutting down module {ModuleName}", moduleName);
+                try
+                {
+                    await module.ShutdownAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to shutdown module {ModuleName}", moduleName);
+                }
+                _modules.Remove(moduleName);
+                _logger.LogInformation("Module {ModuleName} removed from manager", moduleName);
+            }
+            else
+            {
+                _logger.LogWarning("Module {ModuleName} not found in manager", moduleName);
+            }
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    /// <summary>
     /// Get aggregated device information from all modules.
     /// </summary>
     public async Task<Dictionary<string, List<DeviceInfo>>> GetAllDevicesAsync()

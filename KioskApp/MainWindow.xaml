@@ -334,12 +334,39 @@
                     <!-- ===== HARDWARE HEALTH TAB CONTENT ===== -->
                     <Grid x:Name="HealthTabContent" Visibility="Visible">
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
+                        <!-- Module Enable/Disable Toggles -->
+                        <Border Grid.Row="0" Background="#252526" Padding="12,8" BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                            <StackPanel Orientation="Horizontal" Spacing="16">
+                                <TextBlock Text="Modules:" Foreground="#858585" FontSize="11" VerticalAlignment="Center"
+                                           FontFamily="Cascadia Code, Consolas"/>
+                                <ToggleSwitch x:Name="DisplayModuleToggle" OnContent="Display" OffContent="Display"
+                                              IsOn="True" Toggled="ModuleToggle_Toggled" Tag="Display"
+                                              Style="{StaticResource ModuleToggleStyle}"/>
+                                <ToggleSwitch x:Name="CameraModuleToggle" OnContent="Camera" OffContent="Camera"
+                                              IsOn="True" Toggled="ModuleToggle_Toggled" Tag="Camera"
+                                              Style="{StaticResource ModuleToggleStyle}"/>
+                                <ToggleSwitch x:Name="LightingModuleToggle" OnContent="Lighting" OffContent="Lighting"
+                                              IsOn="True" Toggled="ModuleToggle_Toggled" Tag="Lighting"
+                                              Style="{StaticResource ModuleToggleStyle}"/>
+                                <ToggleSwitch x:Name="SystemAudioModuleToggle" OnContent="Audio" OffContent="Audio"
+                                              IsOn="True" Toggled="ModuleToggle_Toggled" Tag="SystemAudio"
+                                              Style="{StaticResource ModuleToggleStyle}"/>
+                                <ToggleSwitch x:Name="MicrophoneModuleToggle" OnContent="Mic" OffContent="Mic"
+                                              IsOn="True" Toggled="ModuleToggle_Toggled" Tag="Microphone"
+                                              Style="{StaticResource ModuleToggleStyle}"/>
+                                <ToggleSwitch x:Name="SpeakerModuleToggle" OnContent="Speaker" OffContent="Speaker"
+                                              IsOn="True" Toggled="ModuleToggle_Toggled" Tag="Speaker"
+                                              Style="{StaticResource ModuleToggleStyle}"/>
+                            </StackPanel>
+                        </Border>
+
                         <!-- Module Cards Grid -->
-                        <ScrollViewer Grid.Row="0"
+                        <ScrollViewer Grid.Row="1"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Auto"
                                       Padding="12">
@@ -353,7 +380,7 @@
                         </ScrollViewer>
 
                         <!-- Health Footer -->
-                        <Grid Grid.Row="1" Background="#252526" Padding="12,6">
+                        <Grid Grid.Row="2" Background="#252526" Padding="12,6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>

@@ -247,4 +247,17 @@
         <Setter Property="RequestedTheme" Value="Dark"/>
     </Style>
 
+    <!-- Hardware Module Toggle Style -->
+    <Style x:Key="ModuleToggleStyle" TargetType="ToggleSwitch">
+        <Setter Property="Foreground" Value="#CCCCCC"/>
+        <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New"/>
+        <Setter Property="FontSize" Value="10"/>
+        <Setter Property="MinHeight" Value="20"/>
+        <Setter Property="MinWidth" Value="80"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Margin" Value="0,-2,0,-2"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="RequestedTheme" Value="Dark"/>
+    </Style>
+
 </ResourceDictionary>

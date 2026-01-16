@@ -451,6 +451,72 @@ public sealed partial class MainWindow
 
     // Note: CloseHealthButton_Click removed - tabs are managed in Debug.cs
 
+    /// <summary>
+    /// Handles individual module toggle switches.
+    /// Enables/disables hardware modules dynamically.
+    /// </summary>
+    private async void ModuleToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleSwitch toggle) return;
+        if (!App.IsHardwareApiMode)
+        {
+            // Silently ignore - modules only work in Hardware API mode
+            return;
+        }
+
+        var moduleName = toggle.Tag?.ToString() ?? "";
+        var isEnabled = toggle.IsOn;
+
+        Logger.Log($"Module toggle: {moduleName} -> {(isEnabled ? "ON" : "OFF")}");
+
+        try
+        {
+            var hardwareManager = App.Services?.GetService(typeof(OneRoomHealth.Hardware.Services.HardwareManager))
+                as OneRoomHealth.Hardware.Services.HardwareManager;
+
+            if (hardwareManager == null)
+            {
+                Logger.Log("HardwareManager not available");
+                return;
+            }
+
+            if (isEnabled)
+            {
+                // Initialize the specific module
+                var module = moduleName switch
+                {
+                    "Display" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Display.DisplayModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
+                    "Camera" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Camera.CameraModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
+                    "Lighting" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Lighting.LightingModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
+                    "SystemAudio" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.SystemAudio.SystemAudioModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
+                    "Microphone" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Microphone.MicrophoneModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
+                    "Speaker" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Speaker.SpeakerModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
+                    _ => null
+                };
+
+                if (module != null)
+                {
+                    hardwareManager.RegisterModule(module);
+                    await module.InitializeAsync();
+                    Logger.Log($"{moduleName} module initialized");
+                }
+            }
+            else
+            {
+                // Shutdown the specific module
+                await hardwareManager.ShutdownModuleAsync(moduleName);
+                Logger.Log($"{moduleName} module shut down");
+            }
+
+            // Refresh the health display
+            await RefreshHealthAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error toggling {moduleName} module: {ex.Message}");
+        }
+    }
+
     #endregion
 
     #region Log Viewer

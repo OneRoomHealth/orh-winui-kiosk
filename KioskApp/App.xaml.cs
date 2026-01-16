@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Serilog;
 using OneRoomHealth.Hardware.Services;
+using OneRoomHealth.Hardware.Configuration;
 using OneRoomHealth.Hardware.Modules.Display;
 using OneRoomHealth.Hardware.Modules.Camera;
 using OneRoomHealth.Hardware.Modules.Lighting;
@@ -177,74 +178,57 @@ public partial class App : Application
 		// Add HttpClient for hardware modules
 		services.AddSingleton<HttpClient>();
 
-		// Register hardware modules
-		if (config.Hardware.Displays != null && config.Hardware.Displays.Enabled)
+		// Register all hardware modules (always available, toggled on/off in debug UI)
+		services.AddSingleton(sp =>
 		{
-			services.AddSingleton(sp =>
-			{
-				var logger = sp.GetRequiredService<ILogger<DisplayModule>>();
-				var httpClient = sp.GetRequiredService<HttpClient>();
-				return new DisplayModule(logger, config.Hardware.Displays, httpClient);
-			});
-			Logger.Log("DisplayModule registered");
-		}
+			var logger = sp.GetRequiredService<ILogger<DisplayModule>>();
+			var httpClient = sp.GetRequiredService<HttpClient>();
+			var displayConfig = config.Hardware.Displays ?? new DisplayConfiguration { Enabled = true };
+			return new DisplayModule(logger, displayConfig, httpClient);
+		});
+		Logger.Log("DisplayModule registered");
 
-		// Register Camera module
-		if (config.Hardware.Cameras != null && config.Hardware.Cameras.Enabled)
+		services.AddSingleton(sp =>
 		{
-			services.AddSingleton(sp =>
-			{
-				var logger = sp.GetRequiredService<ILogger<CameraModule>>();
-				return new CameraModule(logger, config.Hardware.Cameras);
-			});
-			Logger.Log("CameraModule registered");
-		}
+			var logger = sp.GetRequiredService<ILogger<CameraModule>>();
+			var cameraConfig = config.Hardware.Cameras ?? new CameraConfiguration { Enabled = true };
+			return new CameraModule(logger, cameraConfig);
+		});
+		Logger.Log("CameraModule registered");
 
-		// Register Lighting module
-		if (config.Hardware.Lighting != null && config.Hardware.Lighting.Enabled)
+		services.AddSingleton(sp =>
 		{
-			services.AddSingleton(sp =>
-			{
-				var logger = sp.GetRequiredService<ILogger<LightingModule>>();
-				return new LightingModule(logger, config.Hardware.Lighting);
-			});
-			Logger.Log("LightingModule registered");
-		}
+			var logger = sp.GetRequiredService<ILogger<LightingModule>>();
+			var lightingConfig = config.Hardware.Lighting ?? new LightingConfiguration { Enabled = true };
+			return new LightingModule(logger, lightingConfig);
+		});
+		Logger.Log("LightingModule registered");
 
-		// Register SystemAudio module
-		if (config.Hardware.SystemAudio != null && config.Hardware.SystemAudio.Enabled)
+		services.AddSingleton(sp =>
 		{
-			services.AddSingleton(sp =>
-			{
-				var logger = sp.GetRequiredService<ILogger<SystemAudioModule>>();
-				return new SystemAudioModule(logger, config.Hardware.SystemAudio);
-			});
-			Logger.Log("SystemAudioModule registered");
-		}
+			var logger = sp.GetRequiredService<ILogger<SystemAudioModule>>();
+			var audioConfig = config.Hardware.SystemAudio ?? new SystemAudioConfiguration { Enabled = true };
+			return new SystemAudioModule(logger, audioConfig);
+		});
+		Logger.Log("SystemAudioModule registered");
 
-		// Register Microphone module
-		if (config.Hardware.Microphones != null && config.Hardware.Microphones.Enabled)
+		services.AddSingleton(sp =>
 		{
-			services.AddSingleton(sp =>
-			{
-				var logger = sp.GetRequiredService<ILogger<MicrophoneModule>>();
-				var httpClient = sp.GetRequiredService<HttpClient>();
-				return new MicrophoneModule(logger, config.Hardware.Microphones, httpClient);
-			});
-			Logger.Log("MicrophoneModule registered");
-		}
+			var logger = sp.GetRequiredService<ILogger<MicrophoneModule>>();
+			var httpClient = sp.GetRequiredService<HttpClient>();
+			var micConfig = config.Hardware.Microphones ?? new MicrophoneConfiguration { Enabled = true };
+			return new MicrophoneModule(logger, micConfig, httpClient);
+		});
+		Logger.Log("MicrophoneModule registered");
 
-		// Register Speaker module
-		if (config.Hardware.Speakers != null && config.Hardware.Speakers.Enabled)
+		services.AddSingleton(sp =>
 		{
-			services.AddSingleton(sp =>
-			{
-				var logger = sp.GetRequiredService<ILogger<SpeakerModule>>();
-				var httpClient = sp.GetRequiredService<HttpClient>();
-				return new SpeakerModule(logger, config.Hardware.Speakers, httpClient);
-			});
-			Logger.Log("SpeakerModule registered");
-		}
+			var logger = sp.GetRequiredService<ILogger<SpeakerModule>>();
+			var httpClient = sp.GetRequiredService<HttpClient>();
+			var speakerConfig = config.Hardware.Speakers ?? new SpeakerConfiguration { Enabled = true };
+			return new SpeakerModule(logger, speakerConfig, httpClient);
+		});
+		Logger.Log("SpeakerModule registered");
 
 		// Register hardware services
 		services.AddSingleton<HardwareManager>();
