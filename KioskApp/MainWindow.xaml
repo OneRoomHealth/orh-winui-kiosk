@@ -42,7 +42,7 @@
                 <!-- Right: API Mode Toggle + Status + Uptime -->
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="16" Margin="12,0" VerticalAlignment="Center">
                     <!-- API Mode Toggle -->
-                    <StackPanel Orientation="Horizontal" Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                         <TextBlock Text="Mode:" Foreground="#858585" FontSize="11"
                                    FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
                         <ToggleSwitch x:Name="ApiModeToggle"
@@ -51,6 +51,10 @@
                                       IsOn="False"
                                       Toggled="ApiModeToggle_Toggled"
                                       MinWidth="150"
+                                      MinHeight="0"
+                                      Padding="0"
+                                      Margin="0,-4,0,-4"
+                                      VerticalAlignment="Center"
                                       Style="{StaticResource ApiModeToggleStyle}"/>
                     </StackPanel>
                     <!-- API Status -->
@@ -109,8 +113,8 @@
                         Style="{StaticResource DebugToolbarButtonStyle}"
                         Click="DevToolsButton_Click" Margin="0,0,4,0">
                     <StackPanel Orientation="Horizontal" Spacing="4">
-                        <TextBlock Text="&#x1F6E0;" FontSize="12"/>
-                        <TextBlock Text="DevTools" FontSize="12"/>
+                        <TextBlock Text="&#x1F6E0;" FontSize="12" Foreground="#CCCCCC"/>
+                        <TextBlock Text="DevTools" FontSize="12" Foreground="#CCCCCC"/>
                     </StackPanel>
                 </Button>
             </Grid>
@@ -172,8 +176,8 @@
                             Click="SwitchMonitorButton_Click"
                             ToolTipService.ToolTip="Move window to another monitor">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Text="&#x1F5B5;" FontSize="12"/>
-                            <TextBlock Text="Switch Monitor" FontSize="12"/>
+                            <TextBlock Text="&#x1F5B5;" FontSize="12" Foreground="#CCCCCC"/>
+                            <TextBlock Text="Switch Monitor" FontSize="12" Foreground="#CCCCCC"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -185,8 +189,8 @@
                             Click="ExportDiagnosticsButton_Click"
                             ToolTipService.ToolTip="Export logs, config, and health snapshot">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Text="&#x1F4E6;" FontSize="12"/>
-                            <TextBlock Text="Export Diagnostics" FontSize="12"/>
+                            <TextBlock Text="&#x1F4E6;" FontSize="12" Foreground="#4EC9B0"/>
+                            <TextBlock Text="Export Diagnostics" FontSize="12" Foreground="#4EC9B0"/>
                         </StackPanel>
                     </Button>
                     <Button x:Name="ResetWebViewButton"
@@ -194,8 +198,8 @@
                             Click="ResetWebViewButton_Click"
                             ToolTipService.ToolTip="Reset WebView2 to default URL">
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <TextBlock Text="&#x1F504;" FontSize="12"/>
-                            <TextBlock Text="Reset WebView" FontSize="12"/>
+                            <TextBlock Text="&#x1F504;" FontSize="12" Foreground="#DCDCAA"/>
+                            <TextBlock Text="Reset WebView" FontSize="12" Foreground="#DCDCAA"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>
@@ -286,8 +290,8 @@
                                 Style="{StaticResource DebugTabButtonActiveStyle}"
                                 Click="HealthTabButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="&#x1F49A;" FontSize="12"/>
-                                <TextBlock Text="Hardware Health" FontSize="12"/>
+                                <TextBlock Text="&#x1F49A;" FontSize="12" Foreground="#CCCCCC"/>
+                                <TextBlock Text="Hardware Health" FontSize="12" Foreground="#CCCCCC"/>
                                 <Border x:Name="HealthIssueBadge"
                                         Background="#3D3A1E" CornerRadius="10"
                                         Padding="6,2" Margin="4,0,0,0"
@@ -301,16 +305,16 @@
                                 Style="{StaticResource DebugTabButtonStyle}"
                                 Click="LogsTabButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="&#x1F4CB;" FontSize="12"/>
-                                <TextBlock Text="Logs" FontSize="12"/>
+                                <TextBlock Text="&#x1F4CB;" FontSize="12" Foreground="#858585"/>
+                                <TextBlock Text="Logs" FontSize="12" Foreground="#858585"/>
                             </StackPanel>
                         </Button>
                         <Button x:Name="PerfTabButton"
                                 Style="{StaticResource DebugTabButtonStyle}"
                                 Click="PerfTabButton_Click">
                             <StackPanel Orientation="Horizontal" Spacing="6">
-                                <TextBlock Text="&#x1F4CA;" FontSize="12"/>
-                                <TextBlock Text="Performance" FontSize="12"/>
+                                <TextBlock Text="&#x1F4CA;" FontSize="12" Foreground="#858585"/>
+                                <TextBlock Text="Performance" FontSize="12" Foreground="#858585"/>
                             </StackPanel>
                         </Button>
                     </StackPanel>
@@ -396,8 +400,8 @@
                                             Style="{StaticResource DebugToolbarButtonAccentStyle}"
                                             Click="DetailReconnectButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <TextBlock Text="&#x21BB;" FontSize="12"/>
-                                            <TextBlock Text="Reconnect" FontSize="12"/>
+                                            <TextBlock Text="&#x21BB;" FontSize="12" Foreground="#4EC9B0"/>
+                                            <TextBlock Text="Reconnect" FontSize="12" Foreground="#4EC9B0"/>
                                         </StackPanel>
                                     </Button>
                                     <Button x:Name="CloseDetailButton" Content="&#x2715;"
@@ -467,16 +471,16 @@
                                         Style="{StaticResource DebugToolbarButtonErrorStyle}"
                                         Click="ClearLogsButton_Click">
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBlock Text="&#x1F5D1;" FontSize="12"/>
-                                        <TextBlock Text="Clear" FontSize="12"/>
+                                        <TextBlock Text="&#x1F5D1;" FontSize="12" Foreground="#F48771"/>
+                                        <TextBlock Text="Clear" FontSize="12" Foreground="#F48771"/>
                                     </StackPanel>
                                 </Button>
                                 <Button x:Name="CopyLogsButton"
                                         Style="{StaticResource DebugToolbarButtonAccentStyle}"
                                         Click="CopyLogsButton_Click">
                                     <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBlock Text="&#x1F4CB;" FontSize="12"/>
-                                        <TextBlock Text="Copy All" FontSize="12"/>
+                                        <TextBlock Text="&#x1F4CB;" FontSize="12" Foreground="#4EC9B0"/>
+                                        <TextBlock Text="Copy All" FontSize="12" Foreground="#4EC9B0"/>
                                     </StackPanel>
                                 </Button>
                             </StackPanel>
