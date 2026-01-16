@@ -192,10 +192,29 @@ See [Video Mode Guide](VIDEO_MODE_GUIDE.md) for details.
 
 ## HTTP API Settings
 
+The kiosk supports two API modes, controlled via a toggle in debug mode:
+
+### API Modes
+
+| Mode | Port | Description |
+|------|------|-------------|
+| Navigate (Default) | 8787 | LocalCommandServer with `/navigate` and `/health` endpoints |
+| Hardware API | 8081 | Full hardware control API with all module endpoints |
+
+**Note:** Only one server runs at a time. The mode can be switched via the toggle in the debug mode title bar.
+
+### Navigate Mode (Port 8787)
+Default mode that starts automatically. Provides:
+- `POST /navigate` - Navigate WebView to URL: `{"url": "https://..."}`
+- `GET /health` - Check server status
+
+### Hardware API Mode (Port 8081)
+Full hardware integration mode (enable via debug toggle). Provides all hardware control endpoints.
+
 ### `enabled`
 - **Type:** Boolean
 - **Default:** `true`
-- **Description:** Enable local HTTP API server
+- **Description:** Enable Hardware API server (can be started via debug mode toggle)
 
 ### `port`
 - **Type:** Integer

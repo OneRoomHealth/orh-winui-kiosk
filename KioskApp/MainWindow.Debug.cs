@@ -194,6 +194,9 @@ public sealed partial class MainWindow
                     UpdateTabStyles();
                     ShowActiveTabContent();
 
+                    // Initialize API mode toggle to reflect current state
+                    ApiModeToggle.IsOn = App.IsHardwareApiMode;
+
                     // Update URL textbox with current URL
                     if (!string.IsNullOrEmpty(_currentUrl))
                     {
@@ -396,11 +399,22 @@ public sealed partial class MainWindow
             TitleBarUptimeText.Text = $"Uptime: {uptimeText}";
             PerfUptimeText.Text = $"Uptime: {PerformanceMonitor.Instance.GetUptimeFormatted()}";
 
-            // Update API status
-            var apiConnected = App.HardwareApiServer?.IsRunning ?? false;
+            // Update API status based on current mode
+            bool serverRunning;
+            int activePort;
+            if (App.IsHardwareApiMode)
+            {
+                serverRunning = App.HardwareApiServer?.IsRunning ?? false;
+                activePort = _config.HttpApi.Port;
+            }
+            else
+            {
+                serverRunning = LocalCommandServer.IsRunning;
+                activePort = LocalCommandServer.Port;
+            }
             TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
-                apiConnected ? ColorHelper.FromArgb(255, 78, 201, 176) : ColorHelper.FromArgb(255, 244, 135, 113));
-            TitleBarApiEndpoint.Text = $"localhost:{_config.HttpApi.Port}";
+                serverRunning ? ColorHelper.FromArgb(255, 78, 201, 176) : ColorHelper.FromArgb(255, 244, 135, 113));
+            TitleBarApiEndpoint.Text = $"localhost:{activePort}";
 
             // Update module count in status bar
             var service = App.HealthVisualization;
@@ -438,6 +452,67 @@ public sealed partial class MainWindow
         if (uptime.TotalMinutes >= 1)
             return $"{(int)uptime.TotalMinutes}m {uptime.Seconds}s";
         return $"{(int)uptime.TotalSeconds}s";
+    }
+
+    #endregion
+
+    #region API Mode Toggle
+
+    /// <summary>
+    /// Handles the API mode toggle switch being changed.
+    /// Switches between LocalCommandServer (8787) and HardwareApiServer (8081).
+    /// </summary>
+    private async void ApiModeToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (sender is not ToggleSwitch toggle) return;
+
+        try
+        {
+            if (toggle.IsOn)
+            {
+                // Switch to Hardware API mode (8081)
+                Logger.Log("API mode toggle: Switching to Hardware API mode (port 8081)");
+                ShowStatus("Switching API Mode", "Enabling Hardware API on port 8081...");
+
+                if (App.Instance != null)
+                {
+                    await App.Instance.EnableHardwareApiModeAsync();
+                    TitleBarApiEndpoint.Text = "localhost:8081";
+                    TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
+                        App.HardwareApiServer?.IsRunning == true
+                            ? ColorHelper.FromArgb(255, 78, 201, 176)
+                            : ColorHelper.FromArgb(255, 244, 135, 113));
+
+                    ShowStatus("Hardware API Mode", "Listening on port 8081 - Full hardware control enabled");
+                }
+            }
+            else
+            {
+                // Switch to LocalCommandServer mode (8787)
+                Logger.Log("API mode toggle: Switching to LocalCommandServer mode (port 8787)");
+                ShowStatus("Switching API Mode", "Enabling Navigate server on port 8787...");
+
+                if (App.Instance != null)
+                {
+                    await App.Instance.DisableHardwareApiModeAsync(this);
+                    TitleBarApiEndpoint.Text = "localhost:8787";
+                    TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
+                        LocalCommandServer.IsRunning
+                            ? ColorHelper.FromArgb(255, 78, 201, 176)
+                            : ColorHelper.FromArgb(255, 244, 135, 113));
+
+                    ShowStatus("Navigate Mode", "Listening on port 8787 - Remote navigation enabled");
+                }
+            }
+
+            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error toggling API mode: {ex.Message}");
+            ShowStatus("Error", $"Failed to switch API mode: {ex.Message}");
+            _ = Task.Delay(3000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+        }
     }
 
     #endregion

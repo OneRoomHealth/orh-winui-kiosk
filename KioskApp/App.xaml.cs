@@ -27,6 +27,7 @@ public partial class App : Application
 	private HealthMonitorService? _healthMonitorService;
 	private HealthVisualizationService? _healthVisualizationService;
 	private CancellationTokenSource? _servicesCts;
+	private static bool _isHardwareApiMode = false;
 
 	/// <summary>
 	/// Provides access to the hardware health visualization service for the debug panel.
@@ -43,10 +44,22 @@ public partial class App : Application
 	/// </summary>
 	public static IServiceProvider? Services { get; private set; }
 
+	/// <summary>
+	/// Gets whether the Hardware API mode (port 8081) is currently active.
+	/// When false, LocalCommandServer (port 8787) is active.
+	/// </summary>
+	public static bool IsHardwareApiMode => _isHardwareApiMode;
+
+	/// <summary>
+	/// Gets the current App instance for API mode switching.
+	/// </summary>
+	public static App? Instance { get; private set; }
+
 	public App()
 	{
 		Debug.WriteLine("App constructor called");
-		
+		Instance = this;
+
 		try
 		{
 			this.InitializeComponent();
@@ -58,7 +71,7 @@ public partial class App : Application
 			MessageBoxW(IntPtr.Zero, errorMsg, "App Initialization Error", 0x00000010);
 			throw;
 		}
-		
+
 		// Catch unhandled exceptions to prevent silent crashes
 		this.UnhandledException += App_UnhandledException;
 		Debug.WriteLine("App constructor completed");
@@ -302,13 +315,14 @@ public partial class App : Application
 
 		Logger.Log("Hardware manager initialized");
 
-		// Start API server if enabled
+		// Store HardwareApiServer reference but don't start it by default
+		// LocalCommandServer (port 8787) runs by default for remote navigation
+		// HardwareApiServer (port 8081) can be enabled via debug mode toggle
 		if (config.HttpApi.Enabled)
 		{
 			_hardwareApiServer = _serviceProvider.GetRequiredService<HardwareApiServer>();
 			HardwareApiServer = _hardwareApiServer;
-			await _hardwareApiServer.StartAsync();
-			Logger.Log($"Hardware API server started on port {config.HttpApi.Port}");
+			Logger.Log($"Hardware API server configured (port {config.HttpApi.Port}) - not started by default");
 		}
 
 		// Start health monitoring
@@ -349,11 +363,12 @@ public partial class App : Application
 				Logger.Log("Health monitoring stopped");
 			}
 
-			// Stop API server
-			if (_hardwareApiServer != null)
+			// Stop API servers
+			LocalCommandServer.Stop();
+			if (_hardwareApiServer != null && _isHardwareApiMode)
 			{
 				await _hardwareApiServer.StopAsync();
-				Logger.Log("API server stopped");
+				Logger.Log("Hardware API server stopped");
 			}
 
 			// Shutdown hardware manager
@@ -379,6 +394,75 @@ public partial class App : Application
 		catch (Exception ex)
 		{
 			Logger.Log($"Error during shutdown: {ex.Message}");
+		}
+	}
+
+	/// <summary>
+	/// Enables Hardware API mode (port 8081) and stops LocalCommandServer (port 8787).
+	/// In this mode, navigation is handled internally by WebView2.
+	/// </summary>
+	public async Task EnableHardwareApiModeAsync()
+	{
+		if (_isHardwareApiMode)
+		{
+			Logger.Log("Hardware API mode already enabled");
+			return;
+		}
+
+		Logger.Log("Switching to Hardware API mode...");
+
+		// Stop LocalCommandServer
+		LocalCommandServer.Stop();
+
+		// Start HardwareApiServer if available
+		if (_hardwareApiServer != null)
+		{
+			await _hardwareApiServer.StartAsync();
+			_isHardwareApiMode = true;
+			Logger.Log("Hardware API mode enabled - listening on port 8081");
+		}
+		else
+		{
+			Logger.Log("Warning: HardwareApiServer not configured, cannot enable Hardware API mode");
+		}
+	}
+
+	/// <summary>
+	/// Disables Hardware API mode and starts LocalCommandServer (port 8787).
+	/// This is the default mode for remote navigation control.
+	/// </summary>
+	public async Task DisableHardwareApiModeAsync(MainWindow window)
+	{
+		if (!_isHardwareApiMode)
+		{
+			Logger.Log("Hardware API mode already disabled");
+			return;
+		}
+
+		Logger.Log("Switching to LocalCommandServer mode...");
+
+		// Stop HardwareApiServer
+		if (_hardwareApiServer != null)
+		{
+			await _hardwareApiServer.StopAsync();
+		}
+
+		// Start LocalCommandServer
+		_ = LocalCommandServer.StartAsync(window);
+		_isHardwareApiMode = false;
+		Logger.Log("LocalCommandServer mode enabled - listening on port 8787");
+	}
+
+	/// <summary>
+	/// Starts the LocalCommandServer for the given window.
+	/// Called from MainWindow after initialization.
+	/// </summary>
+	public void StartLocalCommandServer(MainWindow window)
+	{
+		if (!_isHardwareApiMode)
+		{
+			_ = LocalCommandServer.StartAsync(window);
+			Logger.Log("LocalCommandServer started on port 8787");
 		}
 	}
 }

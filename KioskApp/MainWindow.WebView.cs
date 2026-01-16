@@ -103,6 +103,9 @@ public sealed partial class MainWindow
                 await _videoController.InitializeAsync();
                 Logger.Log("Video controller ready (can be activated with Ctrl+Alt+D)");
             }
+
+            // Start LocalCommandServer for remote navigation control (default mode)
+            App.Instance?.StartLocalCommandServer(this);
         }
         catch (Exception ex)
         {

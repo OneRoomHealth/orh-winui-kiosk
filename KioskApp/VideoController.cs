@@ -226,11 +226,7 @@ namespace KioskApp
                 args.Add($"\"{videoPath}\"");
 
                 // Kill existing MPV process if running
-                if (_mpvProcess != null && !_mpvProcess.HasExited)
-                {
-                    _mpvProcess.Kill();
-                    await Task.Delay(100);
-                }
+                await KillMpvProcessAsync();
 
                 // Start new MPV process
                 var startInfo = new ProcessStartInfo
@@ -351,14 +347,11 @@ namespace KioskApp
         public async Task StopAsync()
         {
             Logger.Log("Stopping video playback...");
-            
+
             _cancellationSource?.Cancel();
-            
-            if (_mpvProcess != null && !_mpvProcess.HasExited)
-            {
-                _mpvProcess.Kill();
-                await Task.Delay(100);
-            }
+
+            // Kill MPV process
+            await KillMpvProcessAsync();
 
             if (_monitoringTask != null)
             {
@@ -372,9 +365,67 @@ namespace KioskApp
                     Logger.Log("Monitoring task canceled as expected");
                 }
             }
-            
+
             _isDemoPlaying = false;
             Logger.Log("Video playback stopped");
+        }
+
+        /// <summary>
+        /// Forcefully kills the MPV process if running
+        /// </summary>
+        private async Task KillMpvProcessAsync()
+        {
+            if (_mpvProcess == null)
+            {
+                return;
+            }
+
+            try
+            {
+                if (!_mpvProcess.HasExited)
+                {
+                    Logger.Log($"Killing MPV process (PID: {_mpvProcess.Id})...");
+                    _mpvProcess.Kill(entireProcessTree: true);
+
+                    // Wait for process to exit with timeout
+                    var exitTask = Task.Run(() => _mpvProcess.WaitForExit(2000));
+                    await exitTask;
+
+                    if (!_mpvProcess.HasExited)
+                    {
+                        Logger.Log("MPV process did not exit within timeout, forcing termination...");
+                        try
+                        {
+                            _mpvProcess.Kill();
+                        }
+                        catch { }
+                    }
+
+                    Logger.Log("MPV process terminated");
+                }
+                else
+                {
+                    Logger.Log("MPV process already exited");
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // Process already exited
+                Logger.Log("MPV process was already terminated");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error killing MPV process: {ex.Message}");
+            }
+            finally
+            {
+                try
+                {
+                    _mpvProcess.Dispose();
+                }
+                catch { }
+                _mpvProcess = null;
+            }
         }
 
         /// <summary>
@@ -388,10 +439,41 @@ namespace KioskApp
 
         public void Dispose()
         {
+            Logger.Log("Disposing VideoController...");
+
             _cancellationSource?.Cancel();
             _cancellationSource?.Dispose();
-            _mpvProcess?.Dispose();
+
+            // Synchronously kill MPV process if still running
+            if (_mpvProcess != null)
+            {
+                try
+                {
+                    if (!_mpvProcess.HasExited)
+                    {
+                        Logger.Log($"Dispose: Killing MPV process (PID: {_mpvProcess.Id})...");
+                        _mpvProcess.Kill(entireProcessTree: true);
+                        _mpvProcess.WaitForExit(2000);
+                        Logger.Log("Dispose: MPV process killed");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Dispose: Error killing MPV process: {ex.Message}");
+                }
+                finally
+                {
+                    try
+                    {
+                        _mpvProcess.Dispose();
+                    }
+                    catch { }
+                    _mpvProcess = null;
+                }
+            }
+
             _volumeController?.Dispose();
+            Logger.Log("VideoController disposed");
         }
     }
 

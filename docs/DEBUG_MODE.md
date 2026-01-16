@@ -1,7 +1,7 @@
 # Debug Mode Documentation
 
 **Status:** ✅ Fully Implemented
-**Last Updated:** January 13, 2026
+**Last Updated:** January 16, 2026
 
 ---
 
@@ -130,6 +130,35 @@ Debug mode settings in `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 
 ---
 
+## API Mode Toggle
+
+The debug mode title bar includes an API mode toggle switch that controls which HTTP server is active.
+
+### Navigate Mode (Default) - Port 8787
+- **LocalCommandServer** listens on `http://127.0.0.1:8787`
+- Provides `/navigate` endpoint for external URL control
+- Provides `/health` endpoint for status check
+- Lightweight, minimal resource usage
+- Use for remote kiosk navigation control
+
+### Hardware API Mode - Port 8081
+- **HardwareApiServer** listens on configured port (default 8081)
+- Full hardware control API with all module endpoints
+- Matches workstation-api functionality
+- WebView2 handles navigation internally
+- Use when full hardware integration is needed
+
+### Switching Modes
+1. Enter debug mode (`Ctrl + Shift + F12`)
+2. Locate the "Mode:" toggle in the title bar
+3. Toggle OFF = Navigate Mode (8787)
+4. Toggle ON = Hardware API Mode (8081)
+5. Status indicator shows green when server is running
+
+**Note:** Only one server runs at a time. Switching modes automatically stops the current server and starts the other.
+
+---
+
 ## Security Considerations
 
 1. **Disable in Production:** Set `debug.enabled: false` and `exit.enabled: false` for production deployments
@@ -170,7 +199,14 @@ Debug mode settings in `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 ### Hardware Panel Shows All Offline
 1. Check hardware configuration in config.json
 2. Verify network connectivity to hardware devices
-3. Check Hardware API server is running on port 8081
+3. Enable Hardware API mode via the toggle in debug mode title bar
+4. Check Hardware API server is running on port 8081
+
+### API Server Not Responding
+1. Check status indicator in debug mode title bar (should be green)
+2. Navigate mode uses port 8787, Hardware API uses port 8081
+3. Use `netstat -an | findstr "8787 8081"` to check if ports are in use
+4. Toggle the mode switch off and on to restart the server
 
 ---
 

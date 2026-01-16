@@ -235,4 +235,13 @@
         <Setter Property="MinHeight" Value="4"/>
     </Style>
 
+    <!-- API Mode Toggle Switch Style -->
+    <Style x:Key="ApiModeToggleStyle" TargetType="ToggleSwitch">
+        <Setter Property="Foreground" Value="#CCCCCC"/>
+        <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="MinHeight" Value="24"/>
+        <Setter Property="RequestedTheme" Value="Dark"/>
+    </Style>
+
 </ResourceDictionary>
