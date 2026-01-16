@@ -142,10 +142,10 @@ public partial class App : Application
 		}
 	}
 
-	private async Task InitializeServicesAsync(KioskConfiguration config)
+	private Task InitializeServicesAsync(KioskConfiguration config)
 	{
 		Debug.WriteLine("Initializing services...");
-		Logger.Log("Initializing hardware services...");
+		Logger.Log("Initializing services...");
 
 		// Configure Serilog
 		var logPath = Environment.ExpandEnvironmentVariables(config.Logging.Path);
@@ -250,12 +250,12 @@ public partial class App : Application
 		services.AddSingleton<HardwareManager>();
 		services.AddSingleton<HealthMonitorService>();
 
-		// Register API server with configured port
+		// Register API server - always uses port 8081
 		services.AddSingleton(sp =>
 		{
 			var logger = sp.GetRequiredService<ILogger<HardwareApiServer>>();
 			var hwManager = sp.GetRequiredService<HardwareManager>();
-			return new HardwareApiServer(logger, hwManager, config.HttpApi.Port);
+			return new HardwareApiServer(logger, hwManager, 8081);
 		});
 
 		// Build the service provider
@@ -264,81 +264,16 @@ public partial class App : Application
 
 		Logger.Log("Service provider built");
 
-		// Initialize hardware manager
-		var hardwareManager = _serviceProvider.GetRequiredService<HardwareManager>();
-
-		// Register hardware modules with the manager
-		var displayModule = _serviceProvider.GetService<DisplayModule>();
-		if (displayModule != null)
-		{
-			hardwareManager.RegisterModule(displayModule);
-			Logger.Log("DisplayModule registered with HardwareManager");
-		}
-
-		var cameraModule = _serviceProvider.GetService<CameraModule>();
-		if (cameraModule != null)
-		{
-			hardwareManager.RegisterModule(cameraModule);
-			Logger.Log("CameraModule registered with HardwareManager");
-		}
-
-		var lightingModule = _serviceProvider.GetService<LightingModule>();
-		if (lightingModule != null)
-		{
-			hardwareManager.RegisterModule(lightingModule);
-			Logger.Log("LightingModule registered with HardwareManager");
-		}
-
-		var systemAudioModule = _serviceProvider.GetService<SystemAudioModule>();
-		if (systemAudioModule != null)
-		{
-			hardwareManager.RegisterModule(systemAudioModule);
-			Logger.Log("SystemAudioModule registered with HardwareManager");
-		}
-
-		var microphoneModule = _serviceProvider.GetService<MicrophoneModule>();
-		if (microphoneModule != null)
-		{
-			hardwareManager.RegisterModule(microphoneModule);
-			Logger.Log("MicrophoneModule registered with HardwareManager");
-		}
-
-		var speakerModule = _serviceProvider.GetService<SpeakerModule>();
-		if (speakerModule != null)
-		{
-			hardwareManager.RegisterModule(speakerModule);
-			Logger.Log("SpeakerModule registered with HardwareManager");
-		}
-
-		// Initialize all registered modules
-		await hardwareManager.InitializeAllModulesAsync();
-
-		Logger.Log("Hardware manager initialized");
-
-		// Store HardwareApiServer reference but don't start it by default
+		// Store HardwareApiServer reference but don't start it or initialize modules by default
 		// LocalCommandServer (port 8787) runs by default for remote navigation
-		// HardwareApiServer (port 8081) can be enabled via debug mode toggle
-		if (config.HttpApi.Enabled)
-		{
-			_hardwareApiServer = _serviceProvider.GetRequiredService<HardwareApiServer>();
-			HardwareApiServer = _hardwareApiServer;
-			Logger.Log($"Hardware API server configured (port {config.HttpApi.Port}) - not started by default");
-		}
+		// HardwareApiServer (port 8081) can be enabled via debug mode toggle, which initializes hardware
+		_hardwareApiServer = _serviceProvider.GetRequiredService<HardwareApiServer>();
+		HardwareApiServer = _hardwareApiServer;
+		Logger.Log("Hardware API server configured (port 8081) - not started by default");
 
-		// Start health monitoring
-		_servicesCts = new CancellationTokenSource();
-		_healthMonitorService = _serviceProvider.GetRequiredService<HealthMonitorService>();
-		_ = _healthMonitorService.StartAsync(_servicesCts.Token);
+		Logger.Log("Services initialized - hardware modules will be initialized when Hardware API mode is enabled");
 
-		Logger.Log("Health monitoring service started");
-
-		// Create health visualization service for debug UI
-		var vizLogger = _serviceProvider.GetService<ILogger<HealthVisualizationService>>();
-		_healthVisualizationService = new HealthVisualizationService(hardwareManager, vizLogger);
-		HealthVisualization = _healthVisualizationService;
-		Logger.Log("Health visualization service created");
-
-		Logger.Log("All hardware services initialized successfully");
+		return Task.CompletedTask;
 	}
 
 	public async Task ShutdownServicesAsync()
@@ -400,6 +335,7 @@ public partial class App : Application
 	/// <summary>
 	/// Enables Hardware API mode (port 8081) and stops LocalCommandServer (port 8787).
 	/// In this mode, navigation is handled internally by WebView2.
+	/// Initializes all hardware modules when enabled.
 	/// </summary>
 	public async Task EnableHardwareApiModeAsync()
 	{
@@ -413,6 +349,75 @@ public partial class App : Application
 
 		// Stop LocalCommandServer
 		LocalCommandServer.Stop();
+
+		if (_serviceProvider == null)
+		{
+			Logger.Log("Error: Service provider not available");
+			return;
+		}
+
+		// Initialize hardware manager and register modules
+		Logger.Log("Initializing hardware modules...");
+		var hardwareManager = _serviceProvider.GetRequiredService<HardwareManager>();
+
+		// Register hardware modules with the manager
+		var displayModule = _serviceProvider.GetService<DisplayModule>();
+		if (displayModule != null)
+		{
+			hardwareManager.RegisterModule(displayModule);
+			Logger.Log("DisplayModule registered with HardwareManager");
+		}
+
+		var cameraModule = _serviceProvider.GetService<CameraModule>();
+		if (cameraModule != null)
+		{
+			hardwareManager.RegisterModule(cameraModule);
+			Logger.Log("CameraModule registered with HardwareManager");
+		}
+
+		var lightingModule = _serviceProvider.GetService<LightingModule>();
+		if (lightingModule != null)
+		{
+			hardwareManager.RegisterModule(lightingModule);
+			Logger.Log("LightingModule registered with HardwareManager");
+		}
+
+		var systemAudioModule = _serviceProvider.GetService<SystemAudioModule>();
+		if (systemAudioModule != null)
+		{
+			hardwareManager.RegisterModule(systemAudioModule);
+			Logger.Log("SystemAudioModule registered with HardwareManager");
+		}
+
+		var microphoneModule = _serviceProvider.GetService<MicrophoneModule>();
+		if (microphoneModule != null)
+		{
+			hardwareManager.RegisterModule(microphoneModule);
+			Logger.Log("MicrophoneModule registered with HardwareManager");
+		}
+
+		var speakerModule = _serviceProvider.GetService<SpeakerModule>();
+		if (speakerModule != null)
+		{
+			hardwareManager.RegisterModule(speakerModule);
+			Logger.Log("SpeakerModule registered with HardwareManager");
+		}
+
+		// Initialize all registered modules
+		await hardwareManager.InitializeAllModulesAsync();
+		Logger.Log("Hardware modules initialized");
+
+		// Start health monitoring
+		_servicesCts = new CancellationTokenSource();
+		_healthMonitorService = _serviceProvider.GetRequiredService<HealthMonitorService>();
+		_ = _healthMonitorService.StartAsync(_servicesCts.Token);
+		Logger.Log("Health monitoring service started");
+
+		// Create health visualization service for debug UI
+		var vizLogger = _serviceProvider.GetService<ILogger<HealthVisualizationService>>();
+		_healthVisualizationService = new HealthVisualizationService(hardwareManager, vizLogger);
+		HealthVisualization = _healthVisualizationService;
+		Logger.Log("Health visualization service created");
 
 		// Start HardwareApiServer if available
 		if (_hardwareApiServer != null)
@@ -430,6 +435,7 @@ public partial class App : Application
 	/// <summary>
 	/// Disables Hardware API mode and starts LocalCommandServer (port 8787).
 	/// This is the default mode for remote navigation control.
+	/// Shuts down hardware modules when disabled.
 	/// </summary>
 	public async Task DisableHardwareApiModeAsync(MainWindow window)
 	{
@@ -441,10 +447,41 @@ public partial class App : Application
 
 		Logger.Log("Switching to LocalCommandServer mode...");
 
+		// Stop health monitoring
+		if (_healthMonitorService != null && _servicesCts != null)
+		{
+			_servicesCts.Cancel();
+			await _healthMonitorService.StopAsync(CancellationToken.None);
+			_servicesCts.Dispose();
+			_servicesCts = null;
+			Logger.Log("Health monitoring stopped");
+		}
+
+		// Dispose health visualization service
+		if (_healthVisualizationService != null)
+		{
+			_healthVisualizationService.Dispose();
+			HealthVisualization = null;
+			_healthVisualizationService = null;
+			Logger.Log("Health visualization service disposed");
+		}
+
+		// Shutdown hardware modules
+		if (_serviceProvider != null)
+		{
+			var hardwareManager = _serviceProvider.GetService<HardwareManager>();
+			if (hardwareManager != null)
+			{
+				await hardwareManager.ShutdownAllModulesAsync();
+				Logger.Log("Hardware modules shut down");
+			}
+		}
+
 		// Stop HardwareApiServer
 		if (_hardwareApiServer != null)
 		{
 			await _hardwareApiServer.StopAsync();
+			Logger.Log("Hardware API server stopped");
 		}
 
 		// Start LocalCommandServer

@@ -405,12 +405,12 @@ public sealed partial class MainWindow
             if (App.IsHardwareApiMode)
             {
                 serverRunning = App.HardwareApiServer?.IsRunning ?? false;
-                activePort = _config.HttpApi.Port;
+                activePort = 8081;
             }
             else
             {
                 serverRunning = LocalCommandServer.IsRunning;
-                activePort = LocalCommandServer.Port;
+                activePort = 8787;
             }
             TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
                 serverRunning ? ColorHelper.FromArgb(255, 78, 201, 176) : ColorHelper.FromArgb(255, 244, 135, 113));

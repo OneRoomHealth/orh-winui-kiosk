@@ -208,7 +208,7 @@ public sealed partial class MainWindow
         var summary = service.SystemSummary;
 
         // Update footer with summary info
-        HealthFooterText.Text = $"API: http://localhost:{_config.HttpApi.Port} | {summary.ActiveModules}/{summary.TotalModules} modules | Uptime: {summary.UptimeDisplay}";
+        HealthFooterText.Text = $"API: http://localhost:8081 | {summary.ActiveModules}/{summary.TotalModules} modules | Uptime: {summary.UptimeDisplay}";
         HealthLastRefreshText.Text = $"Last refresh: {summary.LastUpdate.ToLocalTime():HH:mm:ss}";
 
         // Build module cards using the new ItemsControl

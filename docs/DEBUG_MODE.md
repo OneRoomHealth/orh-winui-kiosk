@@ -138,12 +138,14 @@ The debug mode title bar includes an API mode toggle switch that controls which 
 - **LocalCommandServer** listens on `http://127.0.0.1:8787`
 - Provides `/navigate` endpoint for external URL control
 - Provides `/health` endpoint for status check
-- Lightweight, minimal resource usage
+- Lightweight, minimal resource usage - no hardware modules initialized
 - Use for remote kiosk navigation control
 
 ### Hardware API Mode - Port 8081
 - **HardwareApiServer** listens on configured port (default 8081)
 - Full hardware control API with all module endpoints
+- Initializes all hardware modules (Display, Camera, Lighting, Audio, etc.)
+- Starts health monitoring and visualization services
 - Matches workstation-api functionality
 - WebView2 handles navigation internally
 - Use when full hardware integration is needed
@@ -151,11 +153,11 @@ The debug mode title bar includes an API mode toggle switch that controls which 
 ### Switching Modes
 1. Enter debug mode (`Ctrl + Shift + F12`)
 2. Locate the "Mode:" toggle in the title bar
-3. Toggle OFF = Navigate Mode (8787)
-4. Toggle ON = Hardware API Mode (8081)
+3. Toggle OFF = Navigate Mode (8787) - lightweight, no hardware
+4. Toggle ON = Hardware API Mode (8081) - full hardware integration
 5. Status indicator shows green when server is running
 
-**Note:** Only one server runs at a time. Switching modes automatically stops the current server and starts the other.
+**Note:** Only one server runs at a time. Switching to Hardware API mode initializes all hardware modules. Switching back to Navigate mode shuts down hardware modules to conserve resources.
 
 ---
 
