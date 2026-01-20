@@ -52,9 +52,6 @@ public class CameraConfiguration : ModuleConfigurationBase
     [JsonPropertyName("autoStartController")]
     public bool AutoStartController { get; set; } = true;
 
-    [JsonPropertyName("maxRestartAttempts")]
-    public int MaxRestartAttempts { get; set; } = 5;
-
     [JsonPropertyName("devices")]
     public List<CameraDeviceConfig> Devices { get; set; } = new();
 }
@@ -106,9 +103,6 @@ public class DisplayDeviceConfig
 /// </summary>
 public class LightingConfiguration : ModuleConfigurationBase
 {
-    [JsonPropertyName("dmxUrl")]
-    public string DmxUrl { get; set; } = "ftdi:///1";
-
     [JsonPropertyName("fps")]
     public int Fps { get; set; } = 25;
 

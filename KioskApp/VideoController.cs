@@ -21,9 +21,6 @@ namespace KioskApp
         private readonly VideoModeSettings _settings;
         private readonly int _targetMonitorIndex;
 
-        // Volume control via Windows Core Audio API
-        private readonly VolumeController _volumeController;
-
         public bool IsVideoModeEnabled => _settings.Enabled;
         public bool IsDemoPlaying => _isDemoPlaying;
 
@@ -32,7 +29,6 @@ namespace KioskApp
             _settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _targetMonitorIndex = targetMonitorIndex;
             _cancellationSource = new CancellationTokenSource();
-            _volumeController = new VolumeController();
         }
 
         /// <summary>
@@ -107,8 +103,7 @@ namespace KioskApp
                 // Start carescape video
                 bool success = await StartMpvAsync(
                     _settings.CarescapeVideoPath,
-                    loop: true,
-                    volume: _settings.CarescapeVolume
+                    loop: true
                 );
 
                 if (success)
@@ -138,8 +133,7 @@ namespace KioskApp
                 // Start demo video
                 bool success = await StartMpvAsync(
                     _settings.DemoVideoPath,
-                    loop: false,
-                    volume: _settings.DemoVolume
+                    loop: false
                 );
 
                 if (success)
@@ -194,7 +188,7 @@ namespace KioskApp
         /// <summary>
         /// Start MPV with specified video
         /// </summary>
-        private async Task<bool> StartMpvAsync(string videoPath, bool loop, double volume)
+        private async Task<bool> StartMpvAsync(string videoPath, bool loop)
         {
             try
             {
@@ -240,16 +234,12 @@ namespace KioskApp
                 };
 
                 _mpvProcess = Process.Start(startInfo);
-                
+
                 if (_mpvProcess == null)
                 {
                     Logger.Log("Failed to start MPV process");
                     return false;
                 }
-
-                // Set volume after slight delay
-                await Task.Delay(300);
-                _volumeController.SetSystemVolume(volume);
 
                 return true;
             }
@@ -472,80 +462,7 @@ namespace KioskApp
                 }
             }
 
-            _volumeController?.Dispose();
             Logger.Log("VideoController disposed");
-        }
-    }
-
-    /// <summary>
-    /// Controls system volume using Windows Core Audio API
-    /// </summary>
-    internal class VolumeController : IDisposable
-    {
-        // This is a simplified version - in production, use NAudio or CSCore
-        public void SetSystemVolume(double volumePercent)
-        {
-            try
-            {
-                // Use PowerShell as a workaround for simplicity
-                var volume = Math.Max(0, Math.Min(100, volumePercent));
-                var script = $@"
-                    Add-Type -TypeDefinition @'
-                    using System.Runtime.InteropServices;
-                    [Guid(""5CDF2C82-841E-4546-9722-0CF74078229A""), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-                    interface IAudioEndpointVolume {{
-                        int f(); int g(); int h(); int i();
-                        int SetMasterVolumeLevelScalar(float fLevel, System.Guid pguidEventContext);
-                        int j();
-                        int GetMasterVolumeLevelScalar(out float pfLevel);
-                    }}
-                    [Guid(""D666063F-1587-4E43-81F1-B948E807363F""), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-                    interface IMMDevice {{
-                        int Activate(ref System.Guid id, int clsCtx, int activationParams, out IAudioEndpointVolume aev);
-                    }}
-                    [Guid(""A95664D2-9614-4F35-A746-DE8DB63617E6""), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-                    interface IMMDeviceEnumerator {{
-                        int f();
-                        int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint);
-                    }}
-                    [ComImport, Guid(""BCDE0395-E52F-467C-8E3D-C4579291692E"")] class MMDeviceEnumeratorComObject {{ }}
-                    public class Audio {{
-                        static IAudioEndpointVolume Vol() {{
-                            var enumerator = new MMDeviceEnumeratorComObject() as IMMDeviceEnumerator;
-                            IMMDevice dev = null;
-                            Marshal.ThrowExceptionForHR(enumerator.GetDefaultAudioEndpoint(0, 1, out dev));
-                            IAudioEndpointVolume epv = null;
-                            var epvid = typeof(IAudioEndpointVolume).GUID;
-                            Marshal.ThrowExceptionForHR(dev.Activate(ref epvid, 23, 0, out epv));
-                            return epv;
-                        }}
-                        public static void SetVolume(float v) {{
-                            Marshal.ThrowExceptionForHR(Vol().SetMasterVolumeLevelScalar(v, System.Guid.Empty));
-                        }}
-                    }}
-                    '@
-                    [Audio]::SetVolume({volume / 100.0}f)
-                ";
-
-                using var process = Process.Start(new ProcessStartInfo
-                {
-                    FileName = "powershell",
-                    Arguments = $"-Command \"{script}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                });
-
-                process?.WaitForExit(1000);
-            }
-            catch
-            {
-                // Silently fail - volume control is not critical
-            }
-        }
-
-        public void Dispose()
-        {
-            // Cleanup if needed
         }
     }
 }

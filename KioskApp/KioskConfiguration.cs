@@ -21,9 +21,6 @@ public class KioskConfiguration
     [JsonPropertyName("logging")]
     public LoggingSettings Logging { get; set; } = new();
 
-    [JsonPropertyName("httpApi")]
-    public HttpApiSettings HttpApi { get; set; } = new();
-
     [JsonPropertyName("hardware")]
     public HardwareConfiguration Hardware { get; set; } = new();
 }
@@ -37,13 +34,7 @@ public class KioskSettings
     public string DefaultUrl { get; set; } = "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default";
 
     [JsonPropertyName("targetMonitorIndex")]
-    public int TargetMonitorIndex { get; set; } = 1; // Default to second monitor (index 1)
-
-    [JsonPropertyName("fullscreen")]
-    public bool Fullscreen { get; set; } = true;
-
-    [JsonPropertyName("alwaysOnTop")]
-    public bool AlwaysOnTop { get; set; } = true;
+    public int TargetMonitorIndex { get; set; } = 1; // 1-based index (1 = primary, 2 = secondary, etc.)
 
     [JsonPropertyName("videoMode")]
     public VideoModeSettings VideoMode { get; set; } = new();
@@ -63,12 +54,6 @@ public class VideoModeSettings
     [JsonPropertyName("demoVideoPath")]
     public string DemoVideoPath { get; set; } = @"C:\Videos\demo.mp4";
 
-    [JsonPropertyName("carescapeVolume")]
-    public double CarescapeVolume { get; set; } = 50;
-
-    [JsonPropertyName("demoVolume")]
-    public double DemoVolume { get; set; } = 75;
-
     [JsonPropertyName("mpvPath")]
     public string? MpvPath { get; set; }
 
@@ -86,12 +71,6 @@ public class DebugSettings
 
     [JsonPropertyName("hotkey")]
     public string Hotkey { get; set; } = "Ctrl+Shift+I";
-
-    [JsonPropertyName("autoOpenDevTools")]
-    public bool AutoOpenDevTools { get; set; } = false;
-
-    [JsonPropertyName("windowSizePercent")]
-    public int WindowSizePercent { get; set; } = 80;
 }
 
 /// <summary>
@@ -105,14 +84,8 @@ public class ExitSettings
     [JsonPropertyName("hotkey")]
     public string Hotkey { get; set; } = "Ctrl+Shift+Q";
 
-    [JsonPropertyName("requirePassword")]
-    public bool RequirePassword { get; set; } = true;
-
     [JsonPropertyName("passwordHash")]
-    public string PasswordHash { get; set; } = ""; // Empty by default - will be set on first run
-
-    [JsonPropertyName("timeout")]
-    public int Timeout { get; set; } = 5000; // 5 second timeout for dialogs
+    public string PasswordHash { get; set; } = ""; // Empty uses default password "admin123"
 }
 
 /// <summary>
@@ -120,12 +93,6 @@ public class ExitSettings
 /// </summary>
 public class LoggingSettings
 {
-    [JsonPropertyName("enabled")]
-    public bool Enabled { get; set; } = true;
-
-    [JsonPropertyName("level")]
-    public string Level { get; set; } = "Info";
-
     [JsonPropertyName("path")]
     public string Path { get; set; } = "%LocalAppData%\\OneRoomHealthKiosk\\logs";
 
@@ -136,17 +103,3 @@ public class LoggingSettings
     public int MaxFiles { get; set; } = 5;
 }
 
-/// <summary>
-/// HTTP API settings for hardware control API.
-/// </summary>
-public class HttpApiSettings
-{
-    [JsonPropertyName("enabled")]
-    public bool Enabled { get; set; } = true;
-
-    [JsonPropertyName("port")]
-    public int Port { get; set; } = 8081;
-
-    [JsonPropertyName("allowRemote")]
-    public bool AllowRemote { get; set; } = true;
-}
