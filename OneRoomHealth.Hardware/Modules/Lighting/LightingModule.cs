@@ -468,7 +468,7 @@ public class LightingModule : HardwareModuleBase
             catch { }
         }
 
-        // Close FTDI device
+        // Close FTDI device (can be reopened on re-init)
         if (_ftdiDevice != null)
         {
             try
@@ -476,14 +476,30 @@ public class LightingModule : HardwareModuleBase
                 _ftdiDevice.Close();
             }
             catch { }
+            _ftdiDevice = null;
         }
+
+        _dmxEnabled = false;
+        _dmxSenderTask = null;
+        _dmxCts?.Dispose();
+        _dmxCts = null;
+
+        // Clear DMX buffer
+        Array.Clear(_dmxBuffer, 0, _dmxBuffer.Length);
 
         await base.ShutdownAsync();
 
-        // Dispose synchronization primitives
-        _stateLock.Dispose();
-        _dmxCts?.Dispose();
+        // Clear device states (don't dispose _stateLock - it's reused on re-enable)
+        await _stateLock.WaitAsync();
+        try
+        {
+            _deviceStates.Clear();
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
 
-        Logger.LogInformation("{ModuleName}: Shutdown complete", ModuleName);
+        Logger.LogInformation("{ModuleName}: Shutdown complete, state cleared", ModuleName);
     }
 }

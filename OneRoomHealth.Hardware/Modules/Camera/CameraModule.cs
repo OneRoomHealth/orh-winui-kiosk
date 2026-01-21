@@ -559,12 +559,23 @@ public class CameraModule : HardwareModuleBase
             }
         }
 
-        // Dispose all resources
+        // Dispose the process (can be recreated on re-init)
         _controllerProcess?.Dispose();
-        _httpClient.Dispose();
-        _stateLock.Dispose();
+        _controllerProcess = null;
+        _controllerRunning = false;
 
-        Logger.LogInformation("{ModuleName}: Shutdown complete", ModuleName);
+        // Clear device states (don't dispose _stateLock or _httpClient - they're reused on re-enable)
+        await _stateLock.WaitAsync();
+        try
+        {
+            _deviceStates.Clear();
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+
+        Logger.LogInformation("{ModuleName}: Shutdown complete, state cleared", ModuleName);
     }
 }
 

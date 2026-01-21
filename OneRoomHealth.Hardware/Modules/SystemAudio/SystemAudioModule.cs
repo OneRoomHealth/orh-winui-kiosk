@@ -398,14 +398,26 @@ public class SystemAudioModule : HardwareModuleBase
 
         await base.ShutdownAsync();
 
-        // Dispose NAudio resources
+        // Dispose NAudio resources (can be recreated on re-init)
         _speakerDevice?.Dispose();
+        _speakerDevice = null;
         _microphoneDevice?.Dispose();
+        _microphoneDevice = null;
         _deviceEnumerator?.Dispose();
+        _deviceEnumerator = null;
 
-        // Dispose synchronization primitives
-        _stateLock.Dispose();
+        // Reset state (don't dispose _stateLock - it's reused on re-enable)
+        await _stateLock.WaitAsync();
+        try
+        {
+            _state.Health = DeviceHealth.Offline;
+            _state.Errors.Clear();
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
 
-        Logger.LogInformation("{ModuleName}: Shutdown complete", ModuleName);
+        Logger.LogInformation("{ModuleName}: Shutdown complete, state cleared", ModuleName);
     }
 }

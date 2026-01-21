@@ -316,10 +316,17 @@ public class SpeakerModule : HardwareModuleBase
         Logger.LogInformation("{ModuleName}: Shutting down", ModuleName);
         await base.ShutdownAsync();
 
-        // Dispose resources
-        _stateLock.Dispose();
-        _httpClient.Dispose();
+        // Clear device states (don't dispose _stateLock or _httpClient - they're reused on re-enable)
+        await _stateLock.WaitAsync();
+        try
+        {
+            _deviceStates.Clear();
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
 
-        Logger.LogInformation("{ModuleName}: Shutdown complete", ModuleName);
+        Logger.LogInformation("{ModuleName}: Shutdown complete, state cleared", ModuleName);
     }
 }

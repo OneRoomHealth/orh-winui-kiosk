@@ -375,8 +375,18 @@ public class DisplayModule : HardwareModuleBase
     public override async Task ShutdownAsync()
     {
         await base.ShutdownAsync();
-        _stateLock.Dispose();
-        _httpClient.Dispose();
-        Logger.LogInformation("{ModuleName}: Resources disposed", ModuleName);
+
+        // Clear device states (don't dispose _stateLock or _httpClient - they're reused on re-enable)
+        await _stateLock.WaitAsync();
+        try
+        {
+            _deviceStates.Clear();
+        }
+        finally
+        {
+            _stateLock.Release();
+        }
+
+        Logger.LogInformation("{ModuleName}: Shutdown complete, state cleared", ModuleName);
     }
 }
