@@ -16,6 +16,7 @@ namespace KioskApp
     {
         private Process? _mpvProcess;
         private bool _isDemoPlaying;
+        private int _currentDemoIndex; // 1 or 2, tracks which demo video is playing
         private CancellationTokenSource _cancellationSource;
         private Task? _monitoringTask;
         private readonly VideoModeSettings _settings;
@@ -23,6 +24,7 @@ namespace KioskApp
 
         public bool IsVideoModeEnabled => _settings.Enabled;
         public bool IsDemoPlaying => _isDemoPlaying;
+        public int CurrentDemoIndex => _currentDemoIndex;
 
         public VideoController(VideoModeSettings settings, int targetMonitorIndex)
         {
@@ -55,31 +57,49 @@ namespace KioskApp
         }
 
         /// <summary>
-        /// Handle Flic button press (toggle between videos)
-        /// If no video is playing, starts carescape video
+        /// Handle Flic button press - legacy method, now calls ToggleDemoVideosAsync
         /// </summary>
         public async Task HandleFlicButtonPressAsync()
         {
+            await ToggleDemoVideosAsync();
+        }
+
+        /// <summary>
+        /// Resume playback with carescape video.
+        /// Used when restarting video mode (e.g., after monitor switch) to preserve expected behavior.
+        /// </summary>
+        public async Task ResumePlaybackAsync()
+        {
+            Logger.Log("Resuming video playback with carescape");
+            await PlayCarescapeVideoAsync();
+        }
+
+        /// <summary>
+        /// Toggle between demo videos (demo1 -> demo2 -> demo1...)
+        /// If no demo is playing, starts with demo1
+        /// </summary>
+        public async Task ToggleDemoVideosAsync()
+        {
             // Check if any video is currently playing
             bool isVideoPlaying = _mpvProcess != null && !_mpvProcess.HasExited;
-            
-            if (!isVideoPlaying)
+
+            if (!isVideoPlaying || !_isDemoPlaying)
             {
-                // No video playing - start carescape video
-                Logger.Log("Flic pressed: Starting carescape video (no video currently playing)");
-                await PlayCarescapeVideoAsync();
+                // No video playing or carescape is playing - start demo1
+                Logger.Log("Toggle demos: Starting demo video 1");
+                await PlayDemoVideoAsync(1);
             }
-            else if (_isDemoPlaying)
+            else if (_currentDemoIndex == 1)
             {
-                // Demo is playing - return to carescape
-                Logger.Log("Flic pressed: Returning to carescape video");
-                await PlayCarescapeVideoAsync();
+                // Demo1 is playing - switch to demo2
+                Logger.Log("Toggle demos: Switching to demo video 2");
+                await PlayDemoVideoAsync(2);
             }
             else
             {
-                // Carescape is playing - switch to demo
-                Logger.Log("Flic pressed: Playing demo video");
-                await PlayDemoVideoAsync();
+                // Demo2 is playing - switch to demo1
+                Logger.Log("Toggle demos: Switching to demo video 1");
+                await PlayDemoVideoAsync(1);
             }
         }
 
@@ -122,55 +142,69 @@ namespace KioskApp
         }
 
         /// <summary>
-        /// Play demo video (plays once then returns to carescape)
+        /// Play demo video (plays once then switches to the other demo)
         /// </summary>
-        private async Task PlayDemoVideoAsync()
+        /// <param name="demoIndex">Which demo to play (1 or 2)</param>
+        private async Task PlayDemoVideoAsync(int demoIndex)
         {
             try
             {
+                // Cancel any existing monitoring
+                if (_isDemoPlaying)
+                {
+                    _cancellationSource?.Cancel();
+                    _cancellationSource?.Dispose();
+                    _cancellationSource = new CancellationTokenSource();
+                }
+
                 _isDemoPlaying = true;
+                _currentDemoIndex = demoIndex;
+
+                // Get the correct demo path
+                string demoPath = demoIndex == 1 ? _settings.DemoVideoPath1 : _settings.DemoVideoPath2;
 
                 // Start demo video
-                bool success = await StartMpvAsync(
-                    _settings.DemoVideoPath,
-                    loop: false
-                );
+                bool success = await StartMpvAsync(demoPath, loop: false);
 
                 if (success)
                 {
-                    Logger.Log("Demo video started successfully");
-                    
+                    Logger.Log($"Demo video {demoIndex} started successfully: {demoPath}");
+
                     // Start monitoring for demo completion
                     _monitoringTask = MonitorDemoCompletionAsync(_cancellationSource.Token);
                 }
                 else
                 {
-                    Logger.Log("Failed to start demo video");
+                    Logger.Log($"Failed to start demo video {demoIndex}");
                     _isDemoPlaying = false;
+                    _currentDemoIndex = 0;
                 }
             }
             catch (Exception ex)
             {
-                Logger.Log($"Error playing demo video: {ex.Message}");
+                Logger.Log($"Error playing demo video {demoIndex}: {ex.Message}");
                 _isDemoPlaying = false;
+                _currentDemoIndex = 0;
             }
         }
 
         /// <summary>
-        /// Monitor demo video completion and return to carescape
+        /// Monitor demo video completion and play the other demo video
         /// </summary>
         private async Task MonitorDemoCompletionAsync(CancellationToken cancellationToken)
         {
             try
             {
-                Logger.Log("Starting demo video monitoring...");
+                Logger.Log($"Starting demo video {_currentDemoIndex} monitoring...");
 
                 while (_isDemoPlaying && !cancellationToken.IsCancellationRequested)
                 {
                     if (_mpvProcess?.HasExited ?? true)
                     {
-                        Logger.Log("Demo video completed, returning to carescape");
-                        await PlayCarescapeVideoAsync();
+                        // Play the other demo video when current one finishes
+                        int nextDemo = _currentDemoIndex == 1 ? 2 : 1;
+                        Logger.Log($"Demo video {_currentDemoIndex} completed, switching to demo {nextDemo}");
+                        await PlayDemoVideoAsync(nextDemo);
                         break;
                     }
 
@@ -322,9 +356,15 @@ namespace KioskApp
                 return false;
             }
 
-            if (!File.Exists(_settings.DemoVideoPath))
+            if (!File.Exists(_settings.DemoVideoPath1))
             {
-                Logger.Log($"Demo video not found: {_settings.DemoVideoPath}");
+                Logger.Log($"Demo video 1 not found: {_settings.DemoVideoPath1}");
+                return false;
+            }
+
+            if (!File.Exists(_settings.DemoVideoPath2))
+            {
+                Logger.Log($"Demo video 2 not found: {_settings.DemoVideoPath2}");
                 return false;
             }
 
@@ -357,6 +397,7 @@ namespace KioskApp
             }
 
             _isDemoPlaying = false;
+            _currentDemoIndex = 0;
             Logger.Log("Video playback stopped");
         }
 

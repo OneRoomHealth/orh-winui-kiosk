@@ -27,7 +27,8 @@ if (-not (Test-Path $configPath)) {
 Write-Host "`nChecking video files..." -ForegroundColor Yellow
 $config = Get-Content $configPath | ConvertFrom-Json
 $carescapeVideo = $config.kiosk.videoMode.carescapeVideoPath
-$demoVideo = $config.kiosk.videoMode.demoVideoPath
+$demoVideo1 = $config.kiosk.videoMode.demoVideoPath1
+$demoVideo2 = $config.kiosk.videoMode.demoVideoPath2
 
 $videosFound = $true
 if (Test-Path $carescapeVideo) {
@@ -38,10 +39,18 @@ if (Test-Path $carescapeVideo) {
     $videosFound = $false
 }
 
-if (Test-Path $demoVideo) {
-    Write-Host "✓ Demo video found: $demoVideo" -ForegroundColor Green
+if (Test-Path $demoVideo1) {
+    Write-Host "✓ Demo video 1 found: $demoVideo1" -ForegroundColor Green
 } else {
-    Write-Host "✗ Demo video NOT found: $demoVideo" -ForegroundColor Red
+    Write-Host "✗ Demo video 1 NOT found: $demoVideo1" -ForegroundColor Red
+    Write-Host "  Please update the path in: $configPath" -ForegroundColor Yellow
+    $videosFound = $false
+}
+
+if (Test-Path $demoVideo2) {
+    Write-Host "✓ Demo video 2 found: $demoVideo2" -ForegroundColor Green
+} else {
+    Write-Host "✗ Demo video 2 NOT found: $demoVideo2" -ForegroundColor Red
     Write-Host "  Please update the path in: $configPath" -ForegroundColor Yellow
     $videosFound = $false
 }
@@ -52,7 +61,8 @@ if (-not $videosFound) {
     Write-Host "2. Or copy your videos to the expected locations"
     Write-Host "3. Or create test videos:"
     Write-Host "   - $carescapeVideo"
-    Write-Host "   - $demoVideo"
+    Write-Host "   - $demoVideo1"
+    Write-Host "   - $demoVideo2"
 }
 
 # 3. Build the app
@@ -84,9 +94,9 @@ if (Test-Path $exePath) {
 # 5. Show instructions
 Write-Host "`n=== Ready to Test! ===" -ForegroundColor Cyan
 Write-Host "Video Mode Controls:" -ForegroundColor Yellow
-Write-Host "  • Ctrl+Alt+D - Toggle between videos (Flic button)"
-Write-Host "  • Ctrl+Alt+E - Stop video"
-Write-Host "  • Ctrl+Alt+R - Restart carescape video"
+Write-Host "  • Ctrl+Alt+R - Play carescape video (enters video mode)"
+Write-Host "  • Ctrl+Alt+D - Toggle between demo videos (enters video mode)"
+Write-Host "  • Ctrl+Alt+E - Stop video and return to screensaver"
 Write-Host ""
 Write-Host "Debug Controls:" -ForegroundColor Yellow
 Write-Host "  • Ctrl+Shift+F12 - Toggle debug mode"

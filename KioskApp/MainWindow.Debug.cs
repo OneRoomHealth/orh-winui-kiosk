@@ -1100,51 +1100,123 @@ public sealed partial class MainWindow
     #region Video/Screensaver Mode
 
     /// <summary>
-    /// Switches from screensaver mode to video mode or toggles videos if already in video mode.
+    /// Enters video mode (hides WebView) if not already in video mode.
+    /// Returns true if video mode was entered successfully, false otherwise.
     /// </summary>
-    private async Task SwitchToVideoMode()
+    private async Task<bool> EnterVideoModeIfNeeded()
     {
         if (_isVideoMode)
         {
-            // Already in video mode - toggle between videos
-            Logger.Log("Already in video mode - toggling video source");
-            if (_videoController != null)
-            {
-                await _videoController.HandleFlicButtonPressAsync();
-            }
-            return;
+            return true;
         }
 
-        Logger.Log("========== SWITCHING TO VIDEO MODE ==========");
-        _isVideoMode = true;
+        Logger.Log("========== ENTERING VIDEO MODE ==========");
 
         try
         {
             // Hide the WebView
-            await Task.Run(() =>
+            var tcs = new TaskCompletionSource<bool>();
+
+            bool enqueued = DispatcherQueue.TryEnqueue(() =>
             {
-                DispatcherQueue.TryEnqueue(() =>
+                try
                 {
                     if (KioskWebView != null)
                     {
                         KioskWebView.Visibility = Visibility.Collapsed;
                         Logger.Log("WebView hidden for video mode");
                     }
-                });
+                    tcs.SetResult(true);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Error hiding WebView: {ex.Message}");
+                    tcs.SetResult(false);
+                }
             });
 
-            // Start playing the carescape video
+            if (!enqueued)
+            {
+                Logger.Log("EnterVideoModeIfNeeded: Failed to enqueue - dispatcher queue unavailable");
+                return false;
+            }
+
+            bool success = await tcs.Task;
+
+            if (success)
+            {
+                _isVideoMode = true;
+            }
+
+            return success;
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error entering video mode: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Switches to video mode (if needed) and toggles between demo videos.
+    /// Ctrl+Alt+D handler.
+    /// </summary>
+    private async Task SwitchToVideoModeAndToggleDemos()
+    {
+        try
+        {
+            bool entered = await EnterVideoModeIfNeeded();
+            if (!entered)
+            {
+                Logger.Log("Failed to enter video mode, skipping demo toggle");
+                return;
+            }
+
             if (_videoController != null)
             {
-                await _videoController.HandleFlicButtonPressAsync();
-                Logger.Log("Video playback started");
+                await _videoController.ToggleDemoVideosAsync();
+                Logger.Log("Demo video toggle executed");
             }
         }
         catch (Exception ex)
         {
-            Logger.Log($"Error switching to video mode: {ex.Message}");
-            _isVideoMode = false;
+            Logger.Log($"Error toggling demo videos: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Switches to video mode (if needed) and plays carescape video.
+    /// Ctrl+Alt+R handler.
+    /// </summary>
+    private async Task SwitchToVideoModeAndPlayCarescape()
+    {
+        try
+        {
+            bool entered = await EnterVideoModeIfNeeded();
+            if (!entered)
+            {
+                Logger.Log("Failed to enter video mode, skipping carescape playback");
+                return;
+            }
+
+            if (_videoController != null)
+            {
+                await _videoController.PlayCarescapeVideoAsync();
+                Logger.Log("Carescape video started");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error playing carescape video: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Legacy method - switches to video mode and starts demo toggle.
+    /// </summary>
+    private async Task SwitchToVideoMode()
+    {
+        await SwitchToVideoModeAndToggleDemos();
     }
 
     /// <summary>

@@ -6,9 +6,10 @@ Complete guide for using the Flic button video control feature with MPV player i
 
 ## Overview
 
-The kiosk app supports video playback mode with Flic button control. This allows switching between two videos:
-- **Carescape Video**: Loops continuously (default state)
-- **Demo Video**: Plays once, then returns to carescape
+The kiosk app supports video playback mode with Flic button control. This allows switching between three videos:
+- **Carescape Video**: Loops continuously
+- **Demo Video 1**: Plays once, then switches to Demo Video 2
+- **Demo Video 2**: Plays once, then switches to Demo Video 1
 
 The implementation uses **MPV player** for high-quality video playback with hardware acceleration.
 
@@ -40,7 +41,8 @@ Edit `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
     "videoMode": {
       "enabled": true,
       "carescapeVideoPath": "C:\\Videos\\carescape.mp4",
-      "demoVideoPath": "C:\\Videos\\demo.mp4",
+      "demoVideoPath1": "C:\\Videos\\demo1.mp4",
+      "demoVideoPath2": "C:\\Videos\\demo2.mp4",
       "carescapeVolume": 50,
       "demoVolume": 75,
       "targetMonitor": 2,
@@ -54,9 +56,9 @@ Edit `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 
 ### 3. Controls
 
-- **Ctrl+Alt+D** - Toggle between videos (Flic button)
-- **Ctrl+Alt+E** - Stop video playback
-- **Ctrl+Alt+R** - Restart carescape video
+- **Ctrl+Alt+R** - Play carescape video (enters video mode if needed)
+- **Ctrl+Alt+D** - Toggle between demo videos (enters video mode if needed)
+- **Ctrl+Alt+E** - Stop video playback and return to screensaver mode
 
 ---
 
@@ -65,10 +67,11 @@ Edit `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 | Setting | Description | Default |
 |---------|-------------|---------|
 | `enabled` | Enable/disable video mode | `false` |
-| `carescapeVideoPath` | Path to looping video | `C:\Videos\carescape.mp4` |
-| `demoVideoPath` | Path to demo video | `C:\Videos\demo.mp4` |
+| `carescapeVideoPath` | Path to looping carescape video | `C:\Videos\carescape.mp4` |
+| `demoVideoPath1` | Path to first demo video | `C:\Videos\demo1.mp4` |
+| `demoVideoPath2` | Path to second demo video | `C:\Videos\demo2.mp4` |
 | `carescapeVolume` | Volume for carescape (0-100) | `50` |
-| `demoVolume` | Volume for demo (0-100) | `75` |
+| `demoVolume` | Volume for demo videos (0-100) | `75` |
 | `targetMonitor` | Monitor number (1-based) | `1` |
 | `flicButtonEnabled` | Enable Flic button control | `true` |
 
@@ -76,9 +79,13 @@ Edit `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 
 ## How It Works
 
-1. **App Startup**: If video mode is enabled, the app launches MPV with the carescape video
-2. **Flic Button Press**: Sends Ctrl+Alt+D, which toggles to demo video
-3. **Demo Completion**: When demo ends, automatically returns to carescape video
+1. **Ctrl+Alt+R (Carescape)**: Plays the carescape video in a loop. If pressed again, restarts from the beginning.
+2. **Ctrl+Alt+D (Demo Toggle)**: Toggles between demo videos:
+   - First press: Plays Demo Video 1
+   - Second press: Switches to Demo Video 2
+   - Third press: Switches back to Demo Video 1
+   - And so on...
+3. **Demo Completion**: When a demo video ends, automatically plays the other demo video
 4. **Volume Control**: System volume adjusts based on which video is playing
 
 ---
@@ -155,7 +162,8 @@ You can use network paths or URLs if MPV supports them:
 ```json
 {
   "carescapeVideoPath": "\\\\server\\videos\\carescape.mp4",
-  "demoVideoPath": "https://example.com/demo.mp4"
+  "demoVideoPath1": "https://example.com/demo1.mp4",
+  "demoVideoPath2": "https://example.com/demo2.mp4"
 }
 ```
 

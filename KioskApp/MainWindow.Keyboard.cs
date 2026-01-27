@@ -52,10 +52,10 @@ public sealed partial class MainWindow
                 Logger.Log($"  Exit Kiosk: {_config.Exit.Hotkey} (configured) / Ctrl+Shift+Q (handled)");
             if (_videoController != null)
             {
-                Logger.Log("  Mode Toggle Controls:");
-                Logger.Log("    Ctrl+Alt+D: Switch to VIDEO MODE / Toggle between videos");
+                Logger.Log("  Video Controls:");
+                Logger.Log("    Ctrl+Alt+R: Play carescape video (enters video mode if needed)");
+                Logger.Log("    Ctrl+Alt+D: Toggle between demo videos (enters video mode if needed)");
                 Logger.Log("    Ctrl+Alt+E: Switch to SCREENSAVER MODE");
-                Logger.Log("    Ctrl+Alt+R: Restart Carescape video (video mode only)");
             }
             Logger.Log("======================");
         }
@@ -278,22 +278,19 @@ public sealed partial class MainWindow
     /// </summary>
     private void AddVideoModeAccelerators(FrameworkElement content)
     {
-        // Switch to video mode: Ctrl+Alt+D
-        var videoModeAccel = new KeyboardAccelerator
+        // Toggle demo videos: Ctrl+Alt+D
+        var toggleDemoAccel = new KeyboardAccelerator
         {
             Key = VirtualKey.D,
             Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
         };
-        videoModeAccel.Invoked += async (s, e) =>
+        toggleDemoAccel.Invoked += async (s, e) =>
         {
             e.Handled = true;
-            if (_isVideoMode)
-                Logger.Log("Toggle video source accelerator invoked");
-            else
-                Logger.Log("Switch to video mode accelerator invoked");
-            await SwitchToVideoMode();
+            Logger.Log("Toggle demo videos accelerator invoked");
+            await SwitchToVideoModeAndToggleDemos();
         };
-        content.KeyboardAccelerators.Add(videoModeAccel);
+        content.KeyboardAccelerators.Add(toggleDemoAccel);
 
         // Switch to screensaver mode: Ctrl+Alt+E
         var screensaverModeAccel = new KeyboardAccelerator
@@ -309,26 +306,19 @@ public sealed partial class MainWindow
         };
         content.KeyboardAccelerators.Add(screensaverModeAccel);
 
-        // Restart: Ctrl+Alt+R
-        var restartAccel = new KeyboardAccelerator
+        // Play carescape: Ctrl+Alt+R
+        var carescapeAccel = new KeyboardAccelerator
         {
             Key = VirtualKey.R,
             Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
         };
-        restartAccel.Invoked += async (s, e) =>
+        carescapeAccel.Invoked += async (s, e) =>
         {
             e.Handled = true;
-            if (_isVideoMode && _videoController != null)
-            {
-                Logger.Log("Restart accelerator invoked");
-                await _videoController.RestartCarescapeAsync();
-            }
-            else
-            {
-                Logger.Log("[HOTKEY WARNING] Ctrl+Alt+R pressed but not in video mode");
-            }
+            Logger.Log("Play carescape accelerator invoked");
+            await SwitchToVideoModeAndPlayCarescape();
         };
-        content.KeyboardAccelerators.Add(restartAccel);
+        content.KeyboardAccelerators.Add(carescapeAccel);
     }
 
     #endregion
@@ -341,7 +331,7 @@ public sealed partial class MainWindow
     /// <returns>True if the hotkey was handled.</returns>
     private bool HandleVideoModeHotkey(VirtualKey key, string source)
     {
-        Logger.Log($"[HOTKEY DEBUG] Mode toggle hotkey detected: Key={key}, CurrentVideoMode={_isVideoMode}, Controller={_videoController != null}");
+        Logger.Log($"[HOTKEY DEBUG] Video hotkey detected: Key={key}, CurrentVideoMode={_isVideoMode}, Controller={_videoController != null}");
 
         if (_videoController == null)
         {
@@ -352,11 +342,8 @@ public sealed partial class MainWindow
         switch (key)
         {
             case VirtualKey.D:
-                if (_isVideoMode)
-                    Logger.Log($"Toggle video source (Ctrl+Alt+D) via {source}");
-                else
-                    Logger.Log($"Switch to VIDEO MODE (Ctrl+Alt+D) via {source}");
-                DispatcherQueue.TryEnqueue(async () => await SwitchToVideoMode());
+                Logger.Log($"Toggle demo videos (Ctrl+Alt+D) via {source}");
+                DispatcherQueue.TryEnqueue(async () => await SwitchToVideoModeAndToggleDemos());
                 return true;
 
             case VirtualKey.E:
@@ -365,17 +352,9 @@ public sealed partial class MainWindow
                 return true;
 
             case VirtualKey.R:
-                if (_isVideoMode)
-                {
-                    Logger.Log($"Restart carescape pressed (Ctrl+Alt+R) via {source}");
-                    DispatcherQueue.TryEnqueue(async () => await _videoController.RestartCarescapeAsync());
-                    return true;
-                }
-                else
-                {
-                    Logger.Log("[HOTKEY WARNING] Ctrl+Alt+R pressed but not in video mode");
-                    return false;
-                }
+                Logger.Log($"Play carescape (Ctrl+Alt+R) via {source}");
+                DispatcherQueue.TryEnqueue(async () => await SwitchToVideoModeAndPlayCarescape());
+                return true;
 
             default:
                 return false;

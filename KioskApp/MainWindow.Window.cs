@@ -342,7 +342,7 @@ public sealed partial class MainWindow
             if (wasInVideoMode)
             {
                 Logger.Log("Restarting video on new monitor...");
-                await _videoController.HandleFlicButtonPressAsync();
+                await _videoController.ResumePlaybackAsync();
             }
         }
 

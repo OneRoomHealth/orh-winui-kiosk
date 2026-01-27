@@ -51,8 +51,11 @@ public class VideoModeSettings
     [JsonPropertyName("carescapeVideoPath")]
     public string CarescapeVideoPath { get; set; } = @"C:\Videos\carescape.mp4";
 
-    [JsonPropertyName("demoVideoPath")]
-    public string DemoVideoPath { get; set; } = @"C:\Videos\demo.mp4";
+    [JsonPropertyName("demoVideoPath1")]
+    public string DemoVideoPath1 { get; set; } = @"C:\Videos\demo1.mp4";
+
+    [JsonPropertyName("demoVideoPath2")]
+    public string DemoVideoPath2 { get; set; } = @"C:\Videos\demo2.mp4";
 
     [JsonPropertyName("mpvPath")]
     public string? MpvPath { get; set; }
