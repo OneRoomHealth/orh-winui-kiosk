@@ -23,6 +23,53 @@ public sealed partial class MainWindow
     #region Navigation Handlers
 
     /// <summary>
+    /// Gets the current URL being displayed in the WebView.
+    /// Thread-safe property that can be accessed from any thread.
+    /// </summary>
+    public string? CurrentUrl => _currentUrl;
+
+    /// <summary>
+    /// Navigates to a URL asynchronously. Safe to call from any thread.
+    /// Returns true if navigation was initiated successfully, false if WebView2
+    /// is not initialized or if the dispatcher queue is unavailable.
+    /// </summary>
+    public Task<bool> NavigateToUrlAsync(string url)
+    {
+        var tcs = new TaskCompletionSource<bool>();
+
+        try
+        {
+            bool enqueued = DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    bool success = NavigateToUrl(url);
+                    tcs.SetResult(success);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"NavigateToUrlAsync failed: {ex.Message}");
+                    tcs.SetResult(false);
+                }
+            });
+
+            // If enqueueing failed (e.g., during shutdown), complete the task immediately
+            if (!enqueued)
+            {
+                Logger.Log($"NavigateToUrlAsync: Failed to enqueue navigation to {url} - dispatcher queue unavailable");
+                tcs.SetResult(false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"NavigateToUrlAsync dispatch failed: {ex.Message}");
+            tcs.SetResult(false);
+        }
+
+        return tcs.Task;
+    }
+
+    /// <summary>
     /// Handles URL textbox Enter key press.
     /// </summary>
     private void UrlTextBox_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -60,23 +107,26 @@ public sealed partial class MainWindow
     /// <summary>
     /// Navigates to a URL.
     /// </summary>
-    public void NavigateToUrl(string url)
+    /// <returns>True if navigation was initiated, false if WebView2 is not initialized or an error occurred.</returns>
+    public bool NavigateToUrl(string url)
     {
         try
         {
             if (KioskWebView?.CoreWebView2 == null)
             {
                 Logger.Log($"Cannot navigate to {url}: WebView2 not initialized");
-                return;
+                return false;
             }
 
             _currentUrl = url;
             KioskWebView.Source = new Uri(url);
             Logger.Log($"Navigating to: {url}");
+            return true;
         }
         catch (Exception ex)
         {
             Logger.Log($"Failed to navigate to {url}: {ex.Message}");
+            return false;
         }
     }
 

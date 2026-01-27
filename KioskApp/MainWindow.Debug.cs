@@ -476,7 +476,7 @@ public sealed partial class MainWindow
 
                 if (App.Instance != null)
                 {
-                    await App.Instance.EnableHardwareApiModeAsync();
+                    await App.Instance.EnableHardwareApiModeAsync(this);
                     TitleBarApiEndpoint.Text = "localhost:8081";
                     TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
                         App.HardwareApiServer?.IsRunning == true

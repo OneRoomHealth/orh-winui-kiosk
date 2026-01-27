@@ -318,10 +318,12 @@ public partial class App : Application
 
 	/// <summary>
 	/// Enables Hardware API mode (port 8081) and stops LocalCommandServer (port 8787).
-	/// In this mode, navigation is handled internally by WebView2.
+	/// In this mode, navigation is handled internally by WebView2, but chromium-compatible
+	/// endpoints are exposed for remote URL control.
 	/// Initializes all hardware modules when enabled.
 	/// </summary>
-	public async Task EnableHardwareApiModeAsync()
+	/// <param name="mainWindow">The MainWindow to use for WebView navigation.</param>
+	public async Task EnableHardwareApiModeAsync(MainWindow? mainWindow = null)
 	{
 		if (_isHardwareApiMode)
 		{
@@ -333,6 +335,14 @@ public partial class App : Application
 
 		// Stop LocalCommandServer
 		LocalCommandServer.Stop();
+
+		// Set up navigation service for chromium endpoints if MainWindow provided
+		if (mainWindow != null && _hardwareApiServer != null)
+		{
+			var navigationService = new WebViewNavigationService(mainWindow);
+			_hardwareApiServer.SetNavigationService(navigationService);
+			Logger.Log("WebView navigation service configured for chromium endpoints");
+		}
 
 		if (_serviceProvider == null)
 		{

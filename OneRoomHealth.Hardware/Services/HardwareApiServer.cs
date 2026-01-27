@@ -11,6 +11,7 @@ using OneRoomHealth.Hardware.Api.Controllers;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
+using static OneRoomHealth.Hardware.Api.Controllers.ChromiumController;
 
 namespace OneRoomHealth.Hardware.Services;
 
@@ -23,6 +24,7 @@ public class HardwareApiServer
     private readonly ILogger<HardwareApiServer> _logger;
     private readonly HardwareManager _hardwareManager;
     private readonly int _port;
+    private IWebViewNavigationService? _navigationService;
     private WebApplication? _app;
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
     /// <summary>
@@ -33,11 +35,23 @@ public class HardwareApiServer
     public HardwareApiServer(
         ILogger<HardwareApiServer> logger,
         HardwareManager hardwareManager,
-        int port = 8081)
+        int port = 8081,
+        IWebViewNavigationService? navigationService = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hardwareManager = hardwareManager ?? throw new ArgumentNullException(nameof(hardwareManager));
         _port = port;
+        _navigationService = navigationService;
+    }
+
+    /// <summary>
+    /// Sets the navigation service for chromium endpoint support.
+    /// Must be called before StartAsync() for navigation to work.
+    /// </summary>
+    public void SetNavigationService(IWebViewNavigationService navigationService)
+    {
+        _navigationService = navigationService;
+        _logger.LogInformation("Navigation service configured for chromium endpoints");
     }
 
     /// <summary>
@@ -288,6 +302,17 @@ public class HardwareApiServer
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not register Speaker endpoints");
+        }
+
+        // Always register chromium endpoints for WebView navigation control
+        try
+        {
+            app.MapChromiumEndpoints(_logger, _navigationService);
+            _logger.LogInformation("Chromium endpoints registered (WebView navigation)");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not register Chromium endpoints");
         }
     }
 
