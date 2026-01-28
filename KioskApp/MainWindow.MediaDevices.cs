@@ -1180,6 +1180,141 @@ public sealed partial class MainWindow
                         window.addEventListener('load', () => setTimeout(applyInitialSpeaker, 500));
                     }}
 
+                    // ========== EARLY AUTOPLAY HANDLING ==========
+                    // This runs before page scripts, enabling autoplay for carescape/video URLs
+
+                    // Track media elements we've already processed
+                    window.__orhAutoplayProcessed = new WeakSet();
+
+                    // Force autoplay on a media element
+                    window.__orhForceAutoplay = function(media) {{
+                        if (!media || window.__orhAutoplayProcessed.has(media)) return;
+                        window.__orhAutoplayProcessed.add(media);
+
+                        // Ensure autoplay attribute is set
+                        media.autoplay = true;
+
+                        // If already playing, nothing to do
+                        if (!media.paused) return;
+
+                        // Try to play unmuted first
+                        const playPromise = media.play();
+                        if (playPromise !== undefined) {{
+                            playPromise.then(() => {{
+                                console.log('[ORH Autoplay] Playing unmuted:', media.src || media.currentSrc || 'inline');
+                            }}).catch((err) => {{
+                                // Autoplay was blocked, try muted then unmute
+                                console.log('[ORH Autoplay] Unmuted blocked, trying muted workaround');
+                                media.muted = true;
+                                media.play().then(() => {{
+                                    // Successfully playing muted, try to unmute after a short delay
+                                    setTimeout(() => {{
+                                        media.muted = false;
+                                        console.log('[ORH Autoplay] Unmuted after workaround');
+                                    }}, 100);
+                                }}).catch((e2) => {{
+                                    console.log('[ORH Autoplay] Even muted play failed:', e2.message);
+                                }});
+                            }});
+                        }}
+                    }};
+
+                    // Process all current and future media elements
+                    window.__orhProcessMediaElements = function() {{
+                        try {{
+                            document.querySelectorAll('video, audio').forEach(media => {{
+                                window.__orhForceAutoplay(media);
+                            }});
+                        }} catch (e) {{}}
+                    }};
+
+                    // Override createElement to catch videos/audios at creation time
+                    const originalCreateElement = document.createElement.bind(document);
+                    document.createElement = function(tagName, options) {{
+                        const element = originalCreateElement(tagName, options);
+                        if (tagName && (tagName.toLowerCase() === 'video' || tagName.toLowerCase() === 'audio')) {{
+                            // Set autoplay immediately on creation
+                            element.autoplay = true;
+                            // Also try to play when src is set
+                            const originalSetAttribute = element.setAttribute.bind(element);
+                            element.setAttribute = function(name, value) {{
+                                originalSetAttribute(name, value);
+                                if (name === 'src' || name === 'autoplay') {{
+                                    setTimeout(() => window.__orhForceAutoplay(element), 0);
+                                }}
+                            }};
+                            // Watch for src property changes too
+                            let srcValue = '';
+                            try {{
+                                Object.defineProperty(element, 'src', {{
+                                    get: function() {{ return srcValue; }},
+                                    set: function(v) {{
+                                        srcValue = v;
+                                        HTMLMediaElement.prototype.__lookupSetter__('src').call(element, v);
+                                        setTimeout(() => window.__orhForceAutoplay(element), 0);
+                                    }},
+                                    configurable: true
+                                }});
+                            }} catch (e) {{}}
+                        }}
+                        return element;
+                    }};
+
+                    // MutationObserver to catch dynamically added media elements
+                    const autoplayObserver = new MutationObserver((mutations) => {{
+                        for (const mutation of mutations) {{
+                            if (mutation.addedNodes) {{
+                                mutation.addedNodes.forEach(node => {{
+                                    if (node.nodeType === 1) {{
+                                        if (node.tagName === 'VIDEO' || node.tagName === 'AUDIO') {{
+                                            window.__orhForceAutoplay(node);
+                                        }}
+                                        // Also check children
+                                        if (node.querySelectorAll) {{
+                                            node.querySelectorAll('video, audio').forEach(media => {{
+                                                window.__orhForceAutoplay(media);
+                                            }});
+                                        }}
+                                    }}
+                                }});
+                            }}
+                        }}
+                    }});
+
+                    // Start observing as soon as possible
+                    if (document.documentElement) {{
+                        autoplayObserver.observe(document.documentElement, {{
+                            childList: true,
+                            subtree: true
+                        }});
+                    }} else {{
+                        // Document not ready yet, wait for it
+                        const waitForDoc = setInterval(() => {{
+                            if (document.documentElement) {{
+                                clearInterval(waitForDoc);
+                                autoplayObserver.observe(document.documentElement, {{
+                                    childList: true,
+                                    subtree: true
+                                }});
+                            }}
+                        }}, 10);
+                    }}
+
+                    // Also process on various document states
+                    if (document.readyState === 'loading') {{
+                        document.addEventListener('DOMContentLoaded', window.__orhProcessMediaElements);
+                    }}
+                    document.addEventListener('readystatechange', () => {{
+                        if (document.readyState === 'interactive' || document.readyState === 'complete') {{
+                            window.__orhProcessMediaElements();
+                        }}
+                    }});
+                    window.addEventListener('load', window.__orhProcessMediaElements);
+
+                    // Process immediately in case elements already exist
+                    setTimeout(window.__orhProcessMediaElements, 0);
+                    // ========== END AUTOPLAY HANDLING ==========
+
                     if (navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {{
                         const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
 

@@ -52,6 +52,36 @@ public class CameraConfiguration : ModuleConfigurationBase
     [JsonPropertyName("autoStartController")]
     public bool AutoStartController { get; set; } = true;
 
+    /// <summary>
+    /// Maximum consecutive health check failures before attempting restart.
+    /// </summary>
+    [JsonPropertyName("maxHealthFailures")]
+    public int MaxHealthFailures { get; set; } = 3;
+
+    /// <summary>
+    /// Maximum restart attempts before giving up.
+    /// </summary>
+    [JsonPropertyName("maxRestartAttempts")]
+    public int MaxRestartAttempts { get; set; } = 5;
+
+    /// <summary>
+    /// Number of restart attempts before escalating to force kill.
+    /// </summary>
+    [JsonPropertyName("forceKillAfterAttempts")]
+    public int ForceKillAfterAttempts { get; set; } = 2;
+
+    /// <summary>
+    /// Grace period in seconds after restart before health checking resumes.
+    /// </summary>
+    [JsonPropertyName("startupGracePeriod")]
+    public double StartupGracePeriod { get; set; } = 8.0;
+
+    /// <summary>
+    /// Maximum backoff delay in seconds between restart attempts.
+    /// </summary>
+    [JsonPropertyName("maxBackoffSeconds")]
+    public double MaxBackoffSeconds { get; set; } = 30.0;
+
     [JsonPropertyName("devices")]
     public List<CameraDeviceConfig> Devices { get; set; } = new();
 }

@@ -56,6 +56,14 @@
     "cameras": {
       "enabled": true,
       "monitorInterval": 5.0,
+      "controllerApiPort": 5000,
+      "controllerExePath": "hardware\\huddly\\CameraController.exe",
+      "autoStartController": true,
+      "maxHealthFailures": 3,
+      "maxRestartAttempts": 5,
+      "forceKillAfterAttempts": 2,
+      "startupGracePeriod": 8.0,
+      "maxBackoffSeconds": 30.0,
       "devices": [
         {
           "id": "0",
