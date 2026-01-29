@@ -1183,39 +1183,141 @@ public sealed partial class MainWindow
                     // ========== EARLY AUTOPLAY HANDLING ==========
                     // This runs before page scripts, enabling autoplay for carescape/video URLs
 
-                    // Track media elements we've already processed
-                    window.__orhAutoplayProcessed = new WeakSet();
+                    // Track pending autoplay timeouts to debounce/cancel on source changes
+                    // Uses an array to track multiple timeouts per element (event + fallback)
+                    window.__orhAutoplayPending = new WeakMap();
 
-                    // Force autoplay on a media element
-                    window.__orhForceAutoplay = function(media) {{
-                        if (!media || window.__orhAutoplayProcessed.has(media)) return;
-                        window.__orhAutoplayProcessed.add(media);
+                    // Helper to clear all pending timeouts for a media element
+                    window.__orhClearPendingTimeouts = function(media) {{
+                        const pending = window.__orhAutoplayPending.get(media);
+                        if (pending) {{
+                            if (Array.isArray(pending)) {{
+                                pending.forEach(t => clearTimeout(t));
+                            }} else {{
+                                clearTimeout(pending);
+                            }}
+                            window.__orhAutoplayPending.delete(media);
+                        }}
+                    }};
+
+                    // Force autoplay on a media element with retry logic for React re-renders
+                    window.__orhForceAutoplay = function(media, retryCount) {{
+                        if (!media) return;
+                        retryCount = retryCount || 0;
+                        const maxRetries = 5;
+
+                        // Cancel any existing pending autoplay for this element
+                        window.__orhClearPendingTimeouts(media);
 
                         // Ensure autoplay attribute is set
                         media.autoplay = true;
 
                         // If already playing, nothing to do
-                        if (!media.paused) return;
+                        if (!media.paused) {{
+                            console.log('[ORH Autoplay] Already playing:', media.src || media.currentSrc || 'inline');
+                            return;
+                        }}
 
-                        // Try to play unmuted first
-                        const playPromise = media.play();
-                        if (playPromise !== undefined) {{
-                            playPromise.then(() => {{
-                                console.log('[ORH Autoplay] Playing unmuted:', media.src || media.currentSrc || 'inline');
-                            }}).catch((err) => {{
-                                // Autoplay was blocked, try muted then unmute
-                                console.log('[ORH Autoplay] Unmuted blocked, trying muted workaround');
-                                media.muted = true;
-                                media.play().then(() => {{
-                                    // Successfully playing muted, try to unmute after a short delay
-                                    setTimeout(() => {{
-                                        media.muted = false;
-                                        console.log('[ORH Autoplay] Unmuted after workaround');
-                                    }}, 100);
-                                }}).catch((e2) => {{
-                                    console.log('[ORH Autoplay] Even muted play failed:', e2.message);
+                        // Helper to attempt play with muted fallback
+                        const attemptPlay = () => {{
+                            if (!media.paused) return; // Already playing
+
+                            const playPromise = media.play();
+                            if (playPromise !== undefined) {{
+                                playPromise.then(() => {{
+                                    console.log('[ORH Autoplay] Playing unmuted:', media.src || media.currentSrc || 'inline');
+                                }}).catch((err) => {{
+                                    // Check if this is a load interrupt (React re-render)
+                                    if (err.name === 'AbortError' || err.message.includes('interrupted by a new load request')) {{
+                                        if (retryCount < maxRetries) {{
+                                            console.log('[ORH Autoplay] Interrupted by load, retrying (' + (retryCount + 1) + '/' + maxRetries + ')...');
+                                            // Wait a bit for React to settle then retry
+                                            const retryTimeout = setTimeout(() => {{
+                                                window.__orhForceAutoplay(media, retryCount + 1);
+                                            }}, 200 * (retryCount + 1)); // Increasing delay: 200, 400, 600, 800, 1000ms
+                                            window.__orhAutoplayPending.set(media, [retryTimeout]);
+                                        }} else {{
+                                            console.log('[ORH Autoplay] Max retries reached, giving up');
+                                        }}
+                                        return;
+                                    }}
+
+                                    // Autoplay was blocked by policy, try muted then unmute
+                                    console.log('[ORH Autoplay] Unmuted blocked, trying muted workaround');
+                                    media.muted = true;
+                                    media.play().then(() => {{
+                                        // Successfully playing muted, try to unmute after a short delay
+                                        setTimeout(() => {{
+                                            media.muted = false;
+                                            console.log('[ORH Autoplay] Unmuted after workaround');
+                                        }}, 100);
+                                    }}).catch((e2) => {{
+                                        if (e2.name === 'AbortError' || e2.message.includes('interrupted')) {{
+                                            if (retryCount < maxRetries) {{
+                                                console.log('[ORH Autoplay] Muted also interrupted, retrying (' + (retryCount + 1) + '/' + maxRetries + ')...');
+                                                const retryTimeout = setTimeout(() => {{
+                                                    window.__orhForceAutoplay(media, retryCount + 1);
+                                                }}, 200 * (retryCount + 1));
+                                                window.__orhAutoplayPending.set(media, [retryTimeout]);
+                                            }}
+                                        }} else {{
+                                            console.log('[ORH Autoplay] Even muted play failed:', e2.message);
+                                        }}
+                                    }});
                                 }});
-                            }});
+                            }}
+                        }};
+
+                        // Check if media is ready to play
+                        if (media.readyState >= 3) {{ // HAVE_FUTURE_DATA or HAVE_ENOUGH_DATA
+                            attemptPlay();
+                        }} else {{
+                            // Wait for media to be ready
+                            console.log('[ORH Autoplay] Waiting for media ready (readyState=' + media.readyState + ')');
+
+                            // Track fallback timeout separately so event handlers can clear it
+                            let fallbackTimeout = null;
+
+                            const cleanupAndPlay = () => {{
+                                // Clear fallback timeout if it exists
+                                if (fallbackTimeout) {{
+                                    clearTimeout(fallbackTimeout);
+                                    fallbackTimeout = null;
+                                }}
+                                // Remove event listeners
+                                media.removeEventListener('canplay', onCanPlay);
+                                media.removeEventListener('loadeddata', onLoadedData);
+                                // Small delay to let React settle after any final re-renders
+                                const playTimeout = setTimeout(() => {{
+                                    attemptPlay();
+                                }}, 100);
+                                window.__orhAutoplayPending.set(media, [playTimeout]);
+                            }};
+
+                            const onCanPlay = () => {{
+                                cleanupAndPlay();
+                            }};
+
+                            const onLoadedData = () => {{
+                                cleanupAndPlay();
+                            }};
+
+                            media.addEventListener('canplay', onCanPlay);
+                            media.addEventListener('loadeddata', onLoadedData);
+
+                            // Set fallback timeout in case events don't fire
+                            fallbackTimeout = setTimeout(() => {{
+                                media.removeEventListener('canplay', onCanPlay);
+                                media.removeEventListener('loadeddata', onLoadedData);
+                                fallbackTimeout = null;
+                                if (media.paused && media.src) {{
+                                    console.log('[ORH Autoplay] Fallback timeout, attempting play anyway');
+                                    attemptPlay();
+                                }}
+                            }}, 2000);
+
+                            // Store fallback as the pending timeout (will be cleared/replaced by events if they fire)
+                            window.__orhAutoplayPending.set(media, [fallbackTimeout]);
                         }}
                     }};
 
