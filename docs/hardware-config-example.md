@@ -51,9 +51,8 @@ Complete example `config.json` for a fully configured OneRoom Health kiosk with 
     "cameras": {
       "enabled": true,
       "monitorInterval": 5.0,
-      "controllerExePath": "hardware\\huddly\\CameraController.exe",
-      "controllerApiPort": 5000,
-      "autoStartController": true,
+      "useUsbDiscovery": true,
+      "useIpDiscovery": false,
       "devices": [
         {
           "id": "camera-main",
@@ -158,15 +157,14 @@ Controls Novastar LED displays via HTTP API. Supports multiple IP addresses per 
 
 ### Camera Module
 
-Controls Huddly cameras via CameraController.exe REST API. Supports PTZ, auto-tracking, and auto-framing.
+Controls Huddly cameras via direct SDK integration (Huddly.Sdk NuGet package). Supports PTZ control, auto-tracking (Genius Framing), and auto-framing.
 
 ```json
 "cameras": {
   "enabled": true,
   "monitorInterval": 5.0,
-  "controllerExePath": "hardware\\huddly\\CameraController.exe",
-  "controllerApiPort": 5000,
-  "autoStartController": true,
+  "useUsbDiscovery": true,
+  "useIpDiscovery": false,
   "devices": [
     {
       "id": "camera-main",
@@ -180,19 +178,25 @@ Controls Huddly cameras via CameraController.exe REST API. Supports PTZ, auto-tr
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `controllerExePath` | No | Path to CameraController.exe |
-| `controllerApiPort` | No | Controller API port (default: 5000) |
-| `autoStartController` | No | Auto-start controller (default: true) |
+| `useUsbDiscovery` | No | Enable USB device discovery (default: true) |
+| `useIpDiscovery` | No | Enable IP device discovery for network cameras (default: false) |
 | `id` | Yes | Unique identifier for the camera |
 | `name` | Yes | Human-readable camera name |
-| `model` | No | Camera model (L1, IQ, etc.) |
-| `deviceId` | No | USB device ID for targeting specific camera |
+| `model` | No | Camera model (L1, IQ, S1, etc.) |
+| `deviceId` | Yes | Camera serial number for matching to config |
 
-**Finding Camera Device ID:**
+**Finding Camera Serial Number:**
 1. Open Device Manager
 2. Find the Huddly camera under "Cameras"
 3. Right-click > Properties > Details > Hardware Ids
-4. Use the serial number portion
+4. Look for the serial number (e.g., "52446F0141")
+5. Or check camera label/packaging for serial number
+
+**Supported Cameras:**
+- Huddly L1 (USB or IP)
+- Huddly IQ
+- Huddly S1
+- Other Huddly cameras with SDK support
 
 ---
 
@@ -376,9 +380,11 @@ This means the `devices` array is empty. Add device configurations as shown abov
 
 ### Camera not detected
 
-1. Ensure CameraController.exe exists at configured path
-2. Check USB connection
-3. Verify deviceId matches actual camera serial
+1. Verify USB cable is securely connected
+2. Check Device Manager shows Huddly camera under "Cameras"
+3. Verify `deviceId` in config matches actual camera serial number
+4. Ensure no other application is exclusively using the camera
+5. Check logs for SDK initialization errors
 
 ### DMX lights not responding
 

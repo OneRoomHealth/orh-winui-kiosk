@@ -48,7 +48,7 @@ Returns to fullscreen kiosk mode with all debug features hidden.
 ### Hardware Health Panel
 Real-time status of all hardware modules:
 - **Display Module** - Novastar LED controller status
-- **Camera Module** - Huddly camera and CameraController.exe status
+- **Camera Module** - Huddly camera status (PTZ, auto-tracking)
 - **Lighting Module** - DMX512 connection status
 - **System Audio** - Windows audio device status
 - **Microphone** - Capture device status

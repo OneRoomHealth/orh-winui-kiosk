@@ -54,9 +54,8 @@ The app automatically creates a default configuration file if it doesn't exist.
     "cameras": {
       "enabled": true,
       "monitorInterval": 5.0,
-      "controllerExePath": "hardware/huddly/CameraController.exe",
-      "controllerApiPort": 5000,
-      "autoStartController": true,
+      "useUsbDiscovery": true,
+      "useIpDiscovery": false,
       "devices": []
     },
     "lighting": {
@@ -205,13 +204,15 @@ All hardware modules inherit these settings:
 ```
 
 ### Camera Module
+
+Controls Huddly cameras via direct SDK integration. Supports PTZ control, auto-tracking (Genius Framing), and auto-framing.
+
 ```json
 "cameras": {
   "enabled": true,
   "monitorInterval": 5.0,
-  "controllerExePath": "hardware/huddly/CameraController.exe",
-  "controllerApiPort": 5000,
-  "autoStartController": true,
+  "useUsbDiscovery": true,
+  "useIpDiscovery": false,
   "devices": [
     {
       "id": "0",
@@ -225,9 +226,9 @@ All hardware modules inherit these settings:
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `controllerExePath` | String | `hardware/huddly/CameraController.exe` | Path to Huddly camera controller |
-| `controllerApiPort` | Integer | `5000` | Port for camera controller API |
-| `autoStartController` | Boolean | `true` | Auto-start controller on module init |
+| `useUsbDiscovery` | Boolean | `true` | Enable USB device discovery for Huddly cameras |
+| `useIpDiscovery` | Boolean | `false` | Enable IP device discovery (for Huddly L1 over network) |
+| `deviceId` | String | - | Camera serial number for matching (find in Device Manager) |
 
 ### Lighting Module
 ```json
@@ -374,12 +375,12 @@ Supported in path settings:
     },
     "cameras": {
       "enabled": true,
-      "controllerExePath": "C:\\Program Files\\Huddly\\CameraController.exe",
+      "useUsbDiscovery": true,
       "devices": [
         {
           "id": "0",
           "name": "Huddly L1",
-          "deviceId": "YOUR-DEVICE-ID"
+          "deviceId": "YOUR-SERIAL-NUMBER"
         }
       ]
     },

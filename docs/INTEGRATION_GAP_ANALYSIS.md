@@ -18,7 +18,7 @@ The integration of workstation-api hardware modules into orh-winui-kiosk is **10
 | System Audio Module | ✅ Complete | NAudio CoreAudioApi integration |
 | Microphone Module | ✅ Complete | Network microphone support |
 | Speaker Module | ✅ Complete | Network speaker support |
-| Camera Module | ✅ Complete | CameraController.exe subprocess management |
+| Camera Module | ✅ Complete | Direct Huddly SDK integration |
 | Lighting Module | ✅ Complete | DMX512 via FTD2XX_NET |
 | API Endpoints | ✅ 100% | 45+ endpoints implemented |
 | Debug Mode | ✅ Complete | Hotkeys, windowing, dev tools, panels |
@@ -58,8 +58,9 @@ HardwareManager → IHardwareModule → Controllers → Kestrel
 - **Endpoints:** 6 endpoints
 
 ### Camera Module ✅
-- **Files:** `CameraModule.cs`, `CameraDeviceState.cs`, `CameraController.cs`
-- **Features:** CameraController.exe subprocess, PTZ control, auto-tracking/framing
+- **Files:** `CameraModule.cs`, `CameraDeviceState.cs`, `CameraController.cs`, `HuddlySdkProvider.cs`
+- **Features:** Direct Huddly SDK integration, PTZ control, auto-tracking (Genius Framing)
+- **SDK:** Huddly.Sdk v2.29.0 NuGet package
 - **Endpoints:** 9 endpoints
 
 ### Lighting Module ✅
@@ -107,7 +108,7 @@ All resource disposal issues have been addressed:
 |---------------|---------------|
 | SemaphoreSlim | DisplayModule, CameraModule, LightingModule, MicrophoneModule, SpeakerModule, SystemAudioModule, HardwareManager |
 | HttpClient | DisplayModule, MicrophoneModule, SpeakerModule |
-| Process | CameraModule |
+| ISdk (Huddly) | CameraModule (via HuddlySdkProvider) |
 
 ---
 
