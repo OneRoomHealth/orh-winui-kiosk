@@ -179,6 +179,9 @@ public partial class App : Application
 		// Add HttpClient for hardware modules
 		services.AddSingleton<HttpClient>();
 
+		// Register Huddly SDK provider for camera module
+		services.AddSingleton<HuddlySdkProvider>();
+
 		// Register all hardware modules (always available, toggled on/off in debug UI)
 		services.AddSingleton(sp =>
 		{
@@ -193,7 +196,8 @@ public partial class App : Application
 		{
 			var logger = sp.GetRequiredService<ILogger<CameraModule>>();
 			var cameraConfig = config.Hardware.Cameras ?? new CameraConfiguration { Enabled = true };
-			return new CameraModule(logger, cameraConfig);
+			var sdkProvider = sp.GetRequiredService<HuddlySdkProvider>();
+			return new CameraModule(logger, cameraConfig, sdkProvider);
 		});
 		Logger.Log("CameraModule registered");
 
