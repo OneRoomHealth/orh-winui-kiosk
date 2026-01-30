@@ -11,9 +11,10 @@
 
   <ItemGroup>
     <PackageReference Include="FTD2XX_NET" Version="1.0.14" />
+    <PackageReference Include="Huddly.Sdk" Version="2.29.0" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="8.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.4" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.4" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
     <PackageReference Include="Serilog" Version="3.1.1" />

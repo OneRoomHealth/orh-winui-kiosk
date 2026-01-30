@@ -1,3 +1,4 @@
+using Huddly.Sdk;
 using OneRoomHealth.Hardware.Abstractions;
 using OneRoomHealth.Hardware.Configuration;
 
@@ -52,6 +53,12 @@ internal class CameraDeviceState
     /// Whether we're connected to the camera device.
     /// </summary>
     public bool Connected { get; set; } = false;
+
+    /// <summary>
+    /// Reference to the connected Huddly SDK device.
+    /// Null when device is disconnected. Do not reuse after disconnect.
+    /// </summary>
+    internal IDevice? SdkDevice { get; set; }
 }
 
 /// <summary>

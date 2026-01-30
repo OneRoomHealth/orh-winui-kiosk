@@ -24,6 +24,9 @@ public class HardwareConfiguration
 
     [JsonPropertyName("speakers")]
     public SpeakerConfiguration? Speakers { get; set; }
+
+    [JsonPropertyName("biamp")]
+    public BiampConfiguration? Biamp { get; set; }
 }
 
 /// <summary>
@@ -43,44 +46,17 @@ public abstract class ModuleConfigurationBase
 /// </summary>
 public class CameraConfiguration : ModuleConfigurationBase
 {
-    [JsonPropertyName("controllerApiPort")]
-    public int ControllerApiPort { get; set; } = 5000;
-
-    [JsonPropertyName("controllerExePath")]
-    public string ControllerExePath { get; set; } = "hardware\\huddly\\CameraController.exe";
-
-    [JsonPropertyName("autoStartController")]
-    public bool AutoStartController { get; set; } = true;
+    /// <summary>
+    /// Enable USB device discovery for Huddly cameras.
+    /// </summary>
+    [JsonPropertyName("useUsbDiscovery")]
+    public bool UseUsbDiscovery { get; set; } = true;
 
     /// <summary>
-    /// Maximum consecutive health check failures before attempting restart.
+    /// Enable IP device discovery for Huddly cameras (e.g., Huddly L1).
     /// </summary>
-    [JsonPropertyName("maxHealthFailures")]
-    public int MaxHealthFailures { get; set; } = 3;
-
-    /// <summary>
-    /// Maximum restart attempts before giving up.
-    /// </summary>
-    [JsonPropertyName("maxRestartAttempts")]
-    public int MaxRestartAttempts { get; set; } = 5;
-
-    /// <summary>
-    /// Number of restart attempts before escalating to force kill.
-    /// </summary>
-    [JsonPropertyName("forceKillAfterAttempts")]
-    public int ForceKillAfterAttempts { get; set; } = 2;
-
-    /// <summary>
-    /// Grace period in seconds after restart before health checking resumes.
-    /// </summary>
-    [JsonPropertyName("startupGracePeriod")]
-    public double StartupGracePeriod { get; set; } = 8.0;
-
-    /// <summary>
-    /// Maximum backoff delay in seconds between restart attempts.
-    /// </summary>
-    [JsonPropertyName("maxBackoffSeconds")]
-    public double MaxBackoffSeconds { get; set; } = 30.0;
+    [JsonPropertyName("useIpDiscovery")]
+    public bool UseIpDiscovery { get; set; } = false;
 
     [JsonPropertyName("devices")]
     public List<CameraDeviceConfig> Devices { get; set; } = new();
@@ -219,4 +195,37 @@ public class AudioDeviceConfig
 
     [JsonPropertyName("deviceId")]
     public string? DeviceId { get; set; }
+}
+
+/// <summary>
+/// Biamp module configuration for Parlé VBC 2800 video conferencing codecs.
+/// </summary>
+public class BiampConfiguration : ModuleConfigurationBase
+{
+    [JsonPropertyName("devices")]
+    public List<BiampDeviceConfig> Devices { get; set; } = new();
+}
+
+public class BiampDeviceConfig
+{
+    [JsonPropertyName("id")]
+    public required string Id { get; set; }
+
+    [JsonPropertyName("name")]
+    public required string Name { get; set; }
+
+    [JsonPropertyName("model")]
+    public string? Model { get; set; }
+
+    [JsonPropertyName("ipAddress")]
+    public required string IpAddress { get; set; }
+
+    [JsonPropertyName("port")]
+    public int Port { get; set; } = 23;
+
+    [JsonPropertyName("username")]
+    public string Username { get; set; } = "control";
+
+    [JsonPropertyName("password")]
+    public string Password { get; set; } = "";
 }

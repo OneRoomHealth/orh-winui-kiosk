@@ -304,6 +304,20 @@ public class HardwareApiServer
             _logger.LogWarning(ex, "Could not register Speaker endpoints");
         }
 
+        try
+        {
+            var biampModule = app.Services.GetService<Modules.Biamp.BiampModule>();
+            if (biampModule != null)
+            {
+                app.MapBiampEndpoints(_logger);
+                _logger.LogInformation("Biamp endpoints registered");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not register Biamp endpoints");
+        }
+
         // Always register chromium endpoints for WebView navigation control
         try
         {

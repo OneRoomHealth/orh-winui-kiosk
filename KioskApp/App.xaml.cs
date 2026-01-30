@@ -12,6 +12,7 @@ using OneRoomHealth.Hardware.Modules.Lighting;
 using OneRoomHealth.Hardware.Modules.SystemAudio;
 using OneRoomHealth.Hardware.Modules.Microphone;
 using OneRoomHealth.Hardware.Modules.Speaker;
+using OneRoomHealth.Hardware.Modules.Biamp;
 using KioskApp.Helpers;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
@@ -230,6 +231,14 @@ public partial class App : Application
 		});
 		Logger.Log("SpeakerModule registered");
 
+		services.AddSingleton(sp =>
+		{
+			var logger = sp.GetRequiredService<ILogger<BiampModule>>();
+			var biampConfig = config.Hardware.Biamp ?? new BiampConfiguration { Enabled = false };
+			return new BiampModule(logger, biampConfig);
+		});
+		Logger.Log("BiampModule registered");
+
 		// Register hardware services
 		services.AddSingleton<HardwareManager>();
 		services.AddSingleton<HealthMonitorService>();
@@ -395,6 +404,13 @@ public partial class App : Application
 		{
 			hardwareManager.RegisterModule(speakerModule);
 			Logger.Log("SpeakerModule registered with HardwareManager");
+		}
+
+		var biampModule = _serviceProvider.GetService<BiampModule>();
+		if (biampModule != null)
+		{
+			hardwareManager.RegisterModule(biampModule);
+			Logger.Log("BiampModule registered with HardwareManager");
 		}
 
 		// Initialize all registered modules

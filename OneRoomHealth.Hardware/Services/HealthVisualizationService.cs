@@ -75,7 +75,8 @@ public class HealthVisualizationService : IDisposable
             ["Microphone"] = ("Microphone", "\uE720", "Network microphones"),
             ["Speaker"] = ("Speaker", "\uE7F5", "Network speakers"),
             ["Lighting"] = ("Lighting", "\uE781", "DMX512 lighting fixtures"),
-            ["Camera"] = ("Camera", "\uE714", "Huddly cameras with PTZ")
+            ["Camera"] = ("Camera", "\uE714", "Huddly cameras with PTZ"),
+            ["Biamp"] = ("Biamp", "\uE8B7", "Parlé VBC 2800 video conferencing")
         };
 
         foreach (var (moduleName, (displayName, icon, description)) in moduleDefinitions)
