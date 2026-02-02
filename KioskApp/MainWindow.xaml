@@ -362,6 +362,9 @@
                                 <ToggleSwitch x:Name="SpeakerModuleToggle" OnContent="Speaker" OffContent="Speaker"
                                               IsOn="True" Toggled="ModuleToggle_Toggled" Tag="Speaker"
                                               Style="{StaticResource ModuleToggleStyle}"/>
+                                <ToggleSwitch x:Name="BiampModuleToggle" OnContent="Biamp" OffContent="Biamp"
+                                              IsOn="True" Toggled="ModuleToggle_Toggled" Tag="Biamp"
+                                              Style="{StaticResource ModuleToggleStyle}"/>
                             </StackPanel>
                         </Border>
 

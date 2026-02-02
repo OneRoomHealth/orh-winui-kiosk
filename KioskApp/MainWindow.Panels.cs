@@ -495,6 +495,7 @@ public sealed partial class MainWindow
             "microphone" => "\U0001F3A4",   // Microphone
             "speaker" => "\U0001F50A",      // Speaker
             "systemaudio" => "\U0001F3B5",  // Musical note
+            "biamp" => "\U0001F399",        // Studio microphone (video conferencing codec)
             _ => "\U0001F50C"               // Electric plug (default)
         };
     }
@@ -541,6 +542,7 @@ public sealed partial class MainWindow
                     "SystemAudio" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.SystemAudio.SystemAudioModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
                     "Microphone" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Microphone.MicrophoneModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
                     "Speaker" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Speaker.SpeakerModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
+                    "Biamp" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Biamp.BiampModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
                     _ => null
                 };
 

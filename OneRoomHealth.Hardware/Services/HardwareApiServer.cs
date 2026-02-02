@@ -8,6 +8,7 @@ using Microsoft.OpenApi.Models;
 using OneRoomHealth.Hardware.Abstractions;
 using OneRoomHealth.Hardware.Api.Models;
 using OneRoomHealth.Hardware.Api.Controllers;
+using OneRoomHealth.Hardware.Configuration;
 using System.Diagnostics;
 using System.IO;
 using System.Text.Json;
@@ -25,6 +26,7 @@ public class HardwareApiServer
     private readonly HardwareManager _hardwareManager;
     private readonly int _port;
     private IWebViewNavigationService? _navigationService;
+    private MediaConfiguration? _mediaConfig;
     private WebApplication? _app;
     private readonly Stopwatch _uptime = Stopwatch.StartNew();
     /// <summary>
@@ -36,12 +38,24 @@ public class HardwareApiServer
         ILogger<HardwareApiServer> logger,
         HardwareManager hardwareManager,
         int port = 8081,
-        IWebViewNavigationService? navigationService = null)
+        IWebViewNavigationService? navigationService = null,
+        MediaConfiguration? mediaConfig = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hardwareManager = hardwareManager ?? throw new ArgumentNullException(nameof(hardwareManager));
         _port = port;
         _navigationService = navigationService;
+        _mediaConfig = mediaConfig;
+    }
+
+    /// <summary>
+    /// Sets the media configuration for the media serving endpoint.
+    /// Must be called before StartAsync() for media serving to work.
+    /// </summary>
+    public void SetMediaConfiguration(MediaConfiguration mediaConfig)
+    {
+        _mediaConfig = mediaConfig;
+        _logger.LogInformation("Media configuration set");
     }
 
     /// <summary>
@@ -327,6 +341,24 @@ public class HardwareApiServer
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not register Chromium endpoints");
+        }
+
+        // Register media serving endpoints if configured
+        try
+        {
+            if (_mediaConfig != null && _mediaConfig.Enabled)
+            {
+                app.MapMediaEndpoints(_logger, _mediaConfig);
+                _logger.LogInformation("Media endpoints registered");
+            }
+            else
+            {
+                _logger.LogInformation("Media endpoints not registered (no configuration)");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not register Media endpoints");
         }
     }
 

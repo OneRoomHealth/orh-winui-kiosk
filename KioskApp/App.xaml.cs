@@ -252,7 +252,8 @@ public partial class App : Application
 		{
 			var logger = sp.GetRequiredService<ILogger<HardwareApiServer>>();
 			var hwManager = sp.GetRequiredService<HardwareManager>();
-			return new HardwareApiServer(logger, hwManager, 8081);
+			var mediaConfig = config.Hardware.Media;
+			return new HardwareApiServer(logger, hwManager, 8081, mediaConfig: mediaConfig);
 		});
 
 		// Build the service provider

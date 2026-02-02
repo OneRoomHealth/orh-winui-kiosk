@@ -27,6 +27,9 @@ public class HardwareConfiguration
 
     [JsonPropertyName("biamp")]
     public BiampConfiguration? Biamp { get; set; }
+
+    [JsonPropertyName("media")]
+    public MediaConfiguration? Media { get; set; }
 }
 
 /// <summary>
@@ -228,4 +231,37 @@ public class BiampDeviceConfig
 
     [JsonPropertyName("password")]
     public string Password { get; set; } = "";
+}
+
+/// <summary>
+/// Media serving configuration for video and audio file endpoints.
+/// </summary>
+public class MediaConfiguration
+{
+    /// <summary>
+    /// Enable media file serving endpoint.
+    /// </summary>
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = true;
+
+    /// <summary>
+    /// Base directory containing media files to serve.
+    /// Supports environment variable expansion (e.g., %USERPROFILE%\Videos).
+    /// </summary>
+    [JsonPropertyName("baseDirectory")]
+    public string BaseDirectory { get; set; } = "";
+
+    /// <summary>
+    /// Additional directories to search for media files.
+    /// Files are served from the first directory where they are found.
+    /// </summary>
+    [JsonPropertyName("additionalDirectories")]
+    public List<string> AdditionalDirectories { get; set; } = new();
+
+    /// <summary>
+    /// Allowed file extensions (without dot). Empty list allows all common media types.
+    /// Default: mp4, webm, ogg, mp3, wav, m4a
+    /// </summary>
+    [JsonPropertyName("allowedExtensions")]
+    public List<string> AllowedExtensions { get; set; } = new() { "mp4", "webm", "ogg", "mp3", "wav", "m4a" };
 }
