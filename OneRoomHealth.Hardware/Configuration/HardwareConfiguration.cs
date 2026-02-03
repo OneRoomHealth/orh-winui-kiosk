@@ -61,6 +61,14 @@ public class CameraConfiguration : ModuleConfigurationBase
     [JsonPropertyName("useIpDiscovery")]
     public bool UseIpDiscovery { get; set; } = false;
 
+    /// <summary>
+    /// Automatically register any discovered Huddly camera, even if not explicitly configured.
+    /// When true, cameras not in the devices list will be auto-added with generated IDs.
+    /// When false (default), only cameras with matching deviceId in the devices list are used.
+    /// </summary>
+    [JsonPropertyName("autoDiscover")]
+    public bool AutoDiscover { get; set; } = false;
+
     [JsonPropertyName("devices")]
     public List<CameraDeviceConfig> Devices { get; set; } = new();
 }

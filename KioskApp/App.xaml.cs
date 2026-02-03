@@ -238,7 +238,7 @@ public partial class App : Application
 		services.AddSingleton(sp =>
 		{
 			var logger = sp.GetRequiredService<ILogger<BiampModule>>();
-			var biampConfig = config.Hardware.Biamp ?? new BiampConfiguration { Enabled = false };
+			var biampConfig = config.Hardware.Biamp ?? new BiampConfiguration { Enabled = true };
 			return new BiampModule(logger, biampConfig);
 		});
 		Logger.Log("BiampModule registered");

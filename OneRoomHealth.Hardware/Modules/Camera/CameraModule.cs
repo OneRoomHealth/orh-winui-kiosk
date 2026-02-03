@@ -112,20 +112,56 @@ public class CameraModule : HardwareModuleBase
 
         CameraDeviceState? matchingState;
         DeviceHealth previousHealth;
+        bool wasAutoDiscovered = false;
 
         await _stateLock.WaitAsync();
         try
         {
             // Find matching configured device by DeviceId (serial number)
+            // Priority: exact match > longest partial match (most specific wins)
             matchingState = _deviceStates.Values
-                .FirstOrDefault(s => s.Config.DeviceId == serial);
+                .Where(s => !string.IsNullOrEmpty(s.Config.DeviceId) &&
+                    (s.Config.DeviceId == serial ||
+                     serial.Contains(s.Config.DeviceId) ||
+                     s.Config.DeviceId.Contains(serial)))
+                .OrderByDescending(s => s.Config.DeviceId == serial ? int.MaxValue : s.Config.DeviceId.Length)
+                .FirstOrDefault();
 
             if (matchingState == null)
             {
+                if (!_config.AutoDiscover)
+                {
+                    Logger.LogInformation(
+                        "{ModuleName}: Connected device {Serial} not in configuration, ignoring (autoDiscover=false)",
+                        ModuleName, serial);
+                    return;
+                }
+
+                // Auto-discover: create a new device entry dynamically
+                var autoId = $"camera-auto-{_deviceStates.Count}";
+                var modelName = device.Model.ToString();
+                var shortSerial = serial.Split('-').LastOrDefault() ?? serial;
+                var autoConfig = new CameraDeviceConfig
+                {
+                    Id = autoId,
+                    DeviceId = serial,
+                    Name = $"{modelName} ({shortSerial})",
+                    Model = modelName
+                };
+
+                matchingState = new CameraDeviceState
+                {
+                    Config = autoConfig,
+                    Health = DeviceHealth.Offline,
+                    Enabled = true
+                };
+
+                _deviceStates[autoId] = matchingState;
+                wasAutoDiscovered = true;
+
                 Logger.LogInformation(
-                    "{ModuleName}: Connected device {Serial} not in configuration, ignoring",
-                    ModuleName, serial);
-                return;
+                    "{ModuleName}: Auto-discovered camera '{Name}' (ID: {Id}, Serial: {Serial})",
+                    ModuleName, autoConfig.Name, autoId, serial);
             }
 
             previousHealth = matchingState.Health;
@@ -137,8 +173,9 @@ public class CameraModule : HardwareModuleBase
             matchingState.Errors.Clear();
 
             Logger.LogInformation(
-                "{ModuleName}: Camera '{Name}' connected (Serial: {Serial})",
-                ModuleName, matchingState.Config.Name, serial);
+                "{ModuleName}: Camera '{Name}' connected (Serial: {Serial}){AutoTag}",
+                ModuleName, matchingState.Config.Name, serial,
+                wasAutoDiscovered ? " [auto-discovered]" : "");
         }
         finally
         {
@@ -169,8 +206,16 @@ public class CameraModule : HardwareModuleBase
         await _stateLock.WaitAsync();
         try
         {
+            // Use same fuzzy matching logic as connect handler to ensure we find
+            // devices that were matched via partial serial number
+            // Priority: exact match > longest partial match (most specific wins)
             var matchingState = _deviceStates.Values
-                .FirstOrDefault(s => s.Config.DeviceId == serial);
+                .Where(s => !string.IsNullOrEmpty(s.Config.DeviceId) &&
+                    (s.Config.DeviceId == serial ||
+                     serial.Contains(s.Config.DeviceId) ||
+                     s.Config.DeviceId.Contains(serial)))
+                .OrderByDescending(s => s.Config.DeviceId == serial ? int.MaxValue : s.Config.DeviceId.Length)
+                .FirstOrDefault();
 
             if (matchingState == null)
                 return;
