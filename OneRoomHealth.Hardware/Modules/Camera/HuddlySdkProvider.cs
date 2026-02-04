@@ -68,9 +68,47 @@ public sealed class HuddlySdkProvider : IDisposable
             _sdk.DeviceConnected += (sender, e) => OnSdkDeviceConnected(e.Device);
             _sdk.DeviceDisconnected += (sender, e) => OnSdkDeviceDisconnected(e.Device);
 
-            // Start device monitoring (timeout in milliseconds, cancellation token)
-            await _sdk.StartMonitoring(30000, cancellationToken);
+            // Start device monitoring as a background task that runs indefinitely.
+            // We don't await this because we want monitoring to continue forever.
+            // The timeout parameter is passed to prevent the task from completing.
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // Use a very long timeout (24 hours) to keep monitoring alive
+                    // If it ever completes, restart it
+                    while (!_disposed && !cancellationToken.IsCancellationRequested)
+                    {
+                        try
+                        {
+                            await _sdk!.StartMonitoring(86400000, cancellationToken); // 24 hours
+                            _logger.LogWarning("SDK monitoring completed unexpectedly, restarting...");
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            break;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "SDK monitoring error, restarting in 5 seconds...");
+                            await Task.Delay(5000, cancellationToken);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected on shutdown
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "SDK monitoring task failed");
+                }
+            }, cancellationToken);
+
             _isMonitoring = true;
+
+            // Give the SDK a moment to discover initial devices
+            await Task.Delay(2000, cancellationToken);
 
             _logger.LogInformation("Huddly SDK initialized and monitoring for devices");
         }

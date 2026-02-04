@@ -275,6 +275,35 @@ public sealed partial class MainWindow
                     _isDebugMode = true;
                     Logger.Log("Debug mode enabled with new tabbed UI");
 
+                    // Auto-enable Hardware API mode when entering debug mode (default behavior)
+                    if (!App.IsHardwareApiMode && App.Instance != null)
+                    {
+                        Logger.Log("Auto-enabling Hardware API mode for debug mode...");
+                        _ = App.Instance.EnableHardwareApiModeAsync(this).ContinueWith(t =>
+                        {
+                            DispatcherQueue.TryEnqueue(() =>
+                            {
+                                if (t.IsFaulted)
+                                {
+                                    var errorMsg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "Unknown error";
+                                    Logger.Log($"Failed to auto-enable Hardware API mode: {errorMsg}");
+                                    TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
+                                        ColorHelper.FromArgb(255, 244, 135, 113)); // Red for error
+                                    return;
+                                }
+
+                                ApiModeToggle.IsOn = App.IsHardwareApiMode;
+                                TitleBarApiEndpoint.Text = "localhost:8081";
+                                TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
+                                    App.HardwareApiServer?.IsRunning == true
+                                        ? ColorHelper.FromArgb(255, 78, 201, 176)
+                                        : ColorHelper.FromArgb(255, 244, 135, 113));
+                                RefreshHealthDisplay();
+                                Logger.Log("Hardware API mode auto-enabled for debug mode");
+                            });
+                        });
+                    }
+
                     ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+I to exit.");
                     _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
 
