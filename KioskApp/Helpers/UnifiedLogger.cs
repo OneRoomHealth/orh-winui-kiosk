@@ -91,6 +91,8 @@ public class UnifiedLogger : ILogEventSink
         "SystemAudio",
         "Microphone",
         "Speaker",
+        "Biamp",
+        "Hardware",
         "HardwareAPI",
         "HealthMonitor",
         "WebView"
@@ -183,6 +185,8 @@ public class UnifiedLogger : ILogEventSink
             else if (source.Contains("SystemAudioModule")) module = "SystemAudio";
             else if (source.Contains("MicrophoneModule")) module = "Microphone";
             else if (source.Contains("SpeakerModule")) module = "Speaker";
+            else if (source.Contains("BiampModule")) module = "Biamp";
+            // Note: BiampTelnetClient uses BiampModule's logger, so its logs are captured above
             else if (source.Contains("HardwareApiServer")) module = "HardwareAPI";
             else if (source.Contains("HardwareManager")) module = "Hardware";
             else if (source.Contains("HealthMonitor")) module = "HealthMonitor";

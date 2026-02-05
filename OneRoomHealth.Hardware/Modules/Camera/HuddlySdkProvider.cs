@@ -6,6 +6,7 @@ namespace OneRoomHealth.Hardware.Modules.Camera;
 
 /// <summary>
 /// Singleton provider for the Huddly SDK. Manages ISdk lifecycle and device events.
+/// Supports stopping and restarting without full disposal.
 /// </summary>
 public sealed class HuddlySdkProvider : IDisposable
 {
@@ -15,6 +16,8 @@ public sealed class HuddlySdkProvider : IDisposable
     private readonly ConcurrentDictionary<string, IDevice> _connectedDevices = new();
 
     private ISdk? _sdk;
+    private CancellationTokenSource? _monitoringCts;
+    private Task? _monitoringTask;
     private bool _isMonitoring;
     private bool _disposed;
 
@@ -41,10 +44,11 @@ public sealed class HuddlySdkProvider : IDisposable
 
     /// <summary>
     /// Initializes the SDK and starts device monitoring.
+    /// Can be called multiple times - will restart monitoring if previously stopped.
     /// </summary>
     /// <param name="useUsbDiscovery">Enable USB device discovery.</param>
     /// <param name="useIpDiscovery">Enable IP device discovery.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="cancellationToken">Cancellation token for the initialization process.</param>
     public async Task InitializeAsync(bool useUsbDiscovery, bool useIpDiscovery, CancellationToken cancellationToken = default)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(HuddlySdkProvider));
@@ -52,46 +56,61 @@ public sealed class HuddlySdkProvider : IDisposable
         await _initLock.WaitAsync(cancellationToken);
         try
         {
-            if (_sdk != null)
+            // If already monitoring, just return
+            if (_isMonitoring && _sdk != null)
             {
-                _logger.LogWarning("SDK already initialized");
+                _logger.LogInformation("SDK already initialized and monitoring");
                 return;
             }
 
             _logger.LogInformation("Initializing Huddly SDK (USB: {Usb}, IP: {Ip})", useUsbDiscovery, useIpDiscovery);
 
-            // Create SDK instance
-            _sdk = Sdk.CreateDefault(_loggerFactory);
+            // Create SDK instance if needed
+            if (_sdk == null)
+            {
+                _sdk = Sdk.CreateDefault(_loggerFactory);
 
-            // Subscribe to events BEFORE calling StartMonitoring (SDK requirement)
-            // Using lambda to extract device from event args
-            _sdk.DeviceConnected += (sender, e) => OnSdkDeviceConnected(e.Device);
-            _sdk.DeviceDisconnected += (sender, e) => OnSdkDeviceDisconnected(e.Device);
+                // Subscribe to events BEFORE calling StartMonitoring (SDK requirement)
+                // Using lambda to extract device from event args
+                _sdk.DeviceConnected += (sender, e) => OnSdkDeviceConnected(e.Device);
+                _sdk.DeviceDisconnected += (sender, e) => OnSdkDeviceDisconnected(e.Device);
+            }
+
+            // Create a new cancellation token source for this monitoring session
+            _monitoringCts = new CancellationTokenSource();
+            var monitoringToken = _monitoringCts.Token;
 
             // Start device monitoring as a background task that runs indefinitely.
-            // We don't await this because we want monitoring to continue forever.
-            // The timeout parameter is passed to prevent the task from completing.
-            _ = Task.Run(async () =>
+            // We don't await this because we want monitoring to continue until stopped.
+            _monitoringTask = Task.Run(async () =>
             {
                 try
                 {
+                    _logger.LogInformation("SDK monitoring task started");
                     // Use a very long timeout (24 hours) to keep monitoring alive
                     // If it ever completes, restart it
-                    while (!_disposed && !cancellationToken.IsCancellationRequested)
+                    while (!_disposed && !monitoringToken.IsCancellationRequested)
                     {
                         try
                         {
-                            await _sdk!.StartMonitoring(86400000, cancellationToken); // 24 hours
-                            _logger.LogWarning("SDK monitoring completed unexpectedly, restarting...");
+                            await _sdk!.StartMonitoring(86400000, monitoringToken); // 24 hours
+                            if (!monitoringToken.IsCancellationRequested)
+                            {
+                                _logger.LogWarning("SDK monitoring completed unexpectedly, restarting...");
+                            }
                         }
                         catch (OperationCanceledException)
                         {
+                            _logger.LogInformation("SDK monitoring cancelled");
                             break;
                         }
                         catch (Exception ex)
                         {
-                            _logger.LogError(ex, "SDK monitoring error, restarting in 5 seconds...");
-                            await Task.Delay(5000, cancellationToken);
+                            if (!monitoringToken.IsCancellationRequested)
+                            {
+                                _logger.LogError(ex, "SDK monitoring error, restarting in 5 seconds...");
+                                await Task.Delay(5000, monitoringToken);
+                            }
                         }
                     }
                 }
@@ -103,7 +122,11 @@ public sealed class HuddlySdkProvider : IDisposable
                 {
                     _logger.LogError(ex, "SDK monitoring task failed");
                 }
-            }, cancellationToken);
+                finally
+                {
+                    _logger.LogInformation("SDK monitoring task exited");
+                }
+            }, monitoringToken);
 
             _isMonitoring = true;
 
@@ -116,6 +139,62 @@ public sealed class HuddlySdkProvider : IDisposable
         {
             _logger.LogError(ex, "Failed to initialize Huddly SDK");
             throw;
+        }
+        finally
+        {
+            _initLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Stops SDK monitoring without disposing the provider.
+    /// Can be restarted by calling InitializeAsync again.
+    /// </summary>
+    public async Task StopAsync()
+    {
+        if (_disposed) return;
+
+        await _initLock.WaitAsync();
+        try
+        {
+            if (!_isMonitoring)
+            {
+                _logger.LogInformation("SDK monitoring already stopped");
+                return;
+            }
+
+            _logger.LogInformation("Stopping Huddly SDK monitoring...");
+
+            // Cancel the monitoring task
+            _monitoringCts?.Cancel();
+
+            // Wait for the monitoring task to complete
+            if (_monitoringTask != null)
+            {
+                try
+                {
+                    await _monitoringTask.WaitAsync(TimeSpan.FromSeconds(5));
+                }
+                catch (TimeoutException)
+                {
+                    _logger.LogWarning("SDK monitoring task did not complete within timeout");
+                }
+                catch (OperationCanceledException)
+                {
+                    // Expected
+                }
+            }
+
+            // Cleanup
+            _monitoringCts?.Dispose();
+            _monitoringCts = null;
+            _monitoringTask = null;
+            _isMonitoring = false;
+
+            // Clear connected devices (they'll be rediscovered on restart)
+            _connectedDevices.Clear();
+
+            _logger.LogInformation("Huddly SDK monitoring stopped");
         }
         finally
         {
@@ -179,6 +258,13 @@ public sealed class HuddlySdkProvider : IDisposable
         _disposed = true;
 
         _logger.LogInformation("Disposing Huddly SDK provider");
+
+        // Cancel monitoring task - don't wait synchronously to avoid UI thread deadlock
+        // The task will exit cleanly when it sees the cancellation token
+        _monitoringCts?.Cancel();
+        _monitoringCts?.Dispose();
+        _monitoringCts = null;
+        _monitoringTask = null; // Task will complete on its own
 
         if (_sdk != null)
         {

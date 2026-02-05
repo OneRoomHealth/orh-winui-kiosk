@@ -688,9 +688,20 @@ public class CameraModule : HardwareModuleBase
     {
         Logger.LogInformation("{ModuleName}: Shutting down", ModuleName);
 
-        // Unsubscribe from SDK events
+        // Unsubscribe from SDK events first
         _sdkProvider.DeviceConnected -= OnHuddlyDeviceConnected;
         _sdkProvider.DeviceDisconnected -= OnHuddlyDeviceDisconnected;
+
+        // Stop SDK monitoring (can be restarted on re-initialization)
+        try
+        {
+            await _sdkProvider.StopAsync();
+            Logger.LogInformation("{ModuleName}: SDK provider stopped", ModuleName);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "{ModuleName}: Error stopping SDK provider", ModuleName);
+        }
 
         await base.ShutdownAsync();
 

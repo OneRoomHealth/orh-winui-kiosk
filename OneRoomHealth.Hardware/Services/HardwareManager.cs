@@ -160,12 +160,19 @@ public class HardwareManager
 
     /// <summary>
     /// Shutdown all modules and cleanup resources.
+    /// Call this when switching modes - modules can be re-initialized later.
     /// </summary>
     public async Task ShutdownAllModulesAsync()
     {
         await _lock.WaitAsync();
         try
         {
+            if (!_isInitialized)
+            {
+                _logger.LogWarning("Hardware modules already shut down");
+                return;
+            }
+
             _logger.LogInformation("Shutting down all hardware modules");
 
             var shutdownTasks = _modules.Values
@@ -174,6 +181,7 @@ public class HardwareManager
                     try
                     {
                         await module.ShutdownAsync();
+                        _logger.LogInformation("Module {ModuleName} shut down successfully", module.ModuleName);
                     }
                     catch (Exception ex)
                     {
@@ -184,14 +192,27 @@ public class HardwareManager
 
             await Task.WhenAll(shutdownTasks);
 
+            // Clear modules dictionary so they can be re-registered on next enable
+            _modules.Clear();
             _isInitialized = false;
-            _logger.LogInformation("All hardware modules shut down");
+            _logger.LogInformation("All hardware modules shut down and cleared");
         }
         finally
         {
             _lock.Release();
-            _lock.Dispose();
+            // NOTE: Don't dispose _lock here - it's needed for re-initialization
         }
+    }
+
+    /// <summary>
+    /// Performs final cleanup when the application is shutting down.
+    /// After calling this, the HardwareManager cannot be reused.
+    /// </summary>
+    public async Task DisposeAsync()
+    {
+        await ShutdownAllModulesAsync();
+        _lock.Dispose();
+        _logger.LogInformation("HardwareManager disposed");
     }
 
     /// <summary>

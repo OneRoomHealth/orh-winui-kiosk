@@ -285,6 +285,7 @@ public partial class App : Application
 			{
 				_healthVisualizationService.Dispose();
 				HealthVisualization = null;
+				_healthVisualizationService = null;
 				Logger.Log("Health visualization service disposed");
 			}
 
@@ -293,31 +294,36 @@ public partial class App : Application
 			{
 				_servicesCts.Cancel();
 				await _healthMonitorService.StopAsync(CancellationToken.None);
+				_servicesCts.Dispose();
+				_servicesCts = null;
 				Logger.Log("Health monitoring stopped");
 			}
 
 			// Stop API servers
 			LocalCommandServer.Stop();
-			if (_hardwareApiServer != null && _isHardwareApiMode)
+			if (_hardwareApiServer != null)
 			{
 				await _hardwareApiServer.StopAsync();
 				Logger.Log("Hardware API server stopped");
 			}
 
-			// Shutdown hardware manager
+			// Full dispose of hardware manager (disposes the semaphore)
 			if (_serviceProvider != null)
 			{
 				var hardwareManager = _serviceProvider.GetService<HardwareManager>();
 				if (hardwareManager != null)
 				{
-					await hardwareManager.ShutdownAllModulesAsync();
-					Logger.Log("Hardware manager shutdown complete");
+					await hardwareManager.DisposeAsync();
+					Logger.Log("Hardware manager disposed");
 				}
 			}
 
+			_isHardwareApiMode = false;
+
 			// Dispose service provider
 			_serviceProvider?.Dispose();
-			_servicesCts?.Dispose();
+			_serviceProvider = null;
+			Services = null;
 
 			// Flush and close Serilog
 			Log.CloseAndFlush();
