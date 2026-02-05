@@ -20,6 +20,9 @@ namespace KioskApp;
 /// </summary>
 public sealed partial class MainWindow
 {
+    // Suppress module toggle event when programmatically changing the toggle
+    private bool _suppressModuleToggleEvent = false;
+
     #region Navigation Handlers
 
     /// <summary>
@@ -509,16 +512,37 @@ public sealed partial class MainWindow
     private async void ModuleToggle_Toggled(object sender, RoutedEventArgs e)
     {
         if (sender is not ToggleSwitch toggle) return;
-        if (!App.IsHardwareApiMode)
+
+        // Skip if we're programmatically setting the toggle
+        if (_suppressModuleToggleEvent)
         {
-            // Silently ignore - modules only work in Hardware API mode
             return;
         }
 
         var moduleName = toggle.Tag?.ToString() ?? "";
         var isEnabled = toggle.IsOn;
 
+        // Check if we're in Hardware API mode
+        if (!App.IsHardwareApiMode)
+        {
+            Logger.Log($"Module toggle ignored for {moduleName} - not in Hardware API mode");
+            // Reset the toggle to OFF since modules can't be enabled in Navigate mode
+            _suppressModuleToggleEvent = true;
+            try
+            {
+                toggle.IsOn = false;
+            }
+            finally
+            {
+                _suppressModuleToggleEvent = false;
+            }
+            ShowStatus("Not Available", "Module toggles only work in Hardware API mode");
+            _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+            return;
+        }
+
         Logger.Log($"Module toggle: {moduleName} -> {(isEnabled ? "ON" : "OFF")}");
+        ShowStatus(isEnabled ? "Enabling" : "Disabling", $"{moduleName} module...");
 
         try
         {
@@ -528,12 +552,14 @@ public sealed partial class MainWindow
             if (hardwareManager == null)
             {
                 Logger.Log("HardwareManager not available");
+                ShowStatus("Error", "Hardware manager not available");
+                _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
                 return;
             }
 
             if (isEnabled)
             {
-                // Initialize the specific module
+                // Get the module from DI
                 var module = moduleName switch
                 {
                     "Display" => App.Services?.GetService(typeof(OneRoomHealth.Hardware.Modules.Display.DisplayModule)) as OneRoomHealth.Hardware.Abstractions.IHardwareModule,
@@ -548,24 +574,44 @@ public sealed partial class MainWindow
 
                 if (module != null)
                 {
+                    // Register, initialize, and start monitoring
                     hardwareManager.RegisterModule(module);
-                    await module.InitializeAsync();
-                    Logger.Log($"{moduleName} module initialized");
+                    var initSuccess = await module.InitializeAsync();
+                    if (initSuccess)
+                    {
+                        await module.StartMonitoringAsync();
+                        Logger.Log($"{moduleName} module initialized and monitoring started");
+                        ShowStatus("Enabled", $"{moduleName} module is now active");
+                    }
+                    else
+                    {
+                        Logger.Log($"{moduleName} module initialization returned false");
+                        ShowStatus("Warning", $"{moduleName} module initialization incomplete");
+                    }
+                }
+                else
+                {
+                    Logger.Log($"Module {moduleName} not found in DI container");
+                    ShowStatus("Error", $"Module {moduleName} not found");
                 }
             }
             else
             {
-                // Shutdown the specific module
+                // Shutdown the specific module (stops monitoring and removes from manager)
                 await hardwareManager.ShutdownModuleAsync(moduleName);
                 Logger.Log($"{moduleName} module shut down");
+                ShowStatus("Disabled", $"{moduleName} module stopped");
             }
 
             // Refresh the health display
             await RefreshHealthAsync();
+            _ = Task.Delay(1500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
         }
         catch (Exception ex)
         {
             Logger.Log($"Error toggling {moduleName} module: {ex.Message}");
+            ShowStatus("Error", $"Failed to toggle {moduleName}: {ex.Message}");
+            _ = Task.Delay(3000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
         }
     }
 

@@ -104,8 +104,28 @@ public sealed partial class MainWindow
                 Logger.Log("Video controller ready (can be activated with Ctrl+Alt+D)");
             }
 
-            // Start LocalCommandServer for remote navigation control (default mode)
-            App.Instance?.StartLocalCommandServer(this);
+            // Start in the user's preferred API mode (persisted from last session)
+            var prefs = Helpers.UserPreferences.Instance;
+            if (prefs.UseHardwareApiMode && App.Instance != null)
+            {
+                Logger.Log("Starting in Hardware API mode (user preference)");
+                try
+                {
+                    await App.Instance.EnableHardwareApiModeAsync(this);
+                    Logger.Log("Hardware API mode enabled on startup");
+                }
+                catch (Exception apiEx)
+                {
+                    Logger.Log($"Failed to enable Hardware API mode on startup: {apiEx.Message}");
+                    Logger.Log("Falling back to Navigate mode");
+                    App.Instance?.StartLocalCommandServer(this);
+                }
+            }
+            else
+            {
+                Logger.Log("Starting in Navigate mode (user preference)");
+                App.Instance?.StartLocalCommandServer(this);
+            }
         }
         catch (Exception ex)
         {

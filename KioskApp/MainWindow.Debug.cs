@@ -32,6 +32,9 @@ public sealed partial class MainWindow
     private double _resizeStartY;
     private double _resizeStartHeight;
 
+    // Suppress API mode toggle event when programmatically changing the toggle
+    private bool _suppressApiModeToggleEvent = false;
+
     #endregion
 
     #region Debug Mode
@@ -194,8 +197,16 @@ public sealed partial class MainWindow
                     UpdateTabStyles();
                     ShowActiveTabContent();
 
-                    // Initialize API mode toggle to reflect current state
-                    ApiModeToggle.IsOn = App.IsHardwareApiMode;
+                    // Initialize API mode toggle to reflect current state (suppress event)
+                    _suppressApiModeToggleEvent = true;
+                    try
+                    {
+                        ApiModeToggle.IsOn = App.IsHardwareApiMode;
+                    }
+                    finally
+                    {
+                        _suppressApiModeToggleEvent = false;
+                    }
 
                     // Update URL textbox with current URL
                     if (!string.IsNullOrEmpty(_currentUrl))
@@ -292,7 +303,16 @@ public sealed partial class MainWindow
                                     return;
                                 }
 
-                                ApiModeToggle.IsOn = App.IsHardwareApiMode;
+                                // Update toggle without triggering the event handler
+                                _suppressApiModeToggleEvent = true;
+                                try
+                                {
+                                    ApiModeToggle.IsOn = App.IsHardwareApiMode;
+                                }
+                                finally
+                                {
+                                    _suppressApiModeToggleEvent = false;
+                                }
                                 TitleBarApiEndpoint.Text = "localhost:8081";
                                 TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
                                     App.HardwareApiServer?.IsRunning == true
@@ -495,6 +515,12 @@ public sealed partial class MainWindow
     {
         if (sender is not ToggleSwitch toggle) return;
 
+        // Skip if we're programmatically setting the toggle
+        if (_suppressApiModeToggleEvent)
+        {
+            return;
+        }
+
         try
         {
             if (toggle.IsOn)
@@ -511,6 +537,9 @@ public sealed partial class MainWindow
                         App.HardwareApiServer?.IsRunning == true
                             ? ColorHelper.FromArgb(255, 78, 201, 176)
                             : ColorHelper.FromArgb(255, 244, 135, 113));
+
+                    // Save preference for next startup
+                    Helpers.UserPreferences.Instance.SetHardwareApiMode(true);
 
                     ShowStatus("Hardware API Mode", "Listening on port 8081 - Full hardware control enabled");
                 }
@@ -529,6 +558,9 @@ public sealed partial class MainWindow
                         LocalCommandServer.IsRunning
                             ? ColorHelper.FromArgb(255, 78, 201, 176)
                             : ColorHelper.FromArgb(255, 244, 135, 113));
+
+                    // Save preference for next startup
+                    Helpers.UserPreferences.Instance.SetHardwareApiMode(false);
 
                     ShowStatus("Navigate Mode", "Listening on port 8787 - Remote navigation enabled");
                 }
