@@ -445,11 +445,6 @@ public sealed partial class MainWindow
             var (_, body) = await DcApiRequest("GET", "devices");
             SetResponseText(responseArea, body);
         }));
-        buttonRow.Children.Add(CreateActionButton("System Info", "#569CD6", async () =>
-        {
-            var (_, body) = await DcApiRequest("GET", "system");
-            SetResponseText(responseArea, body);
-        }));
 
         _dcControlsPanel.Children.Add(buttonRow);
         _dcControlsPanel.Children.Add(responseArea);
@@ -621,14 +616,15 @@ public sealed partial class MainWindow
             if (ptzStatus == 200 && ptzBody != null)
             {
                 var ptzDoc = JsonDocument.Parse(ptzBody);
+                var ptzData = UnwrapApiData(ptzDoc.RootElement);
                 _suppressSliderEvent = true;
                 try
                 {
-                    if (ptzDoc.RootElement.TryGetProperty("pan", out var panEl))
+                    if (ptzData.TryGetProperty("pan", out var panEl))
                         panSlider.Value = panEl.GetDouble() * 100;
-                    if (ptzDoc.RootElement.TryGetProperty("tilt", out var tiltEl))
+                    if (ptzData.TryGetProperty("tilt", out var tiltEl))
                         tiltSlider.Value = tiltEl.GetDouble() * 100;
-                    if (ptzDoc.RootElement.TryGetProperty("zoom", out var zoomEl))
+                    if (ptzData.TryGetProperty("zoom", out var zoomEl))
                         zoomSlider.Value = zoomEl.GetDouble() * 100;
                 }
                 finally
@@ -709,10 +705,11 @@ public sealed partial class MainWindow
             if (bStatus == 200 && bBody != null)
             {
                 var doc = JsonDocument.Parse(bBody);
+                var data = UnwrapApiData(doc.RootElement);
                 _suppressSliderEvent = true;
                 try
                 {
-                    if (doc.RootElement.TryGetProperty("brightness", out var bEl))
+                    if (data.TryGetProperty("brightness", out var bEl))
                         brightnessSlider.Value = bEl.GetInt32();
                 }
                 finally { _suppressSliderEvent = false; }
@@ -848,12 +845,13 @@ public sealed partial class MainWindow
             if (cStatus == 200 && cBody != null)
             {
                 var doc = JsonDocument.Parse(cBody);
+                var data = UnwrapApiData(doc.RootElement);
                 _suppressSliderEvent = true;
                 try
                 {
-                    if (doc.RootElement.TryGetProperty("brightness", out var bEl))
+                    if (data.TryGetProperty("brightness", out var bEl))
                         brightnessSlider.Value = bEl.GetInt32();
-                    if (doc.RootElement.TryGetProperty("color", out var colorEl))
+                    if (data.TryGetProperty("color", out var colorEl))
                     {
                         if (colorEl.TryGetProperty("red", out var rEl)) redSlider.Value = rEl.GetInt32();
                         if (colorEl.TryGetProperty("green", out var gEl)) greenSlider.Value = gEl.GetInt32();
@@ -938,32 +936,51 @@ public sealed partial class MainWindow
                 JsonSerializer.Serialize(new { step = 5 }));
             SetResponseText(responseArea, r);
         }));
-        btnRow.Children.Add(CreateActionButton("Get Status", "#569CD6", async () =>
+        btnRow.Children.Add(CreateActionButton("Get Volume", "#569CD6", async () =>
         {
-            var (_, r) = await DcApiRequest("GET", "system");
+            var (_, r) = await DcApiRequest("GET", "system/volume");
+            SetResponseText(responseArea, r);
+        }));
+        btnRow.Children.Add(CreateActionButton("Get Mic Vol", "#569CD6", async () =>
+        {
+            var (_, r) = await DcApiRequest("GET", "system/mic-volume");
             SetResponseText(responseArea, r);
         }));
         _dcControlsPanel.Children.Add(btnRow);
         _dcControlsPanel.Children.Add(responseArea);
 
-        // Fetch initial state
+        // Fetch initial state from individual endpoints
         try
         {
-            var (sStatus, sBody) = await DcApiRequest("GET", "system");
-            if (sStatus == 200 && sBody != null)
+            _suppressSliderEvent = true;
+            try
             {
-                var doc = JsonDocument.Parse(sBody);
-                _suppressSliderEvent = true;
-                try
+                var (vStatus, vBody) = await DcApiRequest("GET", "system/volume");
+                if (vStatus == 200 && vBody != null)
                 {
-                    if (doc.RootElement.TryGetProperty("volume", out var vEl))
+                    var doc = JsonDocument.Parse(vBody);
+                    var data = UnwrapApiData(doc.RootElement);
+                    if (data.TryGetProperty("volume", out var vEl))
                         speakerVolSlider.Value = vEl.GetInt32();
-                    if (doc.RootElement.TryGetProperty("mic_volume", out var mvEl))
+                }
+
+                var (mStatus, mBody) = await DcApiRequest("GET", "system/mic-volume");
+                if (mStatus == 200 && mBody != null)
+                {
+                    var doc = JsonDocument.Parse(mBody);
+                    var data = UnwrapApiData(doc.RootElement);
+                    if (data.TryGetProperty("volume", out var mvEl))
                         micVolSlider.Value = mvEl.GetInt32();
                 }
-                finally { _suppressSliderEvent = false; }
+
+                // Display both responses combined (set directly to avoid double FormatJson)
+                if (responseArea.Content is TextBlock tb)
+                {
+                    tb.Text = $"Speaker Volume:\n{FormatJson(vBody)}\n\nMic Volume:\n{FormatJson(mBody)}";
+                    tb.Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 204, 204, 204));
+                }
             }
-            SetResponseText(responseArea, sBody);
+            finally { _suppressSliderEvent = false; }
         }
         catch { }
     }
@@ -1036,10 +1053,11 @@ public sealed partial class MainWindow
             if (mStatus == 200 && mBody != null)
             {
                 var doc = JsonDocument.Parse(mBody);
+                var data = UnwrapApiData(doc.RootElement);
                 _suppressSliderEvent = true;
                 try
                 {
-                    if (doc.RootElement.TryGetProperty("volume", out var vEl))
+                    if (data.TryGetProperty("volume", out var vEl))
                         volSlider.Value = vEl.GetInt32();
                 }
                 finally { _suppressSliderEvent = false; }
@@ -1084,10 +1102,11 @@ public sealed partial class MainWindow
             if (sStatus == 200 && sBody != null)
             {
                 var doc = JsonDocument.Parse(sBody);
+                var data = UnwrapApiData(doc.RootElement);
                 _suppressSliderEvent = true;
                 try
                 {
-                    if (doc.RootElement.TryGetProperty("volume", out var vEl))
+                    if (data.TryGetProperty("volume", out var vEl))
                         volSlider.Value = vEl.GetInt32();
                 }
                 finally { _suppressSliderEvent = false; }
@@ -1149,13 +1168,13 @@ public sealed partial class MainWindow
         }));
         autoBtnRow.Children.Add(CreateActionButton("Enable", "#4EC9B0", async () =>
         {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/autoframing",
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/autoframing",
                 JsonSerializer.Serialize(new { enabled = true }));
             SetResponseText(responseArea, r);
         }));
         autoBtnRow.Children.Add(CreateActionButton("Disable", "#858585", async () =>
         {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/autoframing",
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/autoframing",
                 JsonSerializer.Serialize(new { enabled = false }));
             SetResponseText(responseArea, r);
         }));
@@ -1171,7 +1190,7 @@ public sealed partial class MainWindow
 
         var panSlider = AddSliderRow(controlsGrid, "Pan", -100, 100, 1, 0, async (val) =>
         {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan",
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/pan",
                 JsonSerializer.Serialize(new { pan = (int)val }));
             SetResponseText(responseArea, r);
         });
@@ -1184,35 +1203,35 @@ public sealed partial class MainWindow
         {
             _suppressSliderEvent = true;
             try { panSlider.Value = -100; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = -100 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = -100 }));
             SetResponseText(responseArea, r);
         }));
         panPresets.Children.Add(CreateActionButton("< Mid Left", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { panSlider.Value = -50; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = -50 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = -50 }));
             SetResponseText(responseArea, r);
         }));
         panPresets.Children.Add(CreateActionButton("Center", "#4EC9B0", async () =>
         {
             _suppressSliderEvent = true;
             try { panSlider.Value = 0; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 0 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 0 }));
             SetResponseText(responseArea, r);
         }));
         panPresets.Children.Add(CreateActionButton("Mid Right >", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { panSlider.Value = 50; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 50 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 50 }));
             SetResponseText(responseArea, r);
         }));
         panPresets.Children.Add(CreateActionButton("Right >>", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { panSlider.Value = 100; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 100 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 100 }));
             SetResponseText(responseArea, r);
         }));
         _dcControlsPanel.Children.Add(panPresets);
@@ -1222,7 +1241,7 @@ public sealed partial class MainWindow
 
         var zoomSlider = AddSliderRow(zoomGrid, "Zoom", 1.0, 5.0, 0.1, 1.0, async (val) =>
         {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom",
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/zoom",
                 JsonSerializer.Serialize(new { zoom = val }));
             SetResponseText(responseArea, r);
         }, "F1");
@@ -1235,35 +1254,35 @@ public sealed partial class MainWindow
         {
             _suppressSliderEvent = true;
             try { zoomSlider.Value = 1.0; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 1.0 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 1.0 }));
             SetResponseText(responseArea, r);
         }));
         zoomPresets.Children.Add(CreateActionButton("2.0x", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { zoomSlider.Value = 2.0; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 2.0 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 2.0 }));
             SetResponseText(responseArea, r);
         }));
         zoomPresets.Children.Add(CreateActionButton("3.0x", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { zoomSlider.Value = 3.0; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 3.0 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 3.0 }));
             SetResponseText(responseArea, r);
         }));
         zoomPresets.Children.Add(CreateActionButton("4.0x", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { zoomSlider.Value = 4.0; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 4.0 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 4.0 }));
             SetResponseText(responseArea, r);
         }));
         zoomPresets.Children.Add(CreateActionButton("Max 5.0", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { zoomSlider.Value = 5.0; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 5.0 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 5.0 }));
             SetResponseText(responseArea, r);
         }));
         _dcControlsPanel.Children.Add(zoomPresets);
@@ -1283,7 +1302,7 @@ public sealed partial class MainWindow
 
         var tiltSlider = AddSliderRow(tiltGrid, "Tilt", -100, 100, 1, 0, async (val) =>
         {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt",
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/tilt",
                 JsonSerializer.Serialize(new { tilt = (int)val }));
             SetResponseText(responseArea, r);
         });
@@ -1296,35 +1315,35 @@ public sealed partial class MainWindow
         {
             _suppressSliderEvent = true;
             try { tiltSlider.Value = -100; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = -100 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = -100 }));
             SetResponseText(responseArea, r);
         }));
         tiltPresets.Children.Add(CreateActionButton("-50", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { tiltSlider.Value = -50; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = -50 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = -50 }));
             SetResponseText(responseArea, r);
         }));
         tiltPresets.Children.Add(CreateActionButton("Center 0", "#4EC9B0", async () =>
         {
             _suppressSliderEvent = true;
             try { tiltSlider.Value = 0; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 0 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 0 }));
             SetResponseText(responseArea, r);
         }));
         tiltPresets.Children.Add(CreateActionButton("+50", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { tiltSlider.Value = 50; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 50 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 50 }));
             SetResponseText(responseArea, r);
         }));
         tiltPresets.Children.Add(CreateActionButton("Up +100", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
             try { tiltSlider.Value = 100; } finally { _suppressSliderEvent = false; }
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 100 }));
+            var (_, r) = await DcApiRequest("PUT", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 100 }));
             SetResponseText(responseArea, r);
         }));
         _dcControlsPanel.Children.Add(tiltPresets);
@@ -1345,7 +1364,8 @@ public sealed partial class MainWindow
                 try
                 {
                     var doc = JsonDocument.Parse(r);
-                    if (doc.RootElement.TryGetProperty("pan", out var pEl))
+                    var data = UnwrapApiData(doc.RootElement);
+                    if (data.TryGetProperty("pan", out var pEl))
                     {
                         _suppressSliderEvent = true;
                         try { panSlider.Value = pEl.GetDouble(); } finally { _suppressSliderEvent = false; }
@@ -1363,7 +1383,8 @@ public sealed partial class MainWindow
                 try
                 {
                     var doc = JsonDocument.Parse(r);
-                    if (doc.RootElement.TryGetProperty("zoom", out var zEl))
+                    var data = UnwrapApiData(doc.RootElement);
+                    if (data.TryGetProperty("zoom", out var zEl))
                     {
                         _suppressSliderEvent = true;
                         try { zoomSlider.Value = zEl.GetDouble(); } finally { _suppressSliderEvent = false; }
@@ -1381,7 +1402,8 @@ public sealed partial class MainWindow
                 try
                 {
                     var doc = JsonDocument.Parse(r);
-                    if (doc.RootElement.TryGetProperty("tilt", out var tEl))
+                    var data = UnwrapApiData(doc.RootElement);
+                    if (data.TryGetProperty("tilt", out var tEl))
                     {
                         _suppressSliderEvent = true;
                         try { tiltSlider.Value = tEl.GetDouble(); } finally { _suppressSliderEvent = false; }
@@ -1421,7 +1443,8 @@ public sealed partial class MainWindow
                 if (pStatus == 200 && pBody != null)
                 {
                     var doc = JsonDocument.Parse(pBody);
-                    if (doc.RootElement.TryGetProperty("pan", out var pEl))
+                    var data = UnwrapApiData(doc.RootElement);
+                    if (data.TryGetProperty("pan", out var pEl))
                         panSlider.Value = pEl.GetDouble();
                 }
 
@@ -1429,7 +1452,8 @@ public sealed partial class MainWindow
                 if (tStatus == 200 && tBody != null)
                 {
                     var doc = JsonDocument.Parse(tBody);
-                    if (doc.RootElement.TryGetProperty("tilt", out var tEl))
+                    var data = UnwrapApiData(doc.RootElement);
+                    if (data.TryGetProperty("tilt", out var tEl))
                         tiltSlider.Value = tEl.GetDouble();
                 }
 
@@ -1437,7 +1461,8 @@ public sealed partial class MainWindow
                 if (zStatus == 200 && zBody != null)
                 {
                     var doc = JsonDocument.Parse(zBody);
-                    if (doc.RootElement.TryGetProperty("zoom", out var zEl))
+                    var data = UnwrapApiData(doc.RootElement);
+                    if (data.TryGetProperty("zoom", out var zEl))
                         zoomSlider.Value = zEl.GetDouble();
                 }
             }
@@ -1567,7 +1592,8 @@ public sealed partial class MainWindow
             try
             {
                 var doc = JsonDocument.Parse(sBody);
-                if (doc.RootElement.TryGetProperty("url", out var urlEl))
+                var data = UnwrapApiData(doc.RootElement);
+                if (data.TryGetProperty("url", out var urlEl))
                     urlInput.Text = urlEl.GetString() ?? "";
             }
             catch { }
@@ -2030,16 +2056,52 @@ public sealed partial class MainWindow
         try
         {
             var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
 
-            // Try to find devices array in root or nested property
+            // Find the devices array, handling multiple response formats:
+            // 1. Raw array: [...]
+            // 2. ApiResponse wrapper: {"success": true, "data": [...]}
+            // 3. Direct property: {"devices": [...]}
+            // 4. ApiResponse with nested property: {"success": true, "data": {"devices": [...]}}
             JsonElement devicesArray;
-            if (doc.RootElement.TryGetProperty(arrayProp, out devicesArray) && devicesArray.ValueKind == JsonValueKind.Array)
+
+            if (root.ValueKind == JsonValueKind.Array)
             {
-                // Found under arrayProp
+                // Raw array response (e.g., chromium endpoint)
+                devicesArray = root;
             }
-            else if (doc.RootElement.ValueKind == JsonValueKind.Array)
+            else if (root.ValueKind == JsonValueKind.Object)
             {
-                devicesArray = doc.RootElement;
+                // Try "data" property first (ApiResponse wrapper)
+                if (root.TryGetProperty("data", out var dataEl))
+                {
+                    if (dataEl.ValueKind == JsonValueKind.Array)
+                    {
+                        // ApiResponse wrapping array: {"success": true, "data": [...]}
+                        devicesArray = dataEl;
+                    }
+                    else if (dataEl.ValueKind == JsonValueKind.Object &&
+                             dataEl.TryGetProperty(arrayProp, out var nestedArray) &&
+                             nestedArray.ValueKind == JsonValueKind.Array)
+                    {
+                        // ApiResponse with nested: {"success": true, "data": {"devices": [...]}}
+                        devicesArray = nestedArray;
+                    }
+                    else
+                    {
+                        return devices;
+                    }
+                }
+                else if (root.TryGetProperty(arrayProp, out var directArray) &&
+                         directArray.ValueKind == JsonValueKind.Array)
+                {
+                    // Direct property: {"devices": [...]}
+                    devicesArray = directArray;
+                }
+                else
+                {
+                    return devices;
+                }
             }
             else
             {
@@ -2075,6 +2137,17 @@ public sealed partial class MainWindow
         }
 
         return devices;
+    }
+
+    /// <summary>
+    /// Unwraps ApiResponse wrapper format: {"success":true,"data":{...}} → returns the "data" element.
+    /// If no wrapper is present, returns the root element unchanged (for raw responses like chromium).
+    /// </summary>
+    private static JsonElement UnwrapApiData(JsonElement root)
+    {
+        if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("data", out var data))
+            return data;
+        return root;
     }
 
     private static Windows.UI.Color ParseHexColor(string hex)
