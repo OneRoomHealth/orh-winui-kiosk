@@ -490,10 +490,71 @@ public sealed partial class MainWindow
             BuildCategoryControls("Cameras");
         }));
 
+        // PTZ D-Pad (matching api_tester.html directional buttons)
+        var dpadGrid = new Grid { Margin = new Thickness(0, 8, 0, 8), HorizontalAlignment = HorizontalAlignment.Left };
+        dpadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+        dpadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+        dpadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+        dpadGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+        dpadGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+        dpadGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(36) });
+
+        var upBtn = CreateActionButton("\u2191", "#569CD6", async () =>
+        {
+            var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
+                JsonSerializer.Serialize(new { pan = 0.0, tilt = 0.2 }));
+            SetResponseText(responseArea, r);
+        });
+        upBtn.MinWidth = 36; upBtn.Padding = new Thickness(0); upBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Grid.SetRow(upBtn, 0); Grid.SetColumn(upBtn, 1);
+
+        var leftBtn = CreateActionButton("\u2190", "#569CD6", async () =>
+        {
+            var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
+                JsonSerializer.Serialize(new { pan = -0.2, tilt = 0.0 }));
+            SetResponseText(responseArea, r);
+        });
+        leftBtn.MinWidth = 36; leftBtn.Padding = new Thickness(0); leftBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Grid.SetRow(leftBtn, 1); Grid.SetColumn(leftBtn, 0);
+
+        var homeBtn = CreateActionButton("\u2302", "#4EC9B0", async () =>
+        {
+            var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
+                JsonSerializer.Serialize(new { pan = 0.0, tilt = 0.0, zoom = 0.0 }));
+            SetResponseText(responseArea, r);
+        });
+        homeBtn.MinWidth = 36; homeBtn.Padding = new Thickness(0); homeBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Grid.SetRow(homeBtn, 1); Grid.SetColumn(homeBtn, 1);
+
+        var rightBtn = CreateActionButton("\u2192", "#569CD6", async () =>
+        {
+            var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
+                JsonSerializer.Serialize(new { pan = 0.2, tilt = 0.0 }));
+            SetResponseText(responseArea, r);
+        });
+        rightBtn.MinWidth = 36; rightBtn.Padding = new Thickness(0); rightBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Grid.SetRow(rightBtn, 1); Grid.SetColumn(rightBtn, 2);
+
+        var downBtn = CreateActionButton("\u2193", "#569CD6", async () =>
+        {
+            var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
+                JsonSerializer.Serialize(new { pan = 0.0, tilt = -0.2 }));
+            SetResponseText(responseArea, r);
+        });
+        downBtn.MinWidth = 36; downBtn.Padding = new Thickness(0); downBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
+        Grid.SetRow(downBtn, 2); Grid.SetColumn(downBtn, 1);
+
+        dpadGrid.Children.Add(upBtn);
+        dpadGrid.Children.Add(leftBtn);
+        dpadGrid.Children.Add(homeBtn);
+        dpadGrid.Children.Add(rightBtn);
+        dpadGrid.Children.Add(downBtn);
+        _dcControlsPanel.Children.Add(dpadGrid);
+
         // Controls grid
         var controlsGrid = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
 
-        // PTZ sliders
+        // PTZ sliders (normalized -1 to 1 for pan/tilt, 0 to 1 for zoom)
         Slider? panSlider = null, tiltSlider = null, zoomSlider = null;
 
         panSlider = AddSliderRow(controlsGrid, "Pan", -100, 100, 1, 0, async (val) =>
@@ -699,57 +760,63 @@ public sealed partial class MainWindow
             SetResponseText(responseArea, r);
         });
 
-        Slider? redSlider = null, greenSlider = null, blueSlider = null;
+        Slider? redSlider = null, greenSlider = null, blueSlider = null, whiteSlider = null;
 
         redSlider = AddSliderRow(controlsGrid, "Red", 0, 255, 1, 255, async (val) =>
         {
             await SendLightingColor(selectedId, (int)val,
-                (int)(greenSlider?.Value ?? 0), (int)(blueSlider?.Value ?? 0), responseArea);
+                (int)(greenSlider?.Value ?? 0), (int)(blueSlider?.Value ?? 0), (int)(whiteSlider?.Value ?? 0), responseArea);
         });
 
         greenSlider = AddSliderRow(controlsGrid, "Green", 0, 255, 1, 255, async (val) =>
         {
             await SendLightingColor(selectedId, (int)(redSlider?.Value ?? 0),
-                (int)val, (int)(blueSlider?.Value ?? 0), responseArea);
+                (int)val, (int)(blueSlider?.Value ?? 0), (int)(whiteSlider?.Value ?? 0), responseArea);
         });
 
         blueSlider = AddSliderRow(controlsGrid, "Blue", 0, 255, 1, 255, async (val) =>
         {
             await SendLightingColor(selectedId, (int)(redSlider?.Value ?? 0),
-                (int)(greenSlider?.Value ?? 0), (int)val, responseArea);
+                (int)(greenSlider?.Value ?? 0), (int)val, (int)(whiteSlider?.Value ?? 0), responseArea);
+        });
+
+        whiteSlider = AddSliderRow(controlsGrid, "White", 0, 255, 1, 0, async (val) =>
+        {
+            await SendLightingColor(selectedId, (int)(redSlider?.Value ?? 0),
+                (int)(greenSlider?.Value ?? 0), (int)(blueSlider?.Value ?? 0), (int)val, responseArea);
         });
 
         _dcControlsPanel.Children.Add(controlsGrid);
 
-        // Color presets
+        // Color presets (matching api_tester.html RGBW values)
         var presetRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
         presetRow.Children.Add(CreateActionButton("Red", "#F48771", async () =>
         {
             _suppressSliderEvent = true;
-            try { redSlider.Value = 255; greenSlider.Value = 0; blueSlider.Value = 0; }
+            try { redSlider.Value = 255; greenSlider.Value = 0; blueSlider.Value = 0; whiteSlider.Value = 0; }
             finally { _suppressSliderEvent = false; }
-            await SendLightingColor(selectedId, 255, 0, 0, responseArea);
+            await SendLightingColor(selectedId, 255, 0, 0, 0, responseArea);
         }));
         presetRow.Children.Add(CreateActionButton("Green", "#4EC9B0", async () =>
         {
             _suppressSliderEvent = true;
-            try { redSlider.Value = 0; greenSlider.Value = 255; blueSlider.Value = 0; }
+            try { redSlider.Value = 0; greenSlider.Value = 255; blueSlider.Value = 0; whiteSlider.Value = 0; }
             finally { _suppressSliderEvent = false; }
-            await SendLightingColor(selectedId, 0, 255, 0, responseArea);
+            await SendLightingColor(selectedId, 0, 255, 0, 0, responseArea);
         }));
         presetRow.Children.Add(CreateActionButton("Blue", "#569CD6", async () =>
         {
             _suppressSliderEvent = true;
-            try { redSlider.Value = 0; greenSlider.Value = 0; blueSlider.Value = 255; }
+            try { redSlider.Value = 0; greenSlider.Value = 0; blueSlider.Value = 255; whiteSlider.Value = 0; }
             finally { _suppressSliderEvent = false; }
-            await SendLightingColor(selectedId, 0, 0, 255, responseArea);
+            await SendLightingColor(selectedId, 0, 0, 255, 0, responseArea);
         }));
         presetRow.Children.Add(CreateActionButton("White", "#CCCCCC", async () =>
         {
             _suppressSliderEvent = true;
-            try { redSlider.Value = 255; greenSlider.Value = 255; blueSlider.Value = 255; }
+            try { redSlider.Value = 0; greenSlider.Value = 0; blueSlider.Value = 0; whiteSlider.Value = 255; }
             finally { _suppressSliderEvent = false; }
-            await SendLightingColor(selectedId, 255, 255, 255, responseArea);
+            await SendLightingColor(selectedId, 0, 0, 0, 255, responseArea);
         }));
         _dcControlsPanel.Children.Add(presetRow);
 
@@ -791,6 +858,7 @@ public sealed partial class MainWindow
                         if (colorEl.TryGetProperty("red", out var rEl)) redSlider.Value = rEl.GetInt32();
                         if (colorEl.TryGetProperty("green", out var gEl)) greenSlider.Value = gEl.GetInt32();
                         if (colorEl.TryGetProperty("blue", out var bEl2)) blueSlider.Value = bEl2.GetInt32();
+                        if (colorEl.TryGetProperty("white", out var wEl)) whiteSlider.Value = wEl.GetInt32();
                     }
                 }
                 finally { _suppressSliderEvent = false; }
@@ -800,10 +868,10 @@ public sealed partial class MainWindow
         catch { }
     }
 
-    private async Task SendLightingColor(string deviceId, int r, int g, int b, ScrollViewer responseArea)
+    private async Task SendLightingColor(string deviceId, int r, int g, int b, int w, ScrollViewer responseArea)
     {
         var (_, resp) = await DcApiRequest("PUT", $"lighting/{deviceId}/color",
-            JsonSerializer.Serialize(new { red = r, green = g, blue = b }));
+            JsonSerializer.Serialize(new { red = r, green = g, blue = b, white = w }));
         SetResponseText(responseArea, resp);
     }
 
@@ -1058,57 +1126,272 @@ public sealed partial class MainWindow
             BuildCategoryControls("Biamp");
         }));
 
-        var controlsGrid = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
+        // Autoframing controls
+        var autoRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
+        autoRow.Children.Add(CreateSectionHeader("AUTOFRAMING"));
+        _dcControlsPanel.Children.Add(autoRow);
 
-        var panSlider = AddSliderRow(controlsGrid, "Pan", -100, 100, 1, 0, async (val) =>
+        var autoNote = new TextBlock
         {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan",
-                JsonSerializer.Serialize(new { pan = val / 100.0 }));
-            SetResponseText(responseArea, r);
-        });
+            Text = "Note: When enabled, manual PTZ controls are inactive",
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 133, 133, 133)),
+            FontFamily = new FontFamily("Cascadia Code, Consolas"),
+            FontSize = 10,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        _dcControlsPanel.Children.Add(autoNote);
 
-        var tiltSlider = AddSliderRow(controlsGrid, "Tilt", -100, 100, 1, 0, async (val) =>
+        var autoBtnRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 4, 0, 8) };
+        autoBtnRow.Children.Add(CreateActionButton("Toggle", "#DCDCAA", async () =>
         {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt",
-                JsonSerializer.Serialize(new { tilt = val / 100.0 }));
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/autoframing/toggle", "{}");
             SetResponseText(responseArea, r);
-        });
-
-        var zoomSlider = AddSliderRow(controlsGrid, "Zoom", 0, 100, 1, 50, async (val) =>
-        {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom",
-                JsonSerializer.Serialize(new { zoom = val / 100.0 }));
-            SetResponseText(responseArea, r);
-        });
-
-        _dcControlsPanel.Children.Add(controlsGrid);
-
-        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
-        btnRow.Children.Add(CreateActionButton("Autoframe ON", "#4EC9B0", async () =>
+        }));
+        autoBtnRow.Children.Add(CreateActionButton("Enable", "#4EC9B0", async () =>
         {
             var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/autoframing",
                 JsonSerializer.Serialize(new { enabled = true }));
             SetResponseText(responseArea, r);
         }));
-        btnRow.Children.Add(CreateActionButton("Autoframe OFF", "#858585", async () =>
+        autoBtnRow.Children.Add(CreateActionButton("Disable", "#858585", async () =>
         {
             var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/autoframing",
                 JsonSerializer.Serialize(new { enabled = false }));
             SetResponseText(responseArea, r);
         }));
-        btnRow.Children.Add(CreateActionButton("Toggle Autoframe", "#DCDCAA", async () =>
+        autoBtnRow.Children.Add(CreateActionButton("Refresh", "#569CD6", async () =>
         {
-            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/autoframing/toggle", "{}");
+            var (_, r) = await DcApiRequest("GET", $"biamp/{selectedId}/autoframing");
             SetResponseText(responseArea, r);
         }));
+        _dcControlsPanel.Children.Add(autoBtnRow);
+
+        // Pan control (-100 to +100, raw integer values)
+        var controlsGrid = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
+
+        var panSlider = AddSliderRow(controlsGrid, "Pan", -100, 100, 1, 0, async (val) =>
+        {
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan",
+                JsonSerializer.Serialize(new { pan = (int)val }));
+            SetResponseText(responseArea, r);
+        });
+
+        _dcControlsPanel.Children.Add(controlsGrid);
+
+        // Pan presets
+        var panPresets = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 8) };
+        panPresets.Children.Add(CreateActionButton("<< Left", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { panSlider.Value = -100; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = -100 }));
+            SetResponseText(responseArea, r);
+        }));
+        panPresets.Children.Add(CreateActionButton("< Mid Left", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { panSlider.Value = -50; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = -50 }));
+            SetResponseText(responseArea, r);
+        }));
+        panPresets.Children.Add(CreateActionButton("Center", "#4EC9B0", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { panSlider.Value = 0; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 0 }));
+            SetResponseText(responseArea, r);
+        }));
+        panPresets.Children.Add(CreateActionButton("Mid Right >", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { panSlider.Value = 50; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 50 }));
+            SetResponseText(responseArea, r);
+        }));
+        panPresets.Children.Add(CreateActionButton("Right >>", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { panSlider.Value = 100; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/pan", JsonSerializer.Serialize(new { pan = 100 }));
+            SetResponseText(responseArea, r);
+        }));
+        _dcControlsPanel.Children.Add(panPresets);
+
+        // Zoom control (1.0 to 5.0, raw float values)
+        var zoomGrid = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
+
+        var zoomSlider = AddSliderRow(zoomGrid, "Zoom", 1.0, 5.0, 0.1, 1.0, async (val) =>
+        {
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom",
+                JsonSerializer.Serialize(new { zoom = val }));
+            SetResponseText(responseArea, r);
+        }, "F1");
+
+        _dcControlsPanel.Children.Add(zoomGrid);
+
+        // Zoom presets
+        var zoomPresets = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 8) };
+        zoomPresets.Children.Add(CreateActionButton("Wide 1.0", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { zoomSlider.Value = 1.0; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 1.0 }));
+            SetResponseText(responseArea, r);
+        }));
+        zoomPresets.Children.Add(CreateActionButton("2.0x", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { zoomSlider.Value = 2.0; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 2.0 }));
+            SetResponseText(responseArea, r);
+        }));
+        zoomPresets.Children.Add(CreateActionButton("3.0x", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { zoomSlider.Value = 3.0; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 3.0 }));
+            SetResponseText(responseArea, r);
+        }));
+        zoomPresets.Children.Add(CreateActionButton("4.0x", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { zoomSlider.Value = 4.0; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 4.0 }));
+            SetResponseText(responseArea, r);
+        }));
+        zoomPresets.Children.Add(CreateActionButton("Max 5.0", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { zoomSlider.Value = 5.0; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/zoom", JsonSerializer.Serialize(new { zoom = 5.0 }));
+            SetResponseText(responseArea, r);
+        }));
+        _dcControlsPanel.Children.Add(zoomPresets);
+
+        // Tilt control (-100 to +100, raw integer values)
+        var tiltGrid = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
+
+        var tiltNote = new TextBlock
+        {
+            Text = "Note: Tilt has no visible effect when zoom is 1.0",
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 133, 133, 133)),
+            FontFamily = new FontFamily("Cascadia Code, Consolas"),
+            FontSize = 10,
+            Margin = new Thickness(0, 0, 0, 4)
+        };
+        _dcControlsPanel.Children.Add(tiltNote);
+
+        var tiltSlider = AddSliderRow(tiltGrid, "Tilt", -100, 100, 1, 0, async (val) =>
+        {
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt",
+                JsonSerializer.Serialize(new { tilt = (int)val }));
+            SetResponseText(responseArea, r);
+        });
+
+        _dcControlsPanel.Children.Add(tiltGrid);
+
+        // Tilt presets
+        var tiltPresets = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 8) };
+        tiltPresets.Children.Add(CreateActionButton("Down -100", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { tiltSlider.Value = -100; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = -100 }));
+            SetResponseText(responseArea, r);
+        }));
+        tiltPresets.Children.Add(CreateActionButton("-50", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { tiltSlider.Value = -50; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = -50 }));
+            SetResponseText(responseArea, r);
+        }));
+        tiltPresets.Children.Add(CreateActionButton("Center 0", "#4EC9B0", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { tiltSlider.Value = 0; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 0 }));
+            SetResponseText(responseArea, r);
+        }));
+        tiltPresets.Children.Add(CreateActionButton("+50", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { tiltSlider.Value = 50; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 50 }));
+            SetResponseText(responseArea, r);
+        }));
+        tiltPresets.Children.Add(CreateActionButton("Up +100", "#569CD6", async () =>
+        {
+            _suppressSliderEvent = true;
+            try { tiltSlider.Value = 100; } finally { _suppressSliderEvent = false; }
+            var (_, r) = await DcApiRequest("POST", $"biamp/{selectedId}/tilt", JsonSerializer.Serialize(new { tilt = 100 }));
+            SetResponseText(responseArea, r);
+        }));
+        _dcControlsPanel.Children.Add(tiltPresets);
+
+        // Device control buttons
+        var btnRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
         btnRow.Children.Add(CreateActionButton("Get Status", "#569CD6", async () =>
         {
             var (_, r) = await DcApiRequest("GET", $"biamp/{selectedId}");
             SetResponseText(responseArea, r);
         }));
+        btnRow.Children.Add(CreateActionButton("Get Pan", "#4EC9B0", async () =>
+        {
+            var (_, r) = await DcApiRequest("GET", $"biamp/{selectedId}/pan");
+            SetResponseText(responseArea, r);
+            if (r != null)
+            {
+                try
+                {
+                    var doc = JsonDocument.Parse(r);
+                    if (doc.RootElement.TryGetProperty("pan", out var pEl))
+                    {
+                        _suppressSliderEvent = true;
+                        try { panSlider.Value = pEl.GetDouble(); } finally { _suppressSliderEvent = false; }
+                    }
+                }
+                catch { }
+            }
+        }));
+        btnRow.Children.Add(CreateActionButton("Get Zoom", "#4EC9B0", async () =>
+        {
+            var (_, r) = await DcApiRequest("GET", $"biamp/{selectedId}/zoom");
+            SetResponseText(responseArea, r);
+            if (r != null)
+            {
+                try
+                {
+                    var doc = JsonDocument.Parse(r);
+                    if (doc.RootElement.TryGetProperty("zoom", out var zEl))
+                    {
+                        _suppressSliderEvent = true;
+                        try { zoomSlider.Value = zEl.GetDouble(); } finally { _suppressSliderEvent = false; }
+                    }
+                }
+                catch { }
+            }
+        }));
+        btnRow.Children.Add(CreateActionButton("Get Tilt", "#4EC9B0", async () =>
+        {
+            var (_, r) = await DcApiRequest("GET", $"biamp/{selectedId}/tilt");
+            SetResponseText(responseArea, r);
+            if (r != null)
+            {
+                try
+                {
+                    var doc = JsonDocument.Parse(r);
+                    if (doc.RootElement.TryGetProperty("tilt", out var tEl))
+                    {
+                        _suppressSliderEvent = true;
+                        try { tiltSlider.Value = tEl.GetDouble(); } finally { _suppressSliderEvent = false; }
+                    }
+                }
+                catch { }
+            }
+        }));
         btnRow.Children.Add(CreateActionButton("Reboot", "#F48771", async () =>
         {
-            // Show confirmation dialog
             var dialog = new ContentDialog
             {
                 Title = "Confirm Reboot",
@@ -1128,7 +1411,7 @@ public sealed partial class MainWindow
         _dcControlsPanel.Children.Add(btnRow);
         _dcControlsPanel.Children.Add(responseArea);
 
-        // Fetch initial PTZ
+        // Fetch initial PTZ values (raw values from API)
         try
         {
             _suppressSliderEvent = true;
@@ -1139,7 +1422,7 @@ public sealed partial class MainWindow
                 {
                     var doc = JsonDocument.Parse(pBody);
                     if (doc.RootElement.TryGetProperty("pan", out var pEl))
-                        panSlider.Value = pEl.GetDouble() * 100;
+                        panSlider.Value = pEl.GetDouble();
                 }
 
                 var (tStatus, tBody) = await DcApiRequest("GET", $"biamp/{selectedId}/tilt");
@@ -1147,7 +1430,7 @@ public sealed partial class MainWindow
                 {
                     var doc = JsonDocument.Parse(tBody);
                     if (doc.RootElement.TryGetProperty("tilt", out var tEl))
-                        tiltSlider.Value = tEl.GetDouble() * 100;
+                        tiltSlider.Value = tEl.GetDouble();
                 }
 
                 var (zStatus, zBody) = await DcApiRequest("GET", $"biamp/{selectedId}/zoom");
@@ -1155,7 +1438,7 @@ public sealed partial class MainWindow
                 {
                     var doc = JsonDocument.Parse(zBody);
                     if (doc.RootElement.TryGetProperty("zoom", out var zEl))
-                        zoomSlider.Value = zEl.GetDouble() * 100;
+                        zoomSlider.Value = zEl.GetDouble();
                 }
             }
             finally { _suppressSliderEvent = false; }
@@ -1219,6 +1502,38 @@ public sealed partial class MainWindow
             }
         }));
         _dcControlsPanel.Children.Add(urlRow);
+
+        // Quick URL presets (matching api_tester.html)
+        var urlPresets = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(0, 4, 0, 0) };
+        urlPresets.Children.Add(CreateActionButton("Google", "#858585", async () =>
+        {
+            urlInput.Text = "https://www.google.com";
+            var (_, r) = await DcApiRequest("PUT", $"chromium/{selectedId}/url",
+                JsonSerializer.Serialize(new { url = "https://www.google.com" }));
+            SetResponseText(responseArea, r);
+        }));
+        urlPresets.Children.Add(CreateActionButton("GitHub", "#858585", async () =>
+        {
+            urlInput.Text = "https://www.github.com";
+            var (_, r) = await DcApiRequest("PUT", $"chromium/{selectedId}/url",
+                JsonSerializer.Serialize(new { url = "https://www.github.com" }));
+            SetResponseText(responseArea, r);
+        }));
+        urlPresets.Children.Add(CreateActionButton("YouTube", "#858585", async () =>
+        {
+            urlInput.Text = "https://www.youtube.com";
+            var (_, r) = await DcApiRequest("PUT", $"chromium/{selectedId}/url",
+                JsonSerializer.Serialize(new { url = "https://www.youtube.com" }));
+            SetResponseText(responseArea, r);
+        }));
+        urlPresets.Children.Add(CreateActionButton("Wikipedia", "#858585", async () =>
+        {
+            urlInput.Text = "https://www.wikipedia.org";
+            var (_, r) = await DcApiRequest("PUT", $"chromium/{selectedId}/url",
+                JsonSerializer.Serialize(new { url = "https://www.wikipedia.org" }));
+            SetResponseText(responseArea, r);
+        }));
+        _dcControlsPanel.Children.Add(urlPresets);
 
         var btnRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
         btnRow.Children.Add(CreateActionButton("Get Status", "#569CD6", async () =>
@@ -1485,7 +1800,7 @@ public sealed partial class MainWindow
         };
     }
 
-    private Slider AddSliderRow(StackPanel parent, string label, double min, double max, double step, double value, Func<double, Task> onChanged)
+    private Slider AddSliderRow(StackPanel parent, string label, double min, double max, double step, double value, Func<double, Task> onChanged, string valueFormat = "F0")
     {
         var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(90) });
@@ -1504,7 +1819,7 @@ public sealed partial class MainWindow
 
         var valueBlock = new TextBlock
         {
-            Text = value.ToString("F0"),
+            Text = value.ToString(valueFormat),
             Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 78, 201, 176)),
             FontFamily = new FontFamily("Cascadia Code, Consolas"),
             FontSize = 11,
@@ -1531,7 +1846,7 @@ public sealed partial class MainWindow
 
         slider.ValueChanged += (s, e) =>
         {
-            valueBlock.Text = e.NewValue.ToString("F0");
+            valueBlock.Text = e.NewValue.ToString(valueFormat);
 
             if (_suppressSliderEvent) return;
 

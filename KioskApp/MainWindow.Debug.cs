@@ -278,6 +278,7 @@ public sealed partial class MainWindow
 
                     // Initial data refresh
                     RefreshHealthDisplay();
+                    SyncModuleToggles();
                     InitializeLogFilters();
                     RefreshLogDisplay();
                     RefreshPerformanceDisplay();
@@ -319,6 +320,7 @@ public sealed partial class MainWindow
                                         ? ColorHelper.FromArgb(255, 78, 201, 176)
                                         : ColorHelper.FromArgb(255, 244, 135, 113));
                                 RefreshHealthDisplay();
+                                SyncModuleToggles();
                                 Logger.Log("Hardware API mode auto-enabled for debug mode");
                             });
                         });
@@ -544,6 +546,9 @@ public sealed partial class MainWindow
                     // Save preference for next startup
                     Helpers.UserPreferences.Instance.SetHardwareApiMode(true);
 
+                    // Sync module toggles to show they're all ON
+                    SyncModuleToggles();
+
                     ShowStatus("Hardware API Mode", "Listening on port 8081 - Full hardware control enabled");
                 }
             }
@@ -564,6 +569,9 @@ public sealed partial class MainWindow
 
                     // Save preference for next startup
                     Helpers.UserPreferences.Instance.SetHardwareApiMode(false);
+
+                    // Sync module toggles to show they're all OFF
+                    SyncModuleToggles();
 
                     ShowStatus("Navigate Mode", "Listening on port 8787 - Remote navigation enabled");
                 }

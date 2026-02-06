@@ -615,6 +615,63 @@ public sealed partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// Synchronizes module toggle states with actual module initialization states.
+    /// Called when entering debug mode to reflect the current state of hardware modules.
+    /// </summary>
+    private void SyncModuleToggles()
+    {
+        _suppressModuleToggleEvent = true;
+        try
+        {
+            if (!App.IsHardwareApiMode)
+            {
+                // Not in hardware mode - all modules are off
+                DisplayModuleToggle.IsOn = false;
+                CameraModuleToggle.IsOn = false;
+                LightingModuleToggle.IsOn = false;
+                SystemAudioModuleToggle.IsOn = false;
+                MicrophoneModuleToggle.IsOn = false;
+                SpeakerModuleToggle.IsOn = false;
+                BiampModuleToggle.IsOn = false;
+                Logger.Log("Module toggles synced: All OFF (Navigate mode)");
+                return;
+            }
+
+            // Get the hardware manager to check module states
+            var hardwareManager = App.Services?.GetService(typeof(OneRoomHealth.Hardware.Services.HardwareManager))
+                as OneRoomHealth.Hardware.Services.HardwareManager;
+
+            if (hardwareManager == null)
+            {
+                Logger.Log("Cannot sync module toggles: HardwareManager not available");
+                return;
+            }
+
+            // Check each module's initialization state
+            var modules = hardwareManager.GetAllModules().ToList();
+
+            DisplayModuleToggle.IsOn = modules.Any(m => m.ModuleName == "Display" && m.IsInitialized);
+            CameraModuleToggle.IsOn = modules.Any(m => m.ModuleName == "Camera" && m.IsInitialized);
+            LightingModuleToggle.IsOn = modules.Any(m => m.ModuleName == "Lighting" && m.IsInitialized);
+            SystemAudioModuleToggle.IsOn = modules.Any(m => m.ModuleName == "SystemAudio" && m.IsInitialized);
+            MicrophoneModuleToggle.IsOn = modules.Any(m => m.ModuleName == "Microphone" && m.IsInitialized);
+            SpeakerModuleToggle.IsOn = modules.Any(m => m.ModuleName == "Speaker" && m.IsInitialized);
+            BiampModuleToggle.IsOn = modules.Any(m => m.ModuleName == "Biamp" && m.IsInitialized);
+
+            var activeCount = modules.Count(m => m.IsInitialized);
+            Logger.Log($"Module toggles synced: {activeCount}/{modules.Count} modules active");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error syncing module toggles: {ex.Message}");
+        }
+        finally
+        {
+            _suppressModuleToggleEvent = false;
+        }
+    }
+
     #endregion
 
     #region Log Viewer
