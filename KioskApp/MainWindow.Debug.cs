@@ -21,7 +21,7 @@ public sealed partial class MainWindow
 {
     #region Debug Mode State
 
-    private enum DebugTab { Health, Logs, Performance }
+    private enum DebugTab { Health, Logs, Performance, DeviceControl }
     private DebugTab _activeTab = DebugTab.Health;
     private Timer? _debugModeRefreshTimer;
     private ModuleHealthViewModel? _selectedModule;
@@ -382,6 +382,9 @@ public sealed partial class MainWindow
                 _healthRefreshTimer?.Dispose();
                 _healthRefreshTimer = null;
 
+                // Cleanup device control
+                CleanupDeviceControl();
+
                 // Hide all debug UI components
                 DebugModeContainer.Visibility = Visibility.Collapsed;
                 TabbedBottomPanel.Visibility = Visibility.Collapsed;
@@ -614,6 +617,17 @@ public sealed partial class MainWindow
             _healthRefreshTimer = null;
             _healthPanelVisible = false;
         }
+        if (_activeTab == DebugTab.DeviceControl && tab != DebugTab.DeviceControl)
+        {
+            // Cancel pending HTTP requests and stop debounce timers
+            _dcCancellationTokenSource?.Cancel();
+            foreach (var timer in _dcActiveDebounceTimers)
+            {
+                timer.Stop();
+            }
+            _dcActiveDebounceTimers.Clear();
+            _deviceControlVisible = false;
+        }
 
         _activeTab = tab;
         UpdateTabStyles();
@@ -644,6 +658,12 @@ public sealed partial class MainWindow
                 PerformanceMonitor.Instance.SnapshotTaken += OnPerformanceSnapshot;
                 RefreshPerformanceDisplay();
                 break;
+
+            case DebugTab.DeviceControl:
+                _deviceControlVisible = true;
+                InitializeDeviceControlTab();
+                RefreshDeviceControlDisplay();
+                break;
         }
 
         // Hide module detail panel when switching tabs
@@ -659,6 +679,7 @@ public sealed partial class MainWindow
         HealthTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonStyle"];
         LogsTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonStyle"];
         PerfTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonStyle"];
+        DeviceControlTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonStyle"];
 
         // Set active tab style
         switch (_activeTab)
@@ -672,6 +693,9 @@ public sealed partial class MainWindow
             case DebugTab.Performance:
                 PerfTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonActiveStyle"];
                 break;
+            case DebugTab.DeviceControl:
+                DeviceControlTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonActiveStyle"];
+                break;
         }
     }
 
@@ -680,6 +704,7 @@ public sealed partial class MainWindow
         HealthTabContent.Visibility = _activeTab == DebugTab.Health ? Visibility.Visible : Visibility.Collapsed;
         LogsTabContent.Visibility = _activeTab == DebugTab.Logs ? Visibility.Visible : Visibility.Collapsed;
         PerfTabContent.Visibility = _activeTab == DebugTab.Performance ? Visibility.Visible : Visibility.Collapsed;
+        DeviceControlTabContent.Visibility = _activeTab == DebugTab.DeviceControl ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void RefreshPanelButton_Click(object sender, RoutedEventArgs e)
@@ -694,6 +719,9 @@ public sealed partial class MainWindow
                 break;
             case DebugTab.Performance:
                 RefreshPerformanceDisplay();
+                break;
+            case DebugTab.DeviceControl:
+                RefreshDeviceControlDisplay();
                 break;
         }
         Logger.Log($"Manual refresh triggered for {_activeTab} tab");

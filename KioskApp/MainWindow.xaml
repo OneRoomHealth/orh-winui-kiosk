@@ -317,6 +317,14 @@
                                 <TextBlock Text="Performance" FontSize="12" Foreground="#858585"/>
                             </StackPanel>
                         </Button>
+                        <Button x:Name="DeviceControlTabButton"
+                                Style="{StaticResource DebugTabButtonStyle}"
+                                Click="DeviceControlTabButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="&#x1F3AE;" FontSize="12" Foreground="#858585"/>
+                                <TextBlock Text="Device Control" FontSize="12" Foreground="#858585"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <!-- Panel Controls -->
@@ -691,6 +699,84 @@
                                        FontFamily="Cascadia Code, Consolas"/>
                             <TextBlock Grid.Column="1" x:Name="PerfUptimeText"
                                        Text="Uptime: 0s"
+                                       Foreground="#666666" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                        </Grid>
+                    </Grid>
+
+                    <!-- ===== DEVICE CONTROL TAB CONTENT ===== -->
+                    <Grid x:Name="DeviceControlTabContent" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Category Selector Bar -->
+                        <Border Grid.Row="0" Background="#2D2D2D" Padding="8,6" BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Category buttons populated programmatically -->
+                                <StackPanel x:Name="DcCategoryBar" Orientation="Horizontal" Spacing="4"/>
+
+                                <!-- Right side: connection indicator + history toggle -->
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock x:Name="DcConnectionIndicator" Text="&#x25CF;"
+                                                   Foreground="#858585" FontSize="10" VerticalAlignment="Center"/>
+                                        <TextBlock Text="API" Foreground="#858585" FontSize="10"
+                                                   FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <Button x:Name="DcHistoryToggleButton"
+                                            Style="{StaticResource DebugToolbarButtonStyle}"
+                                            Click="DcHistoryToggle_Click"
+                                            ToolTipService.ToolTip="Toggle request history">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="&#x1F4DC;" FontSize="11"/>
+                                            <TextBlock Text="History" FontSize="11" Foreground="#CCCCCC"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="DcClearHistoryButton"
+                                            Style="{StaticResource DebugToolbarButtonErrorStyle}"
+                                            Click="DcClearHistory_Click"
+                                            ToolTipService.ToolTip="Clear request history">
+                                        <TextBlock Text="Clear" FontSize="11" Foreground="#F48771"/>
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Controls Area -->
+                        <Grid Grid.Row="1" Background="#1E1E1E">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          Padding="12">
+                                <StackPanel x:Name="DcControlsPanel" Spacing="4"/>
+                            </ScrollViewer>
+
+                            <!-- History Panel (overlay, toggled) -->
+                            <Grid x:Name="DcHistoryPanel" Background="#1E1E1E" Visibility="Collapsed">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <StackPanel Spacing="0"/>
+                                </ScrollViewer>
+                            </Grid>
+                        </Grid>
+
+                        <!-- Device Control Footer -->
+                        <Grid Grid.Row="2" Background="#252526" Padding="12,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="API: http://localhost:8081/api/v1"
+                                       Foreground="#858585" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                            <TextBlock Grid.Column="1" x:Name="DcRequestCountText"
+                                       Text="0 requests"
                                        Foreground="#666666" FontSize="11"
                                        FontFamily="Cascadia Code, Consolas"/>
                         </Grid>

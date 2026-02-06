@@ -19,6 +19,7 @@ namespace KioskApp;
 /// - MainWindow.Debug.cs - Debug mode, exit handling, video/screensaver modes
 /// - MainWindow.MediaDevices.cs - Camera/microphone device management
 /// - MainWindow.Panels.cs - Navigation handlers, health panel, log viewer
+/// - MainWindow.DeviceControl.cs - Device Control tab (REST API hardware control)
 /// </summary>
 public sealed partial class MainWindow : Window
 {

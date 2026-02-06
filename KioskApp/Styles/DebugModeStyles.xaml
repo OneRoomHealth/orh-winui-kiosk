@@ -260,4 +260,39 @@
         <Setter Property="RequestedTheme" Value="Dark"/>
     </Style>
 
+    <!-- Device Control Slider Style -->
+    <Style x:Key="DebugSliderStyle" TargetType="Slider">
+        <Setter Property="Foreground" Value="#4EC9B0"/>
+        <Setter Property="Background" Value="#3C3C3C"/>
+        <Setter Property="MinHeight" Value="24"/>
+        <Setter Property="MinWidth" Value="150"/>
+        <Setter Property="RequestedTheme" Value="Dark"/>
+    </Style>
+
+    <!-- Device Control Chip Button Style (Inactive) -->
+    <Style x:Key="DebugDeviceChipStyle" TargetType="Button">
+        <Setter Property="Background" Value="#3C3C3C"/>
+        <Setter Property="Foreground" Value="#CCCCCC"/>
+        <Setter Property="BorderBrush" Value="#3C3C3C"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="Padding" Value="10,2"/>
+        <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="MinHeight" Value="24"/>
+    </Style>
+
+    <!-- Device Control Chip Button Style (Active) -->
+    <Style x:Key="DebugDeviceChipActiveStyle" TargetType="Button">
+        <Setter Property="Background" Value="#264F48"/>
+        <Setter Property="Foreground" Value="#4EC9B0"/>
+        <Setter Property="BorderBrush" Value="#4EC9B0"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="Padding" Value="10,2"/>
+        <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="MinHeight" Value="24"/>
+    </Style>
+
 </ResourceDictionary>
