@@ -167,18 +167,13 @@ public sealed partial class MainWindow
         catch (OperationCanceledException)
         {
             sw.Stop();
-            // Don't record cancelled requests - user switched away from tab
-            return (0, "Request cancelled");
-        }
-        catch (TaskCanceledException ex) when (ex.CancellationToken == cancellationToken)
-        {
-            sw.Stop();
-            // Don't record cancelled requests - user switched away from tab
-            return (0, "Request cancelled");
-        }
-        catch (TaskCanceledException)
-        {
-            sw.Stop();
+            // Check if this was our cancellation (user switched tabs) vs a timeout
+            if (_dcCancellationTokenSource?.Token.IsCancellationRequested == true)
+            {
+                // Don't record cancelled requests - user switched away from tab
+                return (0, "Request cancelled");
+            }
+            // Otherwise it's a timeout
             statusCode = 0;
             responseBody = "Request timed out";
         }
