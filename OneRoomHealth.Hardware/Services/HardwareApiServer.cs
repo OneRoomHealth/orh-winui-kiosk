@@ -83,6 +83,15 @@ public class HardwareApiServer
 
         // Add services
         builder.Services.AddSingleton(_hardwareManager);
+
+        // Register individual module instances from HardwareManager into DI
+        // so MapModuleEndpoints can find them and conditionally enable their routes
+        foreach (var module in _hardwareManager.GetAllModules())
+        {
+            builder.Services.AddSingleton(module.GetType(), module);
+            _logger.LogDebug("Registered {ModuleType} in DI container", module.GetType().Name);
+        }
+
         builder.Services.AddEndpointsApiExplorer();
         builder.Services.AddSwaggerGen(c =>
         {
