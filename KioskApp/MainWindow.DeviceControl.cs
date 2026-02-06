@@ -2063,12 +2063,14 @@ public sealed partial class MainWindow
             // 2. ApiResponse wrapper: {"success": true, "data": [...]}
             // 3. Direct property: {"devices": [...]}
             // 4. ApiResponse with nested property: {"success": true, "data": {"devices": [...]}}
-            JsonElement devicesArray;
+            JsonElement devicesArray = default;
+            bool foundDevices = false;
 
             if (root.ValueKind == JsonValueKind.Array)
             {
                 // Raw array response (e.g., chromium endpoint)
                 devicesArray = root;
+                foundDevices = true;
             }
             else if (root.ValueKind == JsonValueKind.Object)
             {
@@ -2079,6 +2081,7 @@ public sealed partial class MainWindow
                     {
                         // ApiResponse wrapping array: {"success": true, "data": [...]}
                         devicesArray = dataEl;
+                        foundDevices = true;
                     }
                     else if (dataEl.ValueKind == JsonValueKind.Object &&
                              dataEl.TryGetProperty(arrayProp, out var nestedArray) &&
@@ -2086,24 +2089,22 @@ public sealed partial class MainWindow
                     {
                         // ApiResponse with nested: {"success": true, "data": {"devices": [...]}}
                         devicesArray = nestedArray;
+                        foundDevices = true;
                     }
-                    else
-                    {
-                        return devices;
-                    }
+                    // If "data" exists but isn't usable, fall through to check root for arrayProp
                 }
-                else if (root.TryGetProperty(arrayProp, out var directArray) &&
-                         directArray.ValueKind == JsonValueKind.Array)
+
+                // If not found in "data", try direct property on root: {"devices": [...]}
+                if (!foundDevices &&
+                    root.TryGetProperty(arrayProp, out var directArray) &&
+                    directArray.ValueKind == JsonValueKind.Array)
                 {
-                    // Direct property: {"devices": [...]}
                     devicesArray = directArray;
-                }
-                else
-                {
-                    return devices;
+                    foundDevices = true;
                 }
             }
-            else
+
+            if (!foundDevices)
             {
                 return devices;
             }
