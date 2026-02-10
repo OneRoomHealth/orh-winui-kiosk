@@ -485,7 +485,11 @@ public sealed partial class MainWindow
             BuildCategoryControls("Cameras");
         }));
 
-        // PTZ D-Pad (matching api_tester.html directional buttons)
+        // PTZ sliders (normalized -1 to 1 for pan/tilt, 0 to 1 for zoom)
+        // Declared before D-pad so button closures can reference them
+        Slider? panSlider = null, tiltSlider = null, zoomSlider = null;
+
+        // PTZ D-Pad - adjusts sliders by ±10 units (±0.1 in normalized API range)
         var dpadGrid = new Grid { Margin = new Thickness(0, 8, 0, 8), HorizontalAlignment = HorizontalAlignment.Left };
         dpadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
         dpadGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
@@ -496,8 +500,12 @@ public sealed partial class MainWindow
 
         var upBtn = CreateActionButton("\u2191", "#569CD6", async () =>
         {
+            var newTilt = tiltSlider != null ? Math.Min(tiltSlider.Maximum, tiltSlider.Value + 10) : 10;
+            _suppressSliderEvent = true;
+            try { if (tiltSlider != null) tiltSlider.Value = newTilt; }
+            finally { _suppressSliderEvent = false; }
             var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
-                JsonSerializer.Serialize(new { pan = 0.0, tilt = 0.2 }));
+                JsonSerializer.Serialize(new { tilt = newTilt / 100.0 }));
             SetResponseText(responseArea, r);
         });
         upBtn.MinWidth = 36; upBtn.Padding = new Thickness(0); upBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -505,8 +513,12 @@ public sealed partial class MainWindow
 
         var leftBtn = CreateActionButton("\u2190", "#569CD6", async () =>
         {
+            var newPan = panSlider != null ? Math.Max(panSlider.Minimum, panSlider.Value - 10) : -10;
+            _suppressSliderEvent = true;
+            try { if (panSlider != null) panSlider.Value = newPan; }
+            finally { _suppressSliderEvent = false; }
             var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
-                JsonSerializer.Serialize(new { pan = -0.2, tilt = 0.0 }));
+                JsonSerializer.Serialize(new { pan = newPan / 100.0 }));
             SetResponseText(responseArea, r);
         });
         leftBtn.MinWidth = 36; leftBtn.Padding = new Thickness(0); leftBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -514,6 +526,14 @@ public sealed partial class MainWindow
 
         var homeBtn = CreateActionButton("\u2302", "#4EC9B0", async () =>
         {
+            _suppressSliderEvent = true;
+            try
+            {
+                if (panSlider != null) panSlider.Value = 0;
+                if (tiltSlider != null) tiltSlider.Value = 0;
+                if (zoomSlider != null) zoomSlider.Value = 0;
+            }
+            finally { _suppressSliderEvent = false; }
             var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
                 JsonSerializer.Serialize(new { pan = 0.0, tilt = 0.0, zoom = 0.0 }));
             SetResponseText(responseArea, r);
@@ -523,8 +543,12 @@ public sealed partial class MainWindow
 
         var rightBtn = CreateActionButton("\u2192", "#569CD6", async () =>
         {
+            var newPan = panSlider != null ? Math.Min(panSlider.Maximum, panSlider.Value + 10) : 10;
+            _suppressSliderEvent = true;
+            try { if (panSlider != null) panSlider.Value = newPan; }
+            finally { _suppressSliderEvent = false; }
             var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
-                JsonSerializer.Serialize(new { pan = 0.2, tilt = 0.0 }));
+                JsonSerializer.Serialize(new { pan = newPan / 100.0 }));
             SetResponseText(responseArea, r);
         });
         rightBtn.MinWidth = 36; rightBtn.Padding = new Thickness(0); rightBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -532,8 +556,12 @@ public sealed partial class MainWindow
 
         var downBtn = CreateActionButton("\u2193", "#569CD6", async () =>
         {
+            var newTilt = tiltSlider != null ? Math.Max(tiltSlider.Minimum, tiltSlider.Value - 10) : -10;
+            _suppressSliderEvent = true;
+            try { if (tiltSlider != null) tiltSlider.Value = newTilt; }
+            finally { _suppressSliderEvent = false; }
             var (_, r) = await DcApiRequest("PUT", $"cameras/{selectedId}/ptz",
-                JsonSerializer.Serialize(new { pan = 0.0, tilt = -0.2 }));
+                JsonSerializer.Serialize(new { tilt = newTilt / 100.0 }));
             SetResponseText(responseArea, r);
         });
         downBtn.MinWidth = 36; downBtn.Padding = new Thickness(0); downBtn.HorizontalAlignment = HorizontalAlignment.Stretch;
@@ -548,9 +576,6 @@ public sealed partial class MainWindow
 
         // Controls grid
         var controlsGrid = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 0) };
-
-        // PTZ sliders (normalized -1 to 1 for pan/tilt, 0 to 1 for zoom)
-        Slider? panSlider = null, tiltSlider = null, zoomSlider = null;
 
         panSlider = AddSliderRow(controlsGrid, "Pan", -100, 100, 1, 0, async (val) =>
         {
