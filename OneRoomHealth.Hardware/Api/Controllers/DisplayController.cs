@@ -115,6 +115,37 @@ public static class DisplayController
         .WithSummary("Set display brightness")
         .WithDescription("Set the brightness level (0-100) for a display device");
 
+        // GET /api/v1/displays/{id}/enable - Get display enabled state
+        group.MapGet("/{id}/enable", async (string id, DisplayModule displayModule) =>
+        {
+            logger.LogDebug("GET /api/v1/displays/{Id}/enable", id);
+
+            try
+            {
+                var status = await displayModule.GetDeviceStatusAsync(id);
+                if (status is not DisplayStatus displayStatus)
+                {
+                    return Results.Json(
+                        ApiErrorResponse.FromMessage("DISPLAY_NOT_FOUND", $"Display '{id}' not found"),
+                        statusCode: 404);
+                }
+
+                return Results.Ok(ApiResponse<object>.Ok(new { enabled = displayStatus.Enabled }));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting enabled state for display {Id}", id);
+                return Results.Json(
+                    ApiErrorResponse.FromException(ex),
+                    statusCode: 500);
+            }
+        })
+        .Produces<ApiResponse<object>>(200)
+        .Produces<ApiErrorResponse>(404)
+        .Produces<ApiErrorResponse>(500)
+        .WithSummary("Get display enabled state")
+        .WithDescription("Returns whether a display device is currently enabled");
+
         // PUT /api/v1/displays/{id}/enable - Enable/disable display
         group.MapPut("/{id}/enable", async (
             string id,

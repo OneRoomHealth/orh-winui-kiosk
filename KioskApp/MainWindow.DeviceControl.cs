@@ -698,10 +698,10 @@ public sealed partial class MainWindow
         _dcControlsPanel.Children.Add(btnRow);
         _dcControlsPanel.Children.Add(responseArea);
 
-        // Fetch initial brightness
+        // Fetch initial brightness from device status (no dedicated GET brightness endpoint)
         try
         {
-            var (bStatus, bBody) = await DcApiRequest("GET", $"displays/{selectedId}/brightness");
+            var (bStatus, bBody) = await DcApiRequest("GET", $"displays/{selectedId}");
             if (bStatus == 200 && bBody != null)
             {
                 var doc = JsonDocument.Parse(bBody);

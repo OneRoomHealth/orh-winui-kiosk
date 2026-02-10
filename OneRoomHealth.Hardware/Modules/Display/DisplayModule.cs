@@ -136,6 +136,9 @@ public class DisplayModule : HardwareModuleBase
             _stateLock.Release();
         }
 
+        if (string.IsNullOrEmpty(state.ScreenId))
+            throw new InvalidOperationException($"Display '{deviceId}' has no screen ID yet (device may still be initializing)");
+
         Logger.LogInformation(
             "{ModuleName}: Setting brightness for '{Name}' to {Brightness}%",
             ModuleName, state.Config.Name, brightness);
@@ -149,8 +152,8 @@ public class DisplayModule : HardwareModuleBase
         {
             try
             {
-                var url = $"http://{ip}:{state.Config.Port}/api/v1/screen/displayparams";
-                var payload = new { brightness = novastarBrightness };
+                var url = $"http://{ip}:{state.Config.Port}/api/v1/screen/brightness";
+                var payload = new { screenIdList = new[] { state.ScreenId }, brightness = novastarBrightness };
                 var content = new StringContent(
                     JsonSerializer.Serialize(payload),
                     System.Text.Encoding.UTF8,
@@ -203,17 +206,23 @@ public class DisplayModule : HardwareModuleBase
             _stateLock.Release();
         }
 
+        if (state.CanvasIds.Count == 0)
+            throw new InvalidOperationException($"Display '{deviceId}' has no canvas IDs yet (device may still be initializing)");
+
         Logger.LogInformation(
             "{ModuleName}: Setting display '{Name}' enabled={Enabled}",
             ModuleName, state.Config.Name, enabled);
+
+        // Novastar displayMode: 0 = normal, 1 = blackout
+        var displayMode = enabled ? 0 : 1;
 
         var success = false;
         foreach (var ip in state.Config.IpAddresses)
         {
             try
             {
-                var url = $"http://{ip}:{state.Config.Port}/api/v1/screen/output/display/state";
-                var payload = new { enabled };
+                var url = $"http://{ip}:{state.Config.Port}/api/v1/device/displaymode";
+                var payload = new { value = displayMode, canvasIDs = state.CanvasIds };
                 var content = new StringContent(
                     JsonSerializer.Serialize(payload),
                     System.Text.Encoding.UTF8,
@@ -306,15 +315,87 @@ public class DisplayModule : HardwareModuleBase
                 {
                     healthyIpCount++;
 
-                    // Try to read current brightness
+                    // Parse screen info (screenId, canvasIds) from /api/v1/screen response
                     try
                     {
                         var json = await response.Content.ReadAsStringAsync(cts.Token);
                         var doc = JsonDocument.Parse(json);
-                        if (doc.RootElement.TryGetProperty("brightness", out var brightnessElement))
+                        if (doc.RootElement.TryGetProperty("data", out var dataEl)
+                            && dataEl.TryGetProperty("screens", out var screensEl)
+                            && screensEl.GetArrayLength() > 0)
                         {
-                            var novastarBrightness = brightnessElement.GetDouble();
-                            state.Brightness = (int)(novastarBrightness * 100);
+                            var screen = screensEl[0];
+                            if (screen.TryGetProperty("screenID", out var screenIdEl))
+                            {
+                                state.ScreenId = screenIdEl.GetString();
+                            }
+
+                            if (screen.TryGetProperty("canvases", out var canvasesEl))
+                            {
+                                var canvasIds = new List<string>();
+                                foreach (var canvas in canvasesEl.EnumerateArray())
+                                {
+                                    if (canvas.TryGetProperty("canvasID", out var canvasIdEl))
+                                    {
+                                        var cid = canvasIdEl.GetString();
+                                        if (cid != null) canvasIds.Add(cid);
+                                    }
+                                }
+                                state.CanvasIds = canvasIds;
+                            }
+                        }
+                    }
+                    catch { /* Ignore parsing errors */ }
+
+                    // Read current brightness from displayparams endpoint
+                    try
+                    {
+                        var bUrl = $"http://{ip}:{state.Config.Port}/api/v1/screen/displayparams";
+                        var bResponse = await _httpClient.GetAsync(bUrl, cts.Token);
+                        if (bResponse.IsSuccessStatusCode)
+                        {
+                            var bJson = await bResponse.Content.ReadAsStringAsync(cts.Token);
+                            var bDoc = JsonDocument.Parse(bJson);
+                            if (bDoc.RootElement.TryGetProperty("data", out var bDataEl)
+                                && bDataEl.TryGetProperty("list", out var listEl)
+                                && listEl.GetArrayLength() > 0)
+                            {
+                                var first = listEl[0];
+                                if (first.TryGetProperty("brightness", out var brightnessEl))
+                                {
+                                    var val = brightnessEl.GetDouble();
+                                    // Novastar returns 0-1 range
+                                    state.Brightness = val <= 1.0 ? (int)(val * 100) : (int)val;
+                                }
+                            }
+                        }
+                    }
+                    catch { /* Ignore parsing errors */ }
+
+                    // Read display enabled state from display state endpoint
+                    try
+                    {
+                        var sUrl = $"http://{ip}:{state.Config.Port}/api/v1/screen/output/display/state";
+                        var sResponse = await _httpClient.GetAsync(sUrl, cts.Token);
+                        if (sResponse.IsSuccessStatusCode)
+                        {
+                            var sJson = await sResponse.Content.ReadAsStringAsync(cts.Token);
+                            var sDoc = JsonDocument.Parse(sJson);
+                            if (sDoc.RootElement.TryGetProperty("data", out var sDataEl)
+                                && sDataEl.TryGetProperty("displayState", out var dsEl))
+                            {
+                                // displayMode 0 = normal, 1 = blackout
+                                var isBlackedOut = false;
+                                foreach (var ds in dsEl.EnumerateArray())
+                                {
+                                    if (ds.TryGetProperty("displayMode", out var modeEl) && modeEl.GetInt32() == 1)
+                                    {
+                                        isBlackedOut = true;
+                                        break;
+                                    }
+                                }
+                                state.Enabled = !isBlackedOut;
+                            }
                         }
                     }
                     catch { /* Ignore parsing errors */ }

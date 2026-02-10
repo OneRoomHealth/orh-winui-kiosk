@@ -72,6 +72,37 @@ public static class LightingController
         .WithSummary("Get light status")
         .WithDescription("Returns detailed status for a specific lighting device");
 
+        // GET /api/v1/lighting/{id}/enable - Get light enabled state
+        group.MapGet("/{id}/enable", async (string id, LightingModule lightingModule) =>
+        {
+            logger.LogDebug("GET /api/v1/lighting/{Id}/enable", id);
+
+            try
+            {
+                var status = await lightingModule.GetDeviceStatusAsync(id);
+                if (status is not LightingStatus lightingStatus)
+                {
+                    return Results.Json(
+                        ApiErrorResponse.FromMessage("LIGHT_NOT_FOUND", $"Light '{id}' not found"),
+                        statusCode: 404);
+                }
+
+                return Results.Ok(ApiResponse<object>.Ok(new { enabled = lightingStatus.Enabled }));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting enabled state for light {Id}", id);
+                return Results.Json(
+                    ApiErrorResponse.FromException(ex),
+                    statusCode: 500);
+            }
+        })
+        .Produces<ApiResponse<object>>(200)
+        .Produces<ApiErrorResponse>(404)
+        .Produces<ApiErrorResponse>(500)
+        .WithSummary("Get light enabled state")
+        .WithDescription("Returns whether a lighting device is currently enabled");
+
         // PUT /api/v1/lighting/{id}/enable - Enable/disable light
         group.MapPut("/{id}/enable", async (
             string id,

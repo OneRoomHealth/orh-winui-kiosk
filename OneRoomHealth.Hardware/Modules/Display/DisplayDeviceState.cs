@@ -42,6 +42,18 @@ internal class DisplayDeviceState
     /// Per-IP health status for multi-IP displays.
     /// </summary>
     public Dictionary<string, bool> IpHealthStatus { get; set; } = new();
+
+    /// <summary>
+    /// Novastar screen ID obtained from GET /api/v1/screen.
+    /// Required for brightness control.
+    /// </summary>
+    public string? ScreenId { get; set; }
+
+    /// <summary>
+    /// Novastar canvas IDs obtained from GET /api/v1/screen.
+    /// Required for display enable/disable (displaymode) control.
+    /// </summary>
+    public List<string> CanvasIds { get; set; } = new();
 }
 
 /// <summary>

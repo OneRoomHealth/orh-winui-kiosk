@@ -221,7 +221,7 @@ public partial class App : Application
 		{
 			var logger = sp.GetRequiredService<ILogger<MicrophoneModule>>();
 			var httpClient = sp.GetRequiredService<HttpClient>();
-			var micConfig = config.Hardware.Microphones ?? new MicrophoneConfiguration { Enabled = true };
+			var micConfig = config.Hardware.Microphones ?? new MicrophoneConfiguration { Enabled = false };
 			return new MicrophoneModule(logger, micConfig, httpClient);
 		});
 		Logger.Log("MicrophoneModule registered");
@@ -230,7 +230,7 @@ public partial class App : Application
 		{
 			var logger = sp.GetRequiredService<ILogger<SpeakerModule>>();
 			var httpClient = sp.GetRequiredService<HttpClient>();
-			var speakerConfig = config.Hardware.Speakers ?? new SpeakerConfiguration { Enabled = true };
+			var speakerConfig = config.Hardware.Speakers ?? new SpeakerConfiguration { Enabled = false };
 			return new SpeakerModule(logger, speakerConfig, httpClient);
 		});
 		Logger.Log("SpeakerModule registered");
@@ -238,7 +238,7 @@ public partial class App : Application
 		services.AddSingleton(sp =>
 		{
 			var logger = sp.GetRequiredService<ILogger<BiampModule>>();
-			var biampConfig = config.Hardware.Biamp ?? new BiampConfiguration { Enabled = true };
+			var biampConfig = config.Hardware.Biamp ?? new BiampConfiguration { Enabled = false };
 			return new BiampModule(logger, biampConfig);
 		});
 		Logger.Log("BiampModule registered");
@@ -404,24 +404,36 @@ public partial class App : Application
 		}
 
 		var microphoneModule = _serviceProvider.GetService<MicrophoneModule>();
-		if (microphoneModule != null)
+		if (microphoneModule != null && microphoneModule.IsEnabled)
 		{
 			hardwareManager.RegisterModule(microphoneModule);
 			Logger.Log("MicrophoneModule registered with HardwareManager");
 		}
+		else
+		{
+			Logger.Log("MicrophoneModule skipped - not configured or disabled");
+		}
 
 		var speakerModule = _serviceProvider.GetService<SpeakerModule>();
-		if (speakerModule != null)
+		if (speakerModule != null && speakerModule.IsEnabled)
 		{
 			hardwareManager.RegisterModule(speakerModule);
 			Logger.Log("SpeakerModule registered with HardwareManager");
 		}
+		else
+		{
+			Logger.Log("SpeakerModule skipped - not configured or disabled");
+		}
 
 		var biampModule = _serviceProvider.GetService<BiampModule>();
-		if (biampModule != null)
+		if (biampModule != null && biampModule.IsEnabled)
 		{
 			hardwareManager.RegisterModule(biampModule);
 			Logger.Log("BiampModule registered with HardwareManager");
+		}
+		else
+		{
+			Logger.Log("BiampModule skipped - not configured or disabled");
 		}
 
 		// Initialize all registered modules

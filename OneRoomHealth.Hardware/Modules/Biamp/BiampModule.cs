@@ -401,7 +401,8 @@ public class BiampModule : HardwareModuleBase
         var result = await client.SendCommandAsync("Camera get autoframing");
         if (result != null)
         {
-            var enabled = result.ToLowerInvariant().Contains("true") || result == "1";
+            var trimmed = result.Trim().ToLowerInvariant();
+            var enabled = trimmed == "true" || trimmed == "1";
             await _stateLock.WaitAsync();
             try
             {

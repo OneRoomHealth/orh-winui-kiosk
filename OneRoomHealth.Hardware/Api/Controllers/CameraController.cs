@@ -72,6 +72,37 @@ public static class CameraController
         .WithSummary("Get camera status")
         .WithDescription("Returns detailed status for a specific camera device");
 
+        // GET /api/v1/cameras/{id}/enable - Get camera enabled state
+        group.MapGet("/{id}/enable", async (string id, CameraModule cameraModule) =>
+        {
+            logger.LogDebug("GET /api/v1/cameras/{Id}/enable", id);
+
+            try
+            {
+                var status = await cameraModule.GetDeviceStatusAsync(id);
+                if (status is not CameraStatus cameraStatus)
+                {
+                    return Results.Json(
+                        ApiErrorResponse.FromMessage("CAMERA_NOT_FOUND", $"Camera '{id}' not found"),
+                        statusCode: 404);
+                }
+
+                return Results.Ok(ApiResponse<object>.Ok(new { enabled = cameraStatus.Enabled }));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting enabled state for camera {Id}", id);
+                return Results.Json(
+                    ApiErrorResponse.FromException(ex),
+                    statusCode: 500);
+            }
+        })
+        .Produces<ApiResponse<object>>(200)
+        .Produces<ApiErrorResponse>(404)
+        .Produces<ApiErrorResponse>(500)
+        .WithSummary("Get camera enabled state")
+        .WithDescription("Returns whether a camera device is currently enabled");
+
         // PUT /api/v1/cameras/{id}/enable - Enable/disable camera
         group.MapPut("/{id}/enable", async (
             string id,

@@ -109,13 +109,13 @@ public static class BiampController
         .WithSummary("Get pan position")
         .WithDescription("Get current pan position for a Biamp device (-100 to +100)");
 
-        // PUT /api/v1/biamp/{id}/pan - Set pan position
-        group.MapPut("/{id}/pan", async (
+        // POST /api/v1/biamp/{id}/pan - Set pan position
+        group.MapPost("/{id}/pan", async (
             string id,
             [FromBody] BiampValueRequest request,
             BiampModule biampModule) =>
         {
-            logger.LogDebug("PUT /api/v1/biamp/{Id}/pan - {Value}", id, request.Value);
+            logger.LogDebug("POST /api/v1/biamp/{Id}/pan - {Value}", id, request.Value);
 
             try
             {
@@ -190,13 +190,13 @@ public static class BiampController
         .WithSummary("Get tilt position")
         .WithDescription("Get current tilt position for a Biamp device (-100 to +100)");
 
-        // PUT /api/v1/biamp/{id}/tilt - Set tilt position
-        group.MapPut("/{id}/tilt", async (
+        // POST /api/v1/biamp/{id}/tilt - Set tilt position
+        group.MapPost("/{id}/tilt", async (
             string id,
             [FromBody] BiampValueRequest request,
             BiampModule biampModule) =>
         {
-            logger.LogDebug("PUT /api/v1/biamp/{Id}/tilt - {Value}", id, request.Value);
+            logger.LogDebug("POST /api/v1/biamp/{Id}/tilt - {Value}", id, request.Value);
 
             try
             {
@@ -271,13 +271,13 @@ public static class BiampController
         .WithSummary("Get zoom level")
         .WithDescription("Get current zoom level for a Biamp device (1.0 to 5.0)");
 
-        // PUT /api/v1/biamp/{id}/zoom - Set zoom level
-        group.MapPut("/{id}/zoom", async (
+        // POST /api/v1/biamp/{id}/zoom - Set zoom level
+        group.MapPost("/{id}/zoom", async (
             string id,
             [FromBody] BiampValueRequest request,
             BiampModule biampModule) =>
         {
-            logger.LogDebug("PUT /api/v1/biamp/{Id}/zoom - {Value}", id, request.Value);
+            logger.LogDebug("POST /api/v1/biamp/{Id}/zoom - {Value}", id, request.Value);
 
             try
             {
@@ -352,13 +352,13 @@ public static class BiampController
         .WithSummary("Get autoframing state")
         .WithDescription("Get current autoframing state for a Biamp device");
 
-        // PUT /api/v1/biamp/{id}/autoframing - Set autoframing state
-        group.MapPut("/{id}/autoframing", async (
+        // POST /api/v1/biamp/{id}/autoframing - Set autoframing state
+        group.MapPost("/{id}/autoframing", async (
             string id,
             [FromBody] BiampAutoframingRequest request,
             BiampModule biampModule) =>
         {
-            logger.LogDebug("PUT /api/v1/biamp/{Id}/autoframing - {Enabled}", id, request.Enabled);
+            logger.LogDebug("POST /api/v1/biamp/{Id}/autoframing - {Enabled}", id, request.Enabled);
 
             try
             {

@@ -77,13 +77,14 @@ public static class SystemAudioController
         .WithDescription("Set the system speaker volume (0-100)");
 
         // POST /api/v1/system/volume-up - Increase volume
-        group.MapPost("/volume-up", async (SystemAudioModule audioModule) =>
+        group.MapPost("/volume-up", async ([FromBody] VolumeStepRequest? request, SystemAudioModule audioModule) =>
         {
             logger.LogDebug("POST /api/v1/system/volume-up");
 
             try
             {
-                await audioModule.SpeakerVolumeUpAsync();
+                var step = request?.Step ?? 5;
+                await audioModule.SpeakerVolumeUpAsync(step);
                 var (volume, _) = await audioModule.GetSpeakerVolumeAsync();
                 return Results.Ok(ApiResponse<object>.Ok(new { volume }));
             }
@@ -98,16 +99,17 @@ public static class SystemAudioController
         .Produces<ApiResponse<object>>(200)
         .Produces<ApiErrorResponse>(500)
         .WithSummary("Increase volume")
-        .WithDescription("Increase system speaker volume by 5%");
+        .WithDescription("Increase system speaker volume by step (default 5%)");
 
         // POST /api/v1/system/volume-down - Decrease volume
-        group.MapPost("/volume-down", async (SystemAudioModule audioModule) =>
+        group.MapPost("/volume-down", async ([FromBody] VolumeStepRequest? request, SystemAudioModule audioModule) =>
         {
             logger.LogDebug("POST /api/v1/system/volume-down");
 
             try
             {
-                await audioModule.SpeakerVolumeDownAsync();
+                var step = request?.Step ?? 5;
+                await audioModule.SpeakerVolumeDownAsync(step);
                 var (volume, _) = await audioModule.GetSpeakerVolumeAsync();
                 return Results.Ok(ApiResponse<object>.Ok(new { volume }));
             }
@@ -122,7 +124,7 @@ public static class SystemAudioController
         .Produces<ApiResponse<object>>(200)
         .Produces<ApiErrorResponse>(500)
         .WithSummary("Decrease volume")
-        .WithDescription("Decrease system speaker volume by 5%");
+        .WithDescription("Decrease system speaker volume by step (default 5%)");
 
         // GET /api/v1/system/mute - Get mute state
         group.MapGet("/mute", async (SystemAudioModule audioModule) =>
@@ -234,13 +236,14 @@ public static class SystemAudioController
         .WithDescription("Set the microphone volume (0-100)");
 
         // POST /api/v1/system/mic-volume-up - Increase mic volume
-        group.MapPost("/mic-volume-up", async (SystemAudioModule audioModule) =>
+        group.MapPost("/mic-volume-up", async ([FromBody] VolumeStepRequest? request, SystemAudioModule audioModule) =>
         {
             logger.LogDebug("POST /api/v1/system/mic-volume-up");
 
             try
             {
-                await audioModule.MicrophoneVolumeUpAsync();
+                var step = request?.Step ?? 5;
+                await audioModule.MicrophoneVolumeUpAsync(step);
                 var (volume, _) = await audioModule.GetMicrophoneVolumeAsync();
                 return Results.Ok(ApiResponse<object>.Ok(new { volume }));
             }
@@ -255,16 +258,17 @@ public static class SystemAudioController
         .Produces<ApiResponse<object>>(200)
         .Produces<ApiErrorResponse>(500)
         .WithSummary("Increase microphone volume")
-        .WithDescription("Increase microphone volume by 5%");
+        .WithDescription("Increase microphone volume by step (default 5%)");
 
         // POST /api/v1/system/mic-volume-down - Decrease mic volume
-        group.MapPost("/mic-volume-down", async (SystemAudioModule audioModule) =>
+        group.MapPost("/mic-volume-down", async ([FromBody] VolumeStepRequest? request, SystemAudioModule audioModule) =>
         {
             logger.LogDebug("POST /api/v1/system/mic-volume-down");
 
             try
             {
-                await audioModule.MicrophoneVolumeDownAsync();
+                var step = request?.Step ?? 5;
+                await audioModule.MicrophoneVolumeDownAsync(step);
                 var (volume, _) = await audioModule.GetMicrophoneVolumeAsync();
                 return Results.Ok(ApiResponse<object>.Ok(new { volume }));
             }
@@ -279,7 +283,7 @@ public static class SystemAudioController
         .Produces<ApiResponse<object>>(200)
         .Produces<ApiErrorResponse>(500)
         .WithSummary("Decrease microphone volume")
-        .WithDescription("Decrease microphone volume by 5%");
+        .WithDescription("Decrease microphone volume by step (default 5%)");
 
         // GET /api/v1/system/mic-mute - Get microphone mute state
         group.MapGet("/mic-mute", async (SystemAudioModule audioModule) =>
@@ -340,6 +344,14 @@ public static class SystemAudioController
 public record VolumeRequest
 {
     public int Volume { get; init; }
+}
+
+/// <summary>
+/// Request model for volume step control.
+/// </summary>
+public record VolumeStepRequest
+{
+    public int Step { get; init; } = 5;
 }
 
 /// <summary>
