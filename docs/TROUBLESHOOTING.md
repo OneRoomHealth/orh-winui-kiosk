@@ -113,32 +113,35 @@ Add-AppxPackage -Path ".\OneRoomHealthKioskApp_x.x.x.x_x64.msix"
 2. Run installer: `MicrosoftEdgeWebview2Setup.exe`
 3. Restart app
 
-### Error: "Access is denied" (Port 8081)
+### Error: "Access is denied" (Port 8787 or 8081)
 
-**Cause:** HTTP server can't bind to port 8081
+**Cause:** HTTP server can't bind to its port
 
 **Solution:**
+- The app uses port **8787** (Navigate mode, default) or **8081** (Hardware API mode)
 - App will still work, just without HTTP API
 - To fix, run app as Administrator (not recommended for kiosk)
 - Or configure URL ACL:
   ```powershell
+  netsh http add urlacl url=http://127.0.0.1:8787/ user=Everyone
   netsh http add urlacl url=http://127.0.0.1:8081/ user=Everyone
   ```
 
-### Error: "Port 8081 already in use"
+### Error: "Port 8787 or 8081 already in use"
 
-**Cause:** Another application is using port 8081
+**Cause:** Another application is using the port
 
 **Solution:**
 ```powershell
 # Find what's using the port
+netstat -ano | findstr :8787
 netstat -ano | findstr :8081
 
 # Kill the process (replace PID with actual process ID)
 taskkill /PID <PID> /F
 ```
 
-**Note:** App will continue to work without HTTP server, just can't change URLs remotely.
+**Note:** The app uses two ports — **8787** for Navigate mode (lightweight remote URL control) and **8081** for Hardware API mode (full hardware control). Only one is active at a time, controlled via the debug mode toggle. The app will continue to work without the HTTP server; you just can't control it remotely.
 
 ### App Launches But Window is Blank/Black
 
@@ -211,14 +214,21 @@ if ($cert) {
     Write-Host "✗ Certificate NOT installed" -ForegroundColor Red
 }
 
-# 5. Check port 8081
-Write-Host "`n[5] Checking port 8081..." -ForegroundColor Yellow
-$port = netstat -ano | Select-String ":8081"
-if ($port) {
-    Write-Host "○ Port 8081 in use:" -ForegroundColor Yellow
-    Write-Host "  $port"
+# 5. Check ports 8787 (Navigate) and 8081 (Hardware API)
+Write-Host "`n[5] Checking ports 8787 and 8081..." -ForegroundColor Yellow
+$port8787 = netstat -ano | Select-String ":8787"
+$port8081 = netstat -ano | Select-String ":8081"
+if ($port8787) {
+    Write-Host "○ Port 8787 (Navigate) in use:" -ForegroundColor Green
+    Write-Host "  $port8787"
 } else {
-    Write-Host "✓ Port 8081 available" -ForegroundColor Green
+    Write-Host "✓ Port 8787 (Navigate) available" -ForegroundColor Gray
+}
+if ($port8081) {
+    Write-Host "○ Port 8081 (Hardware API) in use:" -ForegroundColor Green
+    Write-Host "  $port8081"
+} else {
+    Write-Host "✓ Port 8081 (Hardware API) available" -ForegroundColor Gray
 }
 
 # 6. Check recent errors in Event Log
@@ -283,7 +293,7 @@ if (Test-Path $exePath) {
 
 ## 📊 Debug Output
 
-The latest version (v1.0.10+) includes extensive debug logging:
+The app includes extensive debug logging:
 
 **To view debug output:**
 
@@ -299,7 +309,8 @@ The latest version (v1.0.10+) includes extensive debug logging:
    - You'll see messages like:
      - `=== OneRoom Health Kiosk App Starting ===`
      - `MainWindow created and activated`
-     - `Hardware API Server started on http://127.0.0.1:8081`
+     - `LocalCommandServer started on http://127.0.0.1:8787` (Navigate mode)
+     - `Hardware API mode restored from persisted preference` (if Hardware API was previously selected)
      - Any errors or exceptions
 
 ---
@@ -365,10 +376,13 @@ When the app is working correctly, you should see:
    - No window borders
    - WebView2 displaying your URL
 
-3. **HTTP server listening:**
+3. **HTTP server listening** (port depends on API mode — 8787 for Navigate, 8081 for Hardware API):
    ```powershell
+   Test-NetConnection -ComputerName 127.0.0.1 -Port 8787
+   # TcpTestSucceeded : True (Navigate mode)
+
    Test-NetConnection -ComputerName 127.0.0.1 -Port 8081
-   # TcpTestSucceeded : True
+   # TcpTestSucceeded : True (Hardware API mode)
    ```
 
 4. **No errors in Event Viewer:**

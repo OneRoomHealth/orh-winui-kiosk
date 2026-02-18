@@ -89,13 +89,17 @@ HardwareManager → IHardwareModule → Controllers → Kestrel
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Debug Hotkey (Ctrl+Shift+F12) | ✅ Complete | Toggles debug mode |
+| Debug Hotkey (Ctrl+Shift+I) | ✅ Complete | Toggles debug mode |
 | Windowed Mode | ✅ Complete | Adjustable size |
 | Developer Tools | ✅ Complete | DevTools button opens F12 |
 | Exit Hotkey (Ctrl+Shift+Q) | ✅ Complete | Password protected |
-| Hardware Health Panel | ✅ Complete | Real-time module status |
+| Hardware Health Panel | ✅ Complete | Real-time module status with click-to-expand detail |
+| Device Control Panel | ✅ Complete | Interactive REST API control with auto-refresh |
 | Log Viewer | ✅ Complete | Unified logging with filters |
 | Performance Panel | ✅ Complete | GC, memory, CPU metrics |
+| API Mode Toggle | ✅ Complete | Hardware (8081) / Navigate (8787) with persisted preference |
+| Camera/Mic/Speaker Selection | ✅ Complete | Persisted across sessions, applied via getUserMedia override |
+| Export Diagnostics | ✅ Complete | ZIP bundle with logs, config, health snapshot |
 | Configuration File | ✅ Complete | `%ProgramData%\OneRoomHealth\Kiosk\config.json` |
 
 ---
@@ -134,4 +138,4 @@ All resource disposal issues have been addressed:
 ---
 
 **Document Status:** Integration Complete
-**Last Updated:** January 13, 2026
+**Last Updated:** February 2026

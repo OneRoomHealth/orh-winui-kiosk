@@ -1,7 +1,7 @@
 # Debug Mode Documentation
 
 **Status:** ✅ Fully Implemented
-**Last Updated:** January 16, 2026
+**Last Updated:** February 18, 2026
 
 ---
 
@@ -14,17 +14,17 @@ Debug mode provides developer and administrator access to diagnostic tools, hard
 ## Activation
 
 ### Enter Debug Mode
-**Hotkey:** `Ctrl + Shift + F12`
+**Hotkey:** `Ctrl + Shift + I`
 
 When activated:
 - Window transitions from fullscreen to windowed (configurable size)
 - Window becomes resizable and movable
 - Debug toolbar appears with navigation controls
-- Tabbed panel appears with Hardware, Logs, and Performance tabs
+- Tabbed panel appears with Hardware Health, Logs, Performance, and Device Control tabs
 - DevTools button becomes available
 
 ### Exit Debug Mode
-**Hotkey:** `Ctrl + Shift + F12` (same hotkey toggles)
+**Hotkey:** `Ctrl + Shift + I` (same hotkey toggles)
 
 Returns to fullscreen kiosk mode with all debug features hidden.
 
@@ -53,12 +53,20 @@ Real-time status of all hardware modules:
 - **System Audio** - Windows audio device status
 - **Microphone** - Capture device status
 - **Speaker** - Playback device status
+- **Biamp Module** - Video conferencing codec status
 
 Each module shows:
 - Health status (Healthy, Unhealthy, Offline)
 - Last seen timestamp
 - Device count
 - Error messages (if any)
+
+### Device Control Panel
+Interactive REST API control for all hardware modules on `localhost:8081/api/v1`:
+- **Category Navigation:** System, Cameras, Displays, Lighting, Sys Audio, Mics, Speakers, Biamp, Browser
+- **Connection Indicator:** Real-time status of Hardware API server
+- **Auto-refresh:** Device list and connection status refresh every 10 seconds
+- **Request History:** Tracks recent API requests with status codes and response times
 
 ### Log Viewer
 Unified logging with filtering:
@@ -85,7 +93,7 @@ Debug mode settings in `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 {
   "debug": {
     "enabled": true,
-    "hotkey": "Ctrl+Shift+F12",
+    "hotkey": "Ctrl+Shift+I",
     "autoOpenDevTools": false,
     "windowSizePercent": 80
   },
@@ -120,9 +128,12 @@ Debug mode settings in `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 - **Go Button** - Navigate to entered URL
 
 ### Device Selection
-- **Camera Selector** - Choose WebRTC camera
-- **Microphone Selector** - Choose WebRTC microphone
+- **Camera Selector** - Choose WebRTC camera (persisted across sessions)
+- **Microphone Selector** - Choose WebRTC microphone (persisted across sessions)
+- **Speaker Selector** - Choose audio output device (persisted across sessions)
 - **Refresh Buttons** - Re-enumerate devices
+
+Device selections are saved to LocalSettings and applied automatically on page navigations via a `getUserMedia` override injected into the WebView. The override script is reinstalled whenever a device preference changes, ensuring cross-origin navigations (e.g., ACS appointment URLs) use the correct devices immediately.
 
 ### Quick Actions
 - **DevTools** - Open WebView2 developer tools (F12)
@@ -134,14 +145,14 @@ Debug mode settings in `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 
 The debug mode title bar includes an API mode toggle switch that controls which HTTP server is active.
 
-### Navigate Mode (Default) - Port 8787
+### Navigate Mode - Port 8787
 - **LocalCommandServer** listens on `http://127.0.0.1:8787`
 - Provides `/navigate` endpoint for external URL control
 - Provides `/health` endpoint for status check
 - Lightweight, minimal resource usage - no hardware modules initialized
 - Use for remote kiosk navigation control
 
-### Hardware API Mode - Port 8081
+### Hardware API Mode (Default) - Port 8081
 - **HardwareApiServer** listens on configured port (default 8081)
 - Full hardware control API with all module endpoints
 - Initializes all hardware modules (Display, Camera, Lighting, Audio, etc.)
@@ -151,13 +162,17 @@ The debug mode title bar includes an API mode toggle switch that controls which 
 - Use when full hardware integration is needed
 
 ### Switching Modes
-1. Enter debug mode (`Ctrl + Shift + F12`)
+1. Enter debug mode (`Ctrl + Shift + I`)
 2. Locate the "Mode:" toggle in the title bar
 3. Toggle OFF = Navigate Mode (8787) - lightweight, no hardware
 4. Toggle ON = Hardware API Mode (8081) - full hardware integration
 5. Status indicator shows green when server is running
 
-**Note:** Only one server runs at a time. Switching to Hardware API mode initializes all hardware modules. Switching back to Navigate mode shuts down hardware modules to conserve resources.
+**Mode preference persists across debug mode sessions.** Switching to Navigate mode and exiting debug mode will restore Navigate mode the next time debug mode is entered (and vice versa). The preference is stored in `preferences.json` alongside the app data directory.
+
+**Switching to Navigate mode** clears the health cards, closes the detail panel, and updates the status bar. Switching back to Hardware API mode repopulates health data and restarts the health refresh timer.
+
+**Note:** Only one mode's server is active at a time (the Navigate server is stopped when Hardware API mode is enabled, and vice versa). Switching modes shuts down or starts hardware modules accordingly.
 
 ---
 
@@ -173,16 +188,20 @@ The debug mode title bar includes an API mode toggle switch that controls which 
 ## Files
 
 ### Code Files
-- `MainWindow.Debug.cs` - Debug mode toggle, exit handling
-- `MainWindow.Panels.cs` - Health panel, log viewer, performance panel
+- `MainWindow.Debug.cs` - Debug mode toggle, tab switching, API mode toggle, exit handling
+- `MainWindow.Panels.cs` - Health panel, log viewer, performance panel, module toggles
+- `MainWindow.DeviceControl.cs` - Device Control tab with interactive REST API controls
+- `MainWindow.MediaDevices.cs` - Camera/mic/speaker enumeration, selection persistence, getUserMedia override
+- `MainWindow.WebView.cs` - WebView2 setup, media preference sync timer, DOM injection
 - `Helpers/UnifiedLogger.cs` - Serilog bridge for log viewer
 - `Helpers/PerformanceMonitor.cs` - GC and performance metrics
+- `Helpers/UserPreferences.cs` - Persisted user preferences (API mode, etc.)
 
 ### UI Elements (MainWindow.xaml)
-- DebugPanel - Main debug toolbar
-- HardwareHealthPanel - Module status cards
-- LogViewerPanel - Log display with filters
-- PerformancePanel - GC and system metrics
+- `DebugModeContainer` - Title bar and main debug toolbar
+- `TabbedBottomPanel` - Tabbed panel with Health, Logs, Performance, and Device Control tabs
+- `ModuleDetailPanel` - Drill-down panel for individual module details
+- `DebugStatusBar` - Status bar with module count, health issues, and last refresh time
 
 ---
 

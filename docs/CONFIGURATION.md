@@ -2,7 +2,7 @@
 
 Complete reference for all configuration options in the OneRoom Health Kiosk App.
 
-**Last Updated:** January 2026
+**Last Updated:** February 2026
 
 ---
 
@@ -33,7 +33,8 @@ The app automatically creates a default configuration file if it doesn't exist.
   },
   "debug": {
     "enabled": true,
-    "hotkey": "Ctrl+Shift+I"
+    "hotkey": "Ctrl+Shift+I",
+    "autoOpenDevTools": false
   },
   "exit": {
     "enabled": true,
@@ -151,25 +152,25 @@ Located at `kiosk.videoMode`:
 
 ## HTTP API Modes
 
-The kiosk supports two API modes, **controlled via a toggle in debug mode** (not config):
+The kiosk supports two API modes, **controlled via a toggle in debug mode** (not config). The selected mode **persists across debug mode sessions** via `preferences.json`.
 
 | Mode | Port | Description |
 |------|------|-------------|
-| **Navigate (Default)** | 8787 | Lightweight server for remote URL navigation |
-| **Hardware API** | 8081 | Full hardware control with all module endpoints |
+| **Hardware API (Default)** | 8081 | Full hardware control with all module endpoints |
+| **Navigate** | 8787 | Lightweight server for remote URL navigation |
 
-### Navigate Mode (Port 8787) - Default
-Starts automatically. Provides:
+### Hardware API Mode (Port 8081) - Default
+Default on first launch (or when `preferences.json` is absent). Provides:
+- Full hardware control API
+- All module endpoints (display, camera, lighting, audio, biamp, etc.)
+- Swagger UI at `http://localhost:8081/swagger`
+
+### Navigate Mode (Port 8787)
+Switch via debug mode toggle. Provides:
 - `POST /navigate` - Navigate WebView: `{"url": "https://..."}`
 - `GET /health` - Server status check
 
-### Hardware API Mode (Port 8081)
-Enable via debug mode toggle. Provides:
-- Full hardware control API
-- All module endpoints (display, camera, lighting, audio, etc.)
-- Swagger UI at `http://localhost:8081/swagger`
-
-**Note:** Ports are fixed. API mode is toggled in debug UI, not via config.
+**Note:** Ports are fixed. API mode is toggled in the debug UI, not via config. The preference persists — switching to Navigate mode and exiting debug mode will restore Navigate mode on next entry.
 
 ---
 

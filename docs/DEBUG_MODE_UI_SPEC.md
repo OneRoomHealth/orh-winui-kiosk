@@ -67,7 +67,7 @@ The new layout has 5 vertical sections:
 │                                                             │
 ├─────────────────────────────────────────────────────────────┤
 │ 5. TABBED BOTTOM PANEL (280-350px)                          │
-│    [Hardware Health][Logs][Performance]          [▼][□]     │
+│    [Hardware Health][Logs][Performance][Device Control] [▼] │
 │    ─────────────────────────────────────────────────────────│
 │    (Panel content based on active tab)                      │
 ├─────────────────────────────────────────────────────────────┤
@@ -480,54 +480,47 @@ Replace the horizontal StackPanel with a responsive Grid or ItemsRepeater.
 
 ---
 
-## Implementation Checklist
+## Implementation Status
+
+All items below have been implemented.
 
 ### XAML Changes (MainWindow.xaml)
 
-- [ ] Add Title Bar grid at top
-- [ ] Restructure DebugPanel into Main Toolbar + Secondary Toolbar
-- [ ] Remove individual panel toggle buttons (📋 Logs, 💚 Hardware, 📊 Perf/GC)
-- [ ] Create TabbedBottomPanel with tab bar
-- [ ] Move HardwareHealthPanel, LogViewerPanel, PerformancePanel into TabbedBottomPanel
-- [ ] Add ModuleDetailPanel for drill-down view
-- [ ] Add Status Bar at bottom
-- [ ] Apply new color scheme throughout
-- [ ] Update all font families to Cascadia Code/Consolas
-- [ ] Add Export Diagnostics button
-- [ ] Add Reset WebView button
+- [x] Add Title Bar grid at top
+- [x] Restructure DebugPanel into Main Toolbar + Secondary Toolbar
+- [x] Remove individual panel toggle buttons — replaced with tabbed interface
+- [x] Create TabbedBottomPanel with tab bar (Health, Logs, Performance, Device Control)
+- [x] Move panels into TabbedBottomPanel
+- [x] Add ModuleDetailPanel for drill-down view
+- [x] Add Status Bar at bottom
+- [x] Apply new color scheme throughout
+- [x] Update all font families to Cascadia Code/Consolas
+- [x] Add Export Diagnostics button
+- [x] Add Reset WebView button
+- [x] Add Speaker selector alongside Camera and Microphone selectors
 
-### Code-Behind Changes (MainWindow.Debug.cs)
+### Code-Behind Changes
 
-- [ ] Add tab switching logic (single active tab)
-- [ ] Add module selection state for drill-down
-- [ ] Implement Export Diagnostics functionality (bundle logs + config + health snapshot)
-- [ ] Implement Reset WebView functionality
-- [ ] Update panel visibility to show/hide based on active tab
-- [ ] Add uptime tracking for title bar and status bar
-- [ ] Add connected module count for status bar
-- [ ] Wire up Reconnect button per module
-- [ ] Surface Properties dictionary in detail panel
-- [ ] Surface RecentEvents collection in detail panel
-
-### New Features to Implement
-
-- [ ] One-click diagnostic export (ZIP with logs, config, health snapshot)
-- [ ] Per-module Reconnect action
-- [ ] Module detail drill-down with Properties and RecentEvents
-- [ ] Always-visible status bar with module connection count
-- [ ] Response time highlighting (yellow if >100ms)
+- [x] Tab switching logic with timer management (MainWindow.Debug.cs)
+- [x] Module selection state for drill-down (MainWindow.Debug.cs)
+- [x] Export Diagnostics — ZIP bundle with logs, config, health snapshot (MainWindow.Debug.cs)
+- [x] Reset WebView functionality (MainWindow.Debug.cs)
+- [x] Panel visibility based on active tab (MainWindow.Debug.cs)
+- [x] Uptime tracking for title bar and status bar (MainWindow.Debug.cs)
+- [x] Connected module count for status bar (MainWindow.Debug.cs)
+- [x] Reconnect button per module (MainWindow.Debug.cs)
+- [x] Properties and RecentEvents in detail panel (MainWindow.Debug.cs)
+- [x] Device Control tab with REST API controls (MainWindow.DeviceControl.cs)
+- [x] API mode toggle with persisted preference (MainWindow.Debug.cs + UserPreferences.cs)
+- [x] Camera/mic/speaker selection with persistence (MainWindow.MediaDevices.cs)
 
 ### Resource Dictionary (Styles)
 
-Create a `DebugModeStyles.xaml` resource dictionary with:
+Implemented in `DebugModeStyles.xaml`:
 - ToolbarButtonStyle
-- TabButtonStyle
-- TabButtonActiveStyle
+- DebugTabButtonStyle / DebugTabButtonActiveStyle
 - HealthCardStyle
-- LogEntryStyle
-- PerformanceCardStyle
-- ComboBox styles (dark theme)
-- TextBox styles (dark theme)
+- ComboBox and TextBox dark theme styles
 
 ---
 
