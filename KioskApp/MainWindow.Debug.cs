@@ -287,10 +287,11 @@ public sealed partial class MainWindow
                     _isDebugMode = true;
                     Logger.Log("Debug mode enabled with new tabbed UI");
 
-                    // Auto-enable Hardware API mode when entering debug mode (default behavior)
-                    if (!App.IsHardwareApiMode && App.Instance != null)
+                    // Restore persisted API mode preference when entering debug mode
+                    var preferHardwareMode = Helpers.UserPreferences.Instance.UseHardwareApiMode;
+                    if (preferHardwareMode && !App.IsHardwareApiMode && App.Instance != null)
                     {
-                        Logger.Log("Auto-enabling Hardware API mode for debug mode...");
+                        Logger.Log("Restoring persisted preference: enabling Hardware API mode...");
                         _ = App.Instance.EnableHardwareApiModeAsync(this).ContinueWith(t =>
                         {
                             DispatcherQueue.TryEnqueue(() =>
@@ -321,9 +322,19 @@ public sealed partial class MainWindow
                                         : ColorHelper.FromArgb(255, 244, 135, 113));
                                 RefreshHealthDisplay();
                                 SyncModuleToggles();
-                                Logger.Log("Hardware API mode auto-enabled for debug mode");
+                                Logger.Log("Hardware API mode restored from persisted preference");
                             });
                         });
+                    }
+                    else if (!preferHardwareMode)
+                    {
+                        // User previously chose Navigate mode — show Navigate mode UI
+                        Logger.Log("Restoring persisted preference: Navigate mode");
+                        TitleBarApiEndpoint.Text = "localhost:8787";
+                        TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
+                            LocalCommandServer.IsRunning
+                                ? ColorHelper.FromArgb(255, 78, 201, 176)
+                                : ColorHelper.FromArgb(255, 244, 135, 113));
                     }
 
                     ShowStatus("DEBUG MODE", "Developer tools enabled. Press Ctrl+Shift+I to exit.");
@@ -489,6 +500,14 @@ public sealed partial class MainWindow
                     HealthIssueBadge.Visibility = Visibility.Collapsed;
                 }
             }
+            else
+            {
+                // No health service — show Navigate mode info or unavailable
+                StatusBarModuleCount.Text = App.IsHardwareApiMode
+                    ? "\U0001F50C Health service unavailable"
+                    : $"\U0001F310 Navigate mode ({activePort})";
+                HealthIssueBadge.Visibility = Visibility.Collapsed;
+            }
 
             // Update last refresh time
             StatusBarLastRefresh.Text = $"Last refresh: {DateTime.Now:HH:mm:ss}";
@@ -549,6 +568,18 @@ public sealed partial class MainWindow
                     // Sync module toggles to show they're all ON
                     SyncModuleToggles();
 
+                    // Restart health refresh timer if Health tab is active
+                    // (ClearHealthDisplay disposed it when switching to Navigate mode)
+                    if (_activeTab == DebugTab.Health && _healthRefreshTimer == null)
+                    {
+                        RefreshHealthDisplay();
+                        _healthRefreshTimer = new Timer(
+                            _ => DispatcherQueue.TryEnqueue(() => RefreshHealthDisplay()),
+                            null,
+                            TimeSpan.FromSeconds(2),
+                            TimeSpan.FromSeconds(2));
+                    }
+
                     ShowStatus("Hardware API Mode", "Listening on port 8081 - Full hardware control enabled");
                 }
             }
@@ -572,6 +603,9 @@ public sealed partial class MainWindow
 
                     // Sync module toggles to show they're all OFF
                     SyncModuleToggles();
+
+                    // Clear stale health cards, detail panel, and status bar info
+                    ClearHealthDisplay();
 
                     ShowStatus("Navigate Mode", "Listening on port 8787 - Remote navigation enabled");
                 }
@@ -634,6 +668,11 @@ public sealed partial class MainWindow
                 timer.Stop();
             }
             _dcActiveDebounceTimers.Clear();
+
+            // Stop auto-refresh timer when leaving Device Control tab
+            _dcAutoRefreshTimer?.Dispose();
+            _dcAutoRefreshTimer = null;
+
             _deviceControlVisible = false;
         }
 

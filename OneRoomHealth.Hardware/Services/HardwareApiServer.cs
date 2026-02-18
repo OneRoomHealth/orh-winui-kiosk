@@ -213,6 +213,46 @@ public class HardwareApiServer
         .WithSummary("Get system status")
         .WithDescription("Returns overall system status including module health and uptime");
 
+        // GET /api/v1/health - Health check (alias for status)
+        group.MapGet("/health", async (HardwareManager hardwareManager) =>
+        {
+            _logger.LogDebug("GET /api/v1/health");
+
+            var modules = new Dictionary<string, ModuleStatus>();
+
+            foreach (var module in hardwareManager.GetAllModules())
+            {
+                var devices = await module.GetDevicesAsync();
+                var healthCounts = devices.GroupBy(d => d.Health)
+                    .ToDictionary(g => g.Key, g => g.Count());
+
+                modules[module.ModuleName] = new ModuleStatus
+                {
+                    Name = module.ModuleName,
+                    Enabled = module.IsEnabled,
+                    Initialized = module.IsInitialized,
+                    DeviceCount = devices.Count,
+                    HealthyDevices = healthCounts.GetValueOrDefault(DeviceHealth.Healthy, 0),
+                    UnhealthyDevices = healthCounts.GetValueOrDefault(DeviceHealth.Unhealthy, 0),
+                    OfflineDevices = healthCounts.GetValueOrDefault(DeviceHealth.Offline, 0)
+                };
+            }
+
+            var status = new SystemStatus
+            {
+                Name = "OneRoom Health Kiosk",
+                Version = "2.0.0",
+                ServerTime = DateTime.UtcNow,
+                UptimeSeconds = _uptime.Elapsed.TotalSeconds,
+                Modules = modules
+            };
+
+            return Results.Ok(ApiResponse<SystemStatus>.Ok(status));
+        })
+        .Produces<ApiResponse<SystemStatus>>(200)
+        .WithSummary("Health check")
+        .WithDescription("Returns overall system health including module status and uptime");
+
         // GET /api/v1/devices - All devices from all modules
         group.MapGet("/devices", async (HardwareManager hardwareManager) =>
         {

@@ -48,6 +48,13 @@ public sealed partial class MainWindow
 
     private bool _suppressMediaSelectionEvents = false;
 
+    // Script ID returned by AddScriptToExecuteOnDocumentCreatedAsync, used for removal on reinstall
+    private string? _mediaOverrideDocCreatedScriptId = null;
+
+    // Serializes calls to InstallMediaOverrideOnDocumentCreatedAsync so rapid device
+    // selections don't interleave and orphan scripts in the WebView2 injection list.
+    private readonly SemaphoreSlim _mediaOverrideInstallLock = new(1, 1);
+
     // Debouncing and reload tracking for media device selection
     private DateTime _lastMediaDeviceChangeTime = DateTime.MinValue;
     private DateTime _lastWebViewReloadTime = DateTime.MinValue;
@@ -805,6 +812,10 @@ public sealed partial class MainWindow
             SavePersistedMediaDevicePreferences();
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
 
+            // Reinstall document-created script with updated initialCam so future
+            // navigations (including cross-origin ACS URLs) use the correct camera
+            await InstallMediaOverrideOnDocumentCreatedAsync();
+
             // Attempt live camera switch without reloading WebView
             if (_isDebugMode)
             {
@@ -852,6 +863,9 @@ public sealed partial class MainWindow
             SavePersistedMediaDevicePreferences();
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
 
+            // Reinstall document-created script with updated initialMic
+            await InstallMediaOverrideOnDocumentCreatedAsync();
+
             // Attempt live microphone switch without reloading WebView
             if (_isDebugMode)
             {
@@ -898,6 +912,9 @@ public sealed partial class MainWindow
             _selectedSpeakerLabel = speaker.Label;
             SavePersistedMediaDevicePreferences();
             await ApplyMediaDeviceOverrideAsync(showStatus: true);
+
+            // Reinstall document-created script with updated initialSpk
+            await InstallMediaOverrideOnDocumentCreatedAsync();
 
             // Attempt live speaker switch using setSinkId
             if (_isDebugMode)
@@ -1063,9 +1080,16 @@ public sealed partial class MainWindow
     {
         if (KioskWebView?.CoreWebView2 == null) return;
 
+        await _mediaOverrideInstallLock.WaitAsync();
         try
         {
-            if (_mediaOverrideDocCreatedScriptAdded)
+            if (KioskWebView?.CoreWebView2 == null) return;
+
+            var previousScriptId = (_mediaOverrideDocCreatedScriptAdded && _mediaOverrideDocCreatedScriptId != null)
+                ? _mediaOverrideDocCreatedScriptId
+                : null;
+
+            if (_mediaOverrideDocCreatedScriptAdded && previousScriptId == null)
             {
                 return;
             }
@@ -1077,8 +1101,6 @@ public sealed partial class MainWindow
             var initialMicrophoneLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedMicrophoneLabel) ? null : _selectedMicrophoneLabel);
             var initialSpeakerLabelJson = JsonSerializer.Serialize(string.IsNullOrWhiteSpace(_selectedSpeakerLabel) ? null : _selectedSpeakerLabel);
 
-            // This is a simplified version of the full media override script
-            // The full script is quite long - it installs getUserMedia override, RTCPeerConnection tracking, etc.
             var script = GetMediaOverrideDocumentScript(
                 initialCameraIdJson,
                 initialMicrophoneIdJson,
@@ -1087,13 +1109,33 @@ public sealed partial class MainWindow
                 initialMicrophoneLabelJson,
                 initialSpeakerLabelJson);
 
-            await KioskWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
+            // Add the new script BEFORE removing the old one so there is never a window
+            // where no document-created script is registered (prevents the race where a
+            // navigation between remove and add would load a page with no media override).
+            _mediaOverrideDocCreatedScriptId = await KioskWebView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(script);
             _mediaOverrideDocCreatedScriptAdded = true;
-            Logger.Log("Installed media override script on document creation");
+            Logger.Log($"Installed media override script on document creation (id: {_mediaOverrideDocCreatedScriptId}, camera: {_selectedCameraLabel ?? "none"})");
+
+            if (previousScriptId != null)
+            {
+                try
+                {
+                    KioskWebView.CoreWebView2.RemoveScriptToExecuteOnDocumentCreated(previousScriptId);
+                    Logger.Log($"Removed previous media override script (id: {previousScriptId})");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"Failed to remove previous media override script: {ex.Message}");
+                }
+            }
         }
         catch (Exception ex)
         {
             Logger.Log($"Failed to install document-created media override: {ex.Message}");
+        }
+        finally
+        {
+            _mediaOverrideInstallLock.Release();
         }
     }
 
@@ -1108,8 +1150,13 @@ public sealed partial class MainWindow
         return $@"
             (() => {{
                 try {{
-                    if (window.__orhMediaOverrideInstalled) return;
+                    // Guard: only install once per document (the old script is removed before
+                    // reinstallation, but on the current page the flag may already be set).
+                    // We use a version counter so reinstalled scripts recognize stale flags.
+                    const overrideVersion = {JsonSerializer.Serialize((_selectedCameraId ?? "") + "|" + (_selectedMicrophoneId ?? "") + "|" + (_selectedSpeakerId ?? ""))};
+                    if (window.__orhMediaOverrideInstalled && window.__orhMediaOverrideVersion === overrideVersion) return;
                     window.__orhMediaOverrideInstalled = true;
+                    window.__orhMediaOverrideVersion = overrideVersion;
 
                     const camKey = '{WebStoragePreferredCameraKey}';
                     const micKey = '{WebStoragePreferredMicrophoneKey}';
@@ -1124,18 +1171,21 @@ public sealed partial class MainWindow
                     const initialMicLabel = {micLabelJson};
                     const initialSpkLabel = {spkLabelJson};
 
+                    // Seed localStorage with initial values ONLY if no value exists yet.
+                    // Never overwrite — ApplyMediaDeviceOverrideAsync keeps localStorage current,
+                    // and the script is reinstalled with fresh initialCam on every preference change.
                     try {{
-                        const sessionMarker = 'orh_media_session_seeded';
-                        const isFirstOfSession = !sessionStorage.getItem(sessionMarker);
-                        if (isFirstOfSession) {{
-                            localStorage.setItem(camKey, JSON.stringify(initialCam));
-                            localStorage.setItem(micKey, JSON.stringify(initialMic));
-                            localStorage.setItem(spkKey, JSON.stringify(initialSpk));
-                            localStorage.setItem(camLabelKey, JSON.stringify(initialCamLabel));
-                            localStorage.setItem(micLabelKey, JSON.stringify(initialMicLabel));
-                            localStorage.setItem(spkLabelKey, JSON.stringify(initialSpkLabel));
-                            sessionStorage.setItem(sessionMarker, 'true');
-                        }}
+                        const seedIfEmpty = (key, val) => {{
+                            if (val != null && localStorage.getItem(key) === null) {{
+                                localStorage.setItem(key, JSON.stringify(val));
+                            }}
+                        }};
+                        seedIfEmpty(camKey, initialCam);
+                        seedIfEmpty(micKey, initialMic);
+                        seedIfEmpty(spkKey, initialSpk);
+                        seedIfEmpty(camLabelKey, initialCamLabel);
+                        seedIfEmpty(micLabelKey, initialMicLabel);
+                        seedIfEmpty(spkLabelKey, initialSpkLabel);
                     }} catch (e) {{}}
 
                     const readPref = (key) => {{
@@ -1422,6 +1472,36 @@ public sealed partial class MainWindow
 
                         if (!window.__orhLocalUserMediaStreams) window.__orhLocalUserMediaStreams = [];
 
+                        // Prune streams whose tracks are all ended (prevents memory accumulation during long calls)
+                        const pruneDeadStreams = () => {{
+                            try {{
+                                const streams = window.__orhLocalUserMediaStreams;
+                                for (let i = streams.length - 1; i >= 0; i--) {{
+                                    const s = streams[i];
+                                    if (!s || !s.getTracks || !s.active) {{
+                                        streams.splice(i, 1);
+                                    }}
+                                }}
+                            }} catch (e) {{}}
+                        }};
+
+                        // Register track lifecycle handlers on a stream for automatic cleanup
+                        const registerTrackCleanup = (stream) => {{
+                            try {{
+                                stream.getTracks().forEach(track => {{
+                                    track.addEventListener('ended', () => {{
+                                        try {{
+                                            // Remove stream from array if all its tracks have ended
+                                            if (!stream.active) {{
+                                                const idx = window.__orhLocalUserMediaStreams.indexOf(stream);
+                                                if (idx !== -1) window.__orhLocalUserMediaStreams.splice(idx, 1);
+                                            }}
+                                        }} catch (e) {{}}
+                                    }});
+                                }});
+                            }} catch (e) {{}}
+                        }};
+
                         window.__orhStopLocalTracks = function (kind) {{
                             let stopped = 0;
                             try {{
@@ -1438,6 +1518,8 @@ public sealed partial class MainWindow
                                         }} catch (e) {{}}
                                     }});
                                 }}
+                                // Clean up the array after stopping
+                                pruneDeadStreams();
                             }} catch (e) {{}}
                             return stopped;
                         }};
@@ -1446,8 +1528,14 @@ public sealed partial class MainWindow
                             const camId = readPref(camKey) || initialCam;
                             const micId = readPref(micKey) || initialMic;
 
+                            // Prune dead streams before adding new ones
+                            pruneDeadStreams();
+
                             if (!camId && !micId) {{
-                                return await originalGetUserMedia(constraints);
+                                const stream = await originalGetUserMedia(constraints);
+                                window.__orhLocalUserMediaStreams.push(stream);
+                                registerTrackCleanup(stream);
+                                return stream;
                             }}
 
                             const modifyConstraints = (c, cam, mic) => {{
@@ -1467,6 +1555,7 @@ public sealed partial class MainWindow
                                 const modified = modifyConstraints(constraints, camId, micId);
                                 const stream = await originalGetUserMedia(modified);
                                 window.__orhLocalUserMediaStreams.push(stream);
+                                registerTrackCleanup(stream);
                                 return stream;
                             }} catch (e) {{
                                 // Fallback to ideal constraint
@@ -1482,6 +1571,7 @@ public sealed partial class MainWindow
                                     }}
                                     const stream = await originalGetUserMedia(fallback);
                                     window.__orhLocalUserMediaStreams.push(stream);
+                                    registerTrackCleanup(stream);
                                     return stream;
                                 }} catch (e2) {{
                                     throw e2;

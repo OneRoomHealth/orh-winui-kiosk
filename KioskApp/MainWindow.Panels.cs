@@ -248,12 +248,47 @@ public sealed partial class MainWindow
         RefreshHealthDisplay();
     }
 
+    /// <summary>
+    /// Clears all health display UI when switching to Navigate mode or when the health service is unavailable.
+    /// Removes stale health cards, closes the detail panel, resets status bar, and stops the health timer.
+    /// </summary>
+    private void ClearHealthDisplay()
+    {
+        // Clear stale health cards
+        ModuleHealthItemsControl.ItemsSource = null;
+        ModuleHealthItemsControl.Items.Clear();
+
+        // Close detail panel
+        ModuleDetailPanel.Visibility = Visibility.Collapsed;
+        _selectedModule = null;
+
+        // Reset footer text
+        HealthFooterText.Text = "Hardware API mode is not active";
+        HealthLastRefreshText.Text = "";
+
+        // Reset status bar to Navigate mode info
+        StatusBarModuleCount.Text = $"\U0001F310 Navigate mode (8787)";
+
+        // Hide health issue badge
+        HealthIssueBadge.Visibility = Visibility.Collapsed;
+
+        // Stop health refresh timer (prevents polling a null service)
+        _healthRefreshTimer?.Dispose();
+        _healthRefreshTimer = null;
+
+        Logger.Log("Health display cleared (Navigate mode or service unavailable)");
+    }
+
     private void RefreshHealthDisplay()
     {
         var service = App.HealthVisualization;
         if (service == null)
         {
-            HealthFooterText.Text = "Health visualization service not available";
+            // Clear any stale items that may be left from a previous Hardware mode session
+            ModuleHealthItemsControl.ItemsSource = null;
+            ModuleHealthItemsControl.Items.Clear();
+            HealthFooterText.Text = "Hardware API mode is not active";
+            HealthLastRefreshText.Text = "";
             return;
         }
 

@@ -37,6 +37,9 @@ public sealed partial class MainWindow
     // Track active debounce timers for cleanup
     private readonly List<DispatcherTimer> _dcActiveDebounceTimers = new();
 
+    // Auto-refresh timer for keeping Device Control data fresh
+    private Timer? _dcAutoRefreshTimer;
+
     // Request history
     private readonly ObservableCollection<ApiRequestRecord> _dcRequestHistory = new();
     private const int MaxHistoryEntries = 200;
@@ -105,6 +108,10 @@ public sealed partial class MainWindow
         _dcCancellationTokenSource?.Cancel();
         _dcCancellationTokenSource?.Dispose();
         _dcCancellationTokenSource = null;
+
+        // Stop auto-refresh timer
+        _dcAutoRefreshTimer?.Dispose();
+        _dcAutoRefreshTimer = null;
 
         // Stop and dispose all active debounce timers
         foreach (var timer in _dcActiveDebounceTimers)
@@ -292,6 +299,18 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
+    /// Auto-refresh callback: re-tests connection and rebuilds the active category controls.
+    /// Only fires when the Device Control tab is visible and Hardware API mode is active.
+    /// </summary>
+    private void DcAutoRefreshTick()
+    {
+        if (!_deviceControlVisible || !App.IsHardwareApiMode) return;
+
+        _ = TestDcConnection();
+        BuildCategoryControls(_dcActiveCategory);
+    }
+
+    /// <summary>
     /// One-time initialization: wire XAML elements to fields and build category buttons.
     /// </summary>
     private void InitializeDeviceControlTab()
@@ -314,6 +333,14 @@ public sealed partial class MainWindow
         _dcConnectionIndicator = DcConnectionIndicator;
         _dcRequestCountText = DcRequestCountText;
         _dcHistoryToggleButton = DcHistoryToggleButton;
+
+        // Start auto-refresh timer (10 seconds)
+        _dcAutoRefreshTimer?.Dispose();
+        _dcAutoRefreshTimer = new Timer(
+            _ => DispatcherQueue.TryEnqueue(DcAutoRefreshTick),
+            null,
+            TimeSpan.FromSeconds(10),
+            TimeSpan.FromSeconds(10));
 
         // Build category buttons if not already built
         if (DcCategoryBar.Children.Count == 0)

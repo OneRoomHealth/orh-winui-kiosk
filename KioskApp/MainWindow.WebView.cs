@@ -177,6 +177,7 @@ public sealed partial class MainWindow
             _webProcessFailedLoggingInitialized = false;
             _coreEventHandlersInitialized = false;
             _mediaOverrideDocCreatedScriptAdded = false;
+            _mediaOverrideDocCreatedScriptId = null;
         }
 
         var settings = KioskWebView.CoreWebView2.Settings;
@@ -282,6 +283,7 @@ public sealed partial class MainWindow
             _webProcessFailedLoggingInitialized = false;
             _coreEventHandlersInitialized = false;
             _mediaOverrideDocCreatedScriptAdded = false;
+            _mediaOverrideDocCreatedScriptId = null;
 
             // Best-effort recovery: re-ensure CoreWebView2 and re-run setup on UI thread.
             if (!_isRecoveringWebViewProcessFailure)
