@@ -497,6 +497,13 @@ public sealed partial class MainWindow
                     {
                         _suppressMediaSelectionEvents = false;
                     }
+
+                    // Reinstall document-created script with current device ID.
+                    // RestoreCameraSelection may have updated _selectedCameraId (e.g., device ID
+                    // changed between sessions, matched by label, or Huddly auto-selected).
+                    // Since events are suppressed during restore, InstallMediaOverrideOnDocumentCreatedAsync
+                    // won't be called by the selection handler — do it explicitly here.
+                    _ = InstallMediaOverrideOnDocumentCreatedAsync();
                 });
             }
             else if (cameras != null && cameras.Count == 0)
@@ -543,7 +550,23 @@ public sealed partial class MainWindow
                 _selectedCameraLabel = cameras[labelMatchIndex].Label;
                 SavePersistedMediaDevicePreferences();
                 Logger.Log($"Restored camera selection by Label to index {labelMatchIndex}: {_selectedCameraLabel}");
+                return;
             }
+        }
+
+        // Final fallback: auto-select Huddly camera if available (preferred default over BiAmp)
+        var huddlyIndex = cameras.FindIndex(c => c.Label != null && c.Label.Contains("Huddly", StringComparison.OrdinalIgnoreCase));
+        if (huddlyIndex >= 0)
+        {
+            CameraSelector.SelectedIndex = huddlyIndex;
+            _selectedCameraId = cameras[huddlyIndex].DeviceId;
+            _selectedCameraLabel = cameras[huddlyIndex].Label;
+            SavePersistedMediaDevicePreferences();
+            Logger.Log($"Auto-selected Huddly camera at index {huddlyIndex}: {_selectedCameraLabel}");
+        }
+        else
+        {
+            Logger.Log("No Huddly camera found in enumerated devices for auto-selection");
         }
     }
 
