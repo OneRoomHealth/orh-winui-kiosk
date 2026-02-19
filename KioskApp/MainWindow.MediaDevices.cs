@@ -498,11 +498,6 @@ public sealed partial class MainWindow
                         _suppressMediaSelectionEvents = false;
                     }
 
-                    // Reinstall document-created script with current device ID.
-                    // RestoreCameraSelection may have updated _selectedCameraId (e.g., device ID
-                    // changed between sessions, matched by label, or Huddly auto-selected).
-                    // Since events are suppressed during restore, InstallMediaOverrideOnDocumentCreatedAsync
-                    // won't be called by the selection handler — do it explicitly here.
                     _ = InstallMediaOverrideOnDocumentCreatedAsync();
                 });
             }
@@ -640,6 +635,8 @@ public sealed partial class MainWindow
                     {
                         _suppressMediaSelectionEvents = false;
                     }
+
+                    _ = InstallMediaOverrideOnDocumentCreatedAsync();
                 });
             }
             else if (microphones != null && microphones.Count == 0)
@@ -760,6 +757,8 @@ public sealed partial class MainWindow
                     {
                         _suppressMediaSelectionEvents = false;
                     }
+
+                    _ = InstallMediaOverrideOnDocumentCreatedAsync();
                 });
             }
             else if (speakers != null && speakers.Count == 0)
