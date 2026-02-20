@@ -25,7 +25,6 @@ public class HardwareApiServer
     private readonly ILogger<HardwareApiServer> _logger;
     private readonly HardwareManager _hardwareManager;
     private readonly int _port;
-    private readonly string _chromiumDeviceId;
     private IWebViewNavigationService? _navigationService;
     private MediaConfiguration? _mediaConfig;
     private WebApplication? _app;
@@ -40,13 +39,11 @@ public class HardwareApiServer
         HardwareManager hardwareManager,
         int port = 8081,
         IWebViewNavigationService? navigationService = null,
-        MediaConfiguration? mediaConfig = null,
-        string chromiumDeviceId = "0")
+        MediaConfiguration? mediaConfig = null)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _hardwareManager = hardwareManager ?? throw new ArgumentNullException(nameof(hardwareManager));
         _port = port;
-        _chromiumDeviceId = chromiumDeviceId;
         _navigationService = navigationService;
         _mediaConfig = mediaConfig;
     }
@@ -387,7 +384,7 @@ public class HardwareApiServer
         // Always register chromium endpoints for WebView navigation control
         try
         {
-            app.MapChromiumEndpoints(_logger, _navigationService, _chromiumDeviceId);
+            app.MapChromiumEndpoints(_logger, _navigationService);
             _logger.LogInformation("Chromium endpoints registered (WebView navigation)");
         }
         catch (Exception ex)

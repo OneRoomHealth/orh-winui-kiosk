@@ -248,14 +248,12 @@ public partial class App : Application
 		services.AddSingleton<HealthMonitorService>();
 
 		// Register API server - always uses port 8081
-		// Chromium device ID matches workstation-api convention: "0" for CareWall, "1" for Provider Hub
-		var chromiumDeviceId = string.Equals(config.Kiosk.MachineType, "providerhub", StringComparison.OrdinalIgnoreCase) ? "1" : "0";
 		services.AddSingleton(sp =>
 		{
 			var logger = sp.GetRequiredService<ILogger<HardwareApiServer>>();
 			var hwManager = sp.GetRequiredService<HardwareManager>();
 			var mediaConfig = config.Hardware.Media;
-			return new HardwareApiServer(logger, hwManager, 8081, mediaConfig: mediaConfig, chromiumDeviceId: chromiumDeviceId);
+			return new HardwareApiServer(logger, hwManager, 8081, mediaConfig: mediaConfig);
 		});
 
 		// Build the service provider
