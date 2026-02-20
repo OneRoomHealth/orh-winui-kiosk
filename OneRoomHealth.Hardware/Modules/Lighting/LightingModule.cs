@@ -20,6 +20,7 @@ public class LightingModule : HardwareModuleBase
     private readonly byte[] _dmxBuffer = new byte[513]; // DMX universe + start byte
     private Task? _dmxSenderTask;
     private CancellationTokenSource? _dmxCts;
+    private IntPtr _ftdiNativeHandle = IntPtr.Zero;
 
     public override string ModuleName => "Lighting";
 
@@ -82,88 +83,140 @@ public class LightingModule : HardwareModuleBase
 
     private async Task InitializeDmxAsync()
     {
+        // Check if the native FTD2XX.DLL is available before referencing the FTDI type.
+        // On devices without the FTDI D2XX driver installed, attempting to P/Invoke into the
+        // missing DLL from within a MSIX sandbox can cause an unrecoverable process crash.
+        // By probing first, we avoid JIT-compiling any FTDI-dependent code path on those machines.
+        if (!IsFtdiNativeLibraryAvailable())
+        {
+            Logger.LogWarning(
+                "{ModuleName}: FTD2XX.DLL not found — FTDI D2XX driver is not installed. DMX lighting disabled",
+                ModuleName);
+            _dmxEnabled = false;
+            return;
+        }
+
         try
         {
-            Logger.LogInformation("{ModuleName}: Initializing DMX via FTDI", ModuleName);
-
-            _ftdiDevice = new FTDI();
-
-            // Get number of FTDI devices
-            uint deviceCount = 0;
-            var status = _ftdiDevice.GetNumberOfDevices(ref deviceCount);
-
-            if (status != FTDI.FT_STATUS.FT_OK || deviceCount == 0)
-            {
-                Logger.LogWarning("{ModuleName}: No FTDI devices found, DMX disabled", ModuleName);
-                _dmxEnabled = false;
-                return;
-            }
-
-            Logger.LogInformation("{ModuleName}: Found {Count} FTDI device(s)", ModuleName, deviceCount);
-
-            // Open first device
-            status = _ftdiDevice.OpenByIndex(0);
-            if (status != FTDI.FT_STATUS.FT_OK)
-            {
-                Logger.LogError("{ModuleName}: Failed to open FTDI device: {Status}", ModuleName, status);
-                _dmxEnabled = false;
-                return;
-            }
-
-            // Configure for DMX512: 250kbaud, 8N2
-            status = _ftdiDevice.SetBaudRate(250000);
-            if (status != FTDI.FT_STATUS.FT_OK)
-            {
-                Logger.LogError("{ModuleName}: Failed to set baud rate: {Status}", ModuleName, status);
-                _dmxEnabled = false;
-                return;
-            }
-
-            status = _ftdiDevice.SetDataCharacteristics(
-                FTDI.FT_DATA_BITS.FT_BITS_8,
-                FTDI.FT_STOP_BITS.FT_STOP_BITS_2,
-                FTDI.FT_PARITY.FT_PARITY_NONE);
-
-            if (status != FTDI.FT_STATUS.FT_OK)
-            {
-                Logger.LogError("{ModuleName}: Failed to set data characteristics: {Status}", ModuleName, status);
-                _dmxEnabled = false;
-                return;
-            }
-
-            status = _ftdiDevice.SetFlowControl(FTDI.FT_FLOW_CONTROL.FT_FLOW_NONE, 0, 0);
-            if (status != FTDI.FT_STATUS.FT_OK)
-            {
-                Logger.LogError("{ModuleName}: Failed to set flow control: {Status}", ModuleName, status);
-                _dmxEnabled = false;
-                return;
-            }
-
-            // Purge buffers
-            _ftdiDevice.Purge(FTDI.FT_PURGE.FT_PURGE_RX | FTDI.FT_PURGE.FT_PURGE_TX);
-
-            _dmxEnabled = true;
-
-            // Mark all devices as connected
-            foreach (var state in _deviceStates.Values)
-            {
-                state.Connected = true;
-                state.Health = DeviceHealth.Healthy;
-                state.LastSeen = DateTime.UtcNow;
-            }
-
-            // Start DMX sender task
-            _dmxCts = new CancellationTokenSource();
-            _dmxSenderTask = Task.Run(() => DmxSenderLoopAsync(_dmxCts.Token));
-
-            Logger.LogInformation("{ModuleName}: DMX initialized successfully at {Fps} FPS",
-                ModuleName, _config.Fps);
+            await InitializeDmxCoreAsync();
         }
         catch (Exception ex)
         {
             Logger.LogError(ex, "{ModuleName}: Failed to initialize DMX", ModuleName);
             _dmxEnabled = false;
         }
+    }
+
+    /// <summary>
+    /// Checks whether the native FTD2XX.DLL can be loaded without crashing the process.
+    /// The handle is kept alive so the DLL remains loaded for subsequent P/Invoke calls
+    /// from the FTDI managed wrapper (avoids search-path mismatches in the MSIX sandbox).
+    /// </summary>
+    private bool IsFtdiNativeLibraryAvailable()
+    {
+        if (_ftdiNativeHandle != IntPtr.Zero)
+            return true;
+
+        try
+        {
+            if (System.Runtime.InteropServices.NativeLibrary.TryLoad(
+                    "FTD2XX.DLL",
+                    typeof(LightingModule).Assembly,
+                    System.Runtime.InteropServices.DllImportSearchPath.SafeDirectories
+                        | System.Runtime.InteropServices.DllImportSearchPath.UseDllDirectoryForDependencies,
+                    out var handle))
+            {
+                _ftdiNativeHandle = handle;
+                return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Core DMX initialization logic. Separated from InitializeDmxAsync so the JIT compiler
+    /// only resolves the FTDI type when this method is actually called (after the DLL check passes).
+    /// </summary>
+    private async Task InitializeDmxCoreAsync()
+    {
+        Logger.LogInformation("{ModuleName}: Initializing DMX via FTDI", ModuleName);
+
+        _ftdiDevice = new FTDI();
+
+        // Get number of FTDI devices
+        uint deviceCount = 0;
+        var status = _ftdiDevice.GetNumberOfDevices(ref deviceCount);
+
+        if (status != FTDI.FT_STATUS.FT_OK || deviceCount == 0)
+        {
+            Logger.LogWarning("{ModuleName}: No FTDI devices found, DMX disabled", ModuleName);
+            _dmxEnabled = false;
+            return;
+        }
+
+        Logger.LogInformation("{ModuleName}: Found {Count} FTDI device(s)", ModuleName, deviceCount);
+
+        // Open first device
+        status = _ftdiDevice.OpenByIndex(0);
+        if (status != FTDI.FT_STATUS.FT_OK)
+        {
+            Logger.LogError("{ModuleName}: Failed to open FTDI device: {Status}", ModuleName, status);
+            _dmxEnabled = false;
+            return;
+        }
+
+        // Configure for DMX512: 250kbaud, 8N2
+        status = _ftdiDevice.SetBaudRate(250000);
+        if (status != FTDI.FT_STATUS.FT_OK)
+        {
+            Logger.LogError("{ModuleName}: Failed to set baud rate: {Status}", ModuleName, status);
+            _dmxEnabled = false;
+            return;
+        }
+
+        status = _ftdiDevice.SetDataCharacteristics(
+            FTDI.FT_DATA_BITS.FT_BITS_8,
+            FTDI.FT_STOP_BITS.FT_STOP_BITS_2,
+            FTDI.FT_PARITY.FT_PARITY_NONE);
+
+        if (status != FTDI.FT_STATUS.FT_OK)
+        {
+            Logger.LogError("{ModuleName}: Failed to set data characteristics: {Status}", ModuleName, status);
+            _dmxEnabled = false;
+            return;
+        }
+
+        status = _ftdiDevice.SetFlowControl(FTDI.FT_FLOW_CONTROL.FT_FLOW_NONE, 0, 0);
+        if (status != FTDI.FT_STATUS.FT_OK)
+        {
+            Logger.LogError("{ModuleName}: Failed to set flow control: {Status}", ModuleName, status);
+            _dmxEnabled = false;
+            return;
+        }
+
+        // Purge buffers
+        _ftdiDevice.Purge(FTDI.FT_PURGE.FT_PURGE_RX | FTDI.FT_PURGE.FT_PURGE_TX);
+
+        _dmxEnabled = true;
+
+        // Mark all devices as connected
+        foreach (var state in _deviceStates.Values)
+        {
+            state.Connected = true;
+            state.Health = DeviceHealth.Healthy;
+            state.LastSeen = DateTime.UtcNow;
+        }
+
+        // Start DMX sender task
+        _dmxCts = new CancellationTokenSource();
+        _dmxSenderTask = Task.Run(() => DmxSenderLoopAsync(_dmxCts.Token));
+
+        Logger.LogInformation("{ModuleName}: DMX initialized successfully at {Fps} FPS",
+            ModuleName, _config.Fps);
 
         await Task.CompletedTask;
     }
@@ -483,6 +536,12 @@ public class LightingModule : HardwareModuleBase
         _dmxSenderTask = null;
         _dmxCts?.Dispose();
         _dmxCts = null;
+
+        if (_ftdiNativeHandle != IntPtr.Zero)
+        {
+            try { System.Runtime.InteropServices.NativeLibrary.Free(_ftdiNativeHandle); } catch { }
+            _ftdiNativeHandle = IntPtr.Zero;
+        }
 
         // Clear DMX buffer
         Array.Clear(_dmxBuffer, 0, _dmxBuffer.Length);

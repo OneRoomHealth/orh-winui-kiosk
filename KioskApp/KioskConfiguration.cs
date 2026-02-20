@@ -30,6 +30,13 @@ public class KioskConfiguration
 /// </summary>
 public class KioskSettings
 {
+    /// <summary>
+    /// Machine type identifier. Determines hardware profile and default behavior.
+    /// Values: "carewall" (full AV, secondary display), "providerhub" (no DMX, primary display).
+    /// </summary>
+    [JsonPropertyName("machineType")]
+    public string MachineType { get; set; } = "carewall";
+
     [JsonPropertyName("defaultUrl")]
     public string DefaultUrl { get; set; } = "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default";
 

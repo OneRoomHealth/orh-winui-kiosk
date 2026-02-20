@@ -113,7 +113,7 @@ public partial class App : Application
 
 			// Load configuration
 			var config = ConfigurationManager.Load();
-			Logger.Log("Configuration loaded");
+			Logger.Log($"Configuration loaded — machine type: {config.Kiosk.MachineType}, target monitor: {config.Kiosk.TargetMonitorIndex}");
 
 			// Set up dependency injection and services
 			await InitializeServicesAsync(config);
@@ -248,12 +248,14 @@ public partial class App : Application
 		services.AddSingleton<HealthMonitorService>();
 
 		// Register API server - always uses port 8081
+		// Chromium device ID matches workstation-api convention: "0" for CareWall, "1" for Provider Hub
+		var chromiumDeviceId = string.Equals(config.Kiosk.MachineType, "providerhub", StringComparison.OrdinalIgnoreCase) ? "1" : "0";
 		services.AddSingleton(sp =>
 		{
 			var logger = sp.GetRequiredService<ILogger<HardwareApiServer>>();
 			var hwManager = sp.GetRequiredService<HardwareManager>();
 			var mediaConfig = config.Hardware.Media;
-			return new HardwareApiServer(logger, hwManager, 8081, mediaConfig: mediaConfig);
+			return new HardwareApiServer(logger, hwManager, 8081, mediaConfig: mediaConfig, chromiumDeviceId: chromiumDeviceId);
 		});
 
 		// Build the service provider
@@ -389,11 +391,18 @@ public partial class App : Application
 			Logger.Log("CameraModule registered with HardwareManager");
 		}
 
-		var lightingModule = _serviceProvider.GetService<LightingModule>();
-		if (lightingModule != null)
+		try
 		{
-			hardwareManager.RegisterModule(lightingModule);
-			Logger.Log("LightingModule registered with HardwareManager");
+			var lightingModule = _serviceProvider.GetService<LightingModule>();
+			if (lightingModule != null)
+			{
+				hardwareManager.RegisterModule(lightingModule);
+				Logger.Log("LightingModule registered with HardwareManager");
+			}
+		}
+		catch (Exception ex)
+		{
+			Logger.Log($"LightingModule skipped — failed to create: {ex.Message}");
 		}
 
 		var systemAudioModule = _serviceProvider.GetService<SystemAudioModule>();

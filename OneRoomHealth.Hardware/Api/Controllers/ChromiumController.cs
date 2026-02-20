@@ -30,8 +30,10 @@ public static class ChromiumController
 
     /// <summary>
     /// Maps chromium-compatible endpoints that delegate to WebView2.
+    /// The deviceId determines which chromium instance ID this kiosk responds to
+    /// (e.g., "0" for CareWall, "1" for Provider Hub), matching the workstation-api convention.
     /// </summary>
-    public static void MapChromiumEndpoints(this WebApplication app, ILogger logger, IWebViewNavigationService? navigationService)
+    public static void MapChromiumEndpoints(this WebApplication app, ILogger logger, IWebViewNavigationService? navigationService, string deviceId = "0")
     {
         var group = app.MapGroup("/api/v1/chromium")
             .WithTags("Chromium")
@@ -47,7 +49,7 @@ public static class ChromiumController
             {
                 new
                 {
-                    id = "0",
+                    id = deviceId,
                     name = "Kiosk WebView",
                     health = "healthy",
                     running = true,
@@ -60,14 +62,14 @@ public static class ChromiumController
         })
         .Produces<object[]>(200)
         .WithSummary("List all browser instances")
-        .WithDescription("Returns all browser instances (single WebView2 instance as browser '0')");
+        .WithDescription($"Returns all browser instances (single WebView2 instance as browser '{deviceId}')");
 
         // GET /api/v1/chromium/{id} - Get browser status
         group.MapGet("/{id}", (string id) =>
         {
             logger.LogDebug("GET /api/v1/chromium/{Id}", id);
 
-            if (id != "0")
+            if (id != deviceId)
             {
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
@@ -76,7 +78,7 @@ public static class ChromiumController
 
             var status = new
             {
-                id = "0",
+                id = deviceId,
                 name = "Kiosk WebView",
                 running = true,
                 health = "healthy",
@@ -97,7 +99,7 @@ public static class ChromiumController
         {
             logger.LogDebug("GET /api/v1/chromium/{Id}/url", id);
 
-            if (id != "0")
+            if (id != deviceId)
             {
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
@@ -109,7 +111,7 @@ public static class ChromiumController
             // Return workstation-api compatible format
             return Results.Ok(new
             {
-                id = "0",
+                id = deviceId,
                 url = currentUrl,
                 success = true
             });
@@ -124,7 +126,7 @@ public static class ChromiumController
         {
             logger.LogDebug("PUT /api/v1/chromium/{Id}/url - {Url}", id, request.Url);
 
-            if (id != "0")
+            if (id != deviceId)
             {
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
@@ -160,11 +162,11 @@ public static class ChromiumController
 
                 if (success)
                 {
-                    logger.LogInformation("Browser 0 URL set to: {Url}", request.Url);
+                    logger.LogInformation("Browser {DeviceId} URL set to: {Url}", deviceId, request.Url);
                     // Return workstation-api compatible format
                     return Results.Ok(new
                     {
-                        id = "0",
+                        id = deviceId,
                         url = request.Url,
                         success = true
                     });
@@ -196,7 +198,7 @@ public static class ChromiumController
         {
             logger.LogDebug("POST /api/v1/chromium/{Id}/open", id);
 
-            if (id != "0")
+            if (id != deviceId)
             {
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
@@ -206,7 +208,7 @@ public static class ChromiumController
             // WebView is always "open" - return success
             return Results.Ok(new
             {
-                id = "0",
+                id = deviceId,
                 success = true,
                 message = "Browser is already running (WebView2 is always active)"
             });
@@ -221,7 +223,7 @@ public static class ChromiumController
         {
             logger.LogDebug("POST /api/v1/chromium/{Id}/close", id);
 
-            if (id != "0")
+            if (id != deviceId)
             {
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
@@ -231,7 +233,7 @@ public static class ChromiumController
             // WebView cannot be "closed" - return success but note it's a no-op
             return Results.Ok(new
             {
-                id = "0",
+                id = deviceId,
                 success = true,
                 message = "Close is not supported for embedded WebView2"
             });
@@ -240,6 +242,8 @@ public static class ChromiumController
         .Produces<object>(404)
         .WithSummary("Close browser")
         .WithDescription("Close the browser instance (no-op for embedded WebView2)");
+
+        logger.LogInformation("Chromium endpoints registered with device ID '{DeviceId}'", deviceId);
     }
 }
 
