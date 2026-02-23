@@ -25,9 +25,12 @@ public class WebViewNavigationService : ChromiumController.IWebViewNavigationSer
     /// </summary>
     public async Task<bool> NavigateAsync(string url)
     {
+        Logger.Log($"WebViewNavigationService: NavigateAsync called — url={url}");
         try
         {
-            return await _mainWindow.NavigateToUrlAsync(url);
+            var success = await _mainWindow.NavigateToUrlAsync(url);
+            Logger.Log($"WebViewNavigationService: NavigateAsync result={success} — url={url}");
+            return success;
         }
         catch (Exception ex)
         {

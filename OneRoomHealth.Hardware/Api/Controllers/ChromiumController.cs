@@ -45,7 +45,7 @@ public static class ChromiumController
         // GET /api/v1/chromium - List all browser instances
         group.MapGet("/", () =>
         {
-            logger.LogDebug("GET /api/v1/chromium");
+            logger.LogInformation("GET /api/v1/chromium — listing browser instances");
 
             var browsers = new[]
             {
@@ -69,10 +69,11 @@ public static class ChromiumController
         // GET /api/v1/chromium/{id} - Get browser status
         group.MapGet("/{id}", (string id) =>
         {
-            logger.LogDebug("GET /api/v1/chromium/{Id}", id);
+            logger.LogInformation("GET /api/v1/chromium/{Id} — status request", id);
 
             if (!ValidDeviceIds.Contains(id))
             {
+                logger.LogWarning("GET /api/v1/chromium/{Id} — unknown device ID", id);
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
                     statusCode: 404);
@@ -99,16 +100,18 @@ public static class ChromiumController
         // GET /api/v1/chromium/{id}/url - Get current URL
         group.MapGet("/{id}/url", (string id) =>
         {
-            logger.LogDebug("GET /api/v1/chromium/{Id}/url", id);
+            logger.LogInformation("GET /api/v1/chromium/{Id}/url — get current URL", id);
 
             if (!ValidDeviceIds.Contains(id))
             {
+                logger.LogWarning("GET /api/v1/chromium/{Id}/url — unknown device ID", id);
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
                     statusCode: 404);
             }
 
             var currentUrl = navigationService?.GetCurrentUrl() ?? "";
+            logger.LogInformation("GET /api/v1/chromium/{Id}/url — current URL: {Url}", id, currentUrl);
 
             return Results.Ok(new
             {
@@ -125,10 +128,11 @@ public static class ChromiumController
         // PUT /api/v1/chromium/{id}/url - Set browser URL
         group.MapPut("/{id}/url", async (string id, [FromBody] UrlRequest request) =>
         {
-            logger.LogDebug("PUT /api/v1/chromium/{Id}/url - {Url}", id, request.Url);
+            logger.LogInformation("PUT /api/v1/chromium/{Id}/url — navigate to: {Url}", id, request.Url);
 
             if (!ValidDeviceIds.Contains(id))
             {
+                logger.LogWarning("PUT /api/v1/chromium/{Id}/url — unknown device ID", id);
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
                     statusCode: 404);
@@ -195,10 +199,11 @@ public static class ChromiumController
         // POST /api/v1/chromium/{id}/open - Open browser (no-op for WebView)
         group.MapPost("/{id}/open", (string id) =>
         {
-            logger.LogDebug("POST /api/v1/chromium/{Id}/open", id);
+            logger.LogInformation("POST /api/v1/chromium/{Id}/open — open request", id);
 
             if (!ValidDeviceIds.Contains(id))
             {
+                logger.LogWarning("POST /api/v1/chromium/{Id}/open — unknown device ID", id);
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
                     statusCode: 404);
@@ -219,10 +224,11 @@ public static class ChromiumController
         // POST /api/v1/chromium/{id}/close - Close browser (no-op for WebView)
         group.MapPost("/{id}/close", (string id) =>
         {
-            logger.LogDebug("POST /api/v1/chromium/{Id}/close", id);
+            logger.LogInformation("POST /api/v1/chromium/{Id}/close — close request", id);
 
             if (!ValidDeviceIds.Contains(id))
             {
+                logger.LogWarning("POST /api/v1/chromium/{Id}/close — unknown device ID", id);
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
                     statusCode: 404);
