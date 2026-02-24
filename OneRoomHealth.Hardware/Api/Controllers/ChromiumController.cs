@@ -125,14 +125,14 @@ public static class ChromiumController
         .WithSummary("Get current URL")
         .WithDescription("Returns the current URL displayed in the browser");
 
-        // PUT /api/v1/chromium/{id}/url - Set browser URL
-        group.MapPut("/{id}/url", async (string id, [FromBody] UrlRequest request) =>
+        // Shared handler for setting browser URL (accepts both PUT and POST)
+        async Task<IResult> HandleSetUrl(string id, string method, UrlRequest request)
         {
-            logger.LogInformation("PUT /api/v1/chromium/{Id}/url — navigate to: {Url}", id, request.Url);
+            logger.LogInformation("{Method} /api/v1/chromium/{Id}/url — navigate to: {Url}", method, id, request.Url);
 
             if (!ValidDeviceIds.Contains(id))
             {
-                logger.LogWarning("PUT /api/v1/chromium/{Id}/url — unknown device ID", id);
+                logger.LogWarning("{Method} /api/v1/chromium/{Id}/url — unknown device ID", method, id);
                 return Results.Json(
                     new { error = new { code = "NOT_FOUND", message = $"Browser instance {id} not found" } },
                     statusCode: 404);
@@ -188,12 +188,26 @@ public static class ChromiumController
                     new { error = new { code = "INTERNAL_ERROR", message = ex.Message } },
                     statusCode: 500);
             }
-        })
+        }
+
+        // PUT /api/v1/chromium/{id}/url - Set browser URL
+        group.MapPut("/{id}/url", async (string id, [FromBody] UrlRequest request) =>
+            await HandleSetUrl(id, "PUT", request))
         .Produces<object>(200)
         .Produces<object>(400)
         .Produces<object>(404)
         .Produces<object>(500)
-        .WithSummary("Set browser URL")
+        .WithSummary("Set browser URL (PUT)")
+        .WithDescription("Navigate the browser to a new URL");
+
+        // POST /api/v1/chromium/{id}/url - Set browser URL (alternate method)
+        group.MapPost("/{id}/url", async (string id, [FromBody] UrlRequest request) =>
+            await HandleSetUrl(id, "POST", request))
+        .Produces<object>(200)
+        .Produces<object>(400)
+        .Produces<object>(404)
+        .Produces<object>(500)
+        .WithSummary("Set browser URL (POST)")
         .WithDescription("Navigate the browser to a new URL");
 
         // POST /api/v1/chromium/{id}/open - Open browser (no-op for WebView)
