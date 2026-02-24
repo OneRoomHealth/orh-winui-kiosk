@@ -122,7 +122,7 @@ public class HardwareApiServer
         // Configure Kestrel
         builder.WebHost.UseKestrel(options =>
         {
-            options.ListenLocalhost(_port);
+            options.ListenAnyIP(_port);
         });
 
         _app = builder.Build();
@@ -144,7 +144,7 @@ public class HardwareApiServer
         await _app.StartAsync();
 
         _logger.LogInformation(
-            "Hardware API Server started successfully on http://localhost:{Port}", _port);
+            "Hardware API Server started successfully on http://0.0.0.0:{Port} (all interfaces)", _port);
         _logger.LogInformation(
             "Swagger UI available at http://localhost:{Port}/swagger", _port);
     }
