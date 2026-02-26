@@ -69,11 +69,84 @@ public class HardwareApiServer
     }
 
     /// <summary>
+    /// Attempts to kill any process that is still holding the specified TCP port.
+    /// This handles the case where a previous instance crashed or was force-killed
+    /// without releasing the port.
+    /// </summary>
+    private void KillProcessOnPort(int port)
+    {
+        try
+        {
+            var currentPid = Process.GetCurrentProcess().Id;
+
+            // Use netstat to find the PID holding the port
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "netstat",
+                Arguments = "-ano",
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var netstat = Process.Start(psi);
+            if (netstat == null) return;
+
+            var output = netstat.StandardOutput.ReadToEnd();
+            netstat.WaitForExit(5000);
+
+            // Look for lines like:  TCP    0.0.0.0:8081    0.0.0.0:0    LISTENING    12345
+            foreach (var line in output.Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (!trimmed.Contains("LISTENING")) continue;
+                if (!trimmed.Contains($":{port}")) continue;
+
+                // Parse the PID from the last column
+                var parts = trimmed.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 5) continue;
+
+                // Verify the port match is exact (e.g., not :80810)
+                var addressPart = parts[1]; // e.g., "0.0.0.0:8081"
+                if (!addressPart.EndsWith($":{port}")) continue;
+
+                if (int.TryParse(parts[^1], out var pid) && pid != currentPid && pid > 0)
+                {
+                    _logger.LogWarning(
+                        "Port {Port} is held by PID {Pid} — killing stale process", port, pid);
+                    try
+                    {
+                        var staleProcess = Process.GetProcessById(pid);
+                        staleProcess.Kill(entireProcessTree: true);
+                        staleProcess.WaitForExit(3000);
+                        _logger.LogInformation("Killed stale process PID {Pid}", pid);
+                    }
+                    catch (ArgumentException)
+                    {
+                        // Process already exited
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to kill stale process PID {Pid}", pid);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error checking for stale processes on port {Port}", port);
+        }
+    }
+
+    /// <summary>
     /// Start the API server.
     /// </summary>
     public async Task StartAsync()
     {
         _logger.LogInformation("Starting Hardware API Server on port {Port}", _port);
+
+        // Kill any stale process holding the port from a previous unclean exit
+        KillProcessOnPort(_port);
 
         var builder = WebApplication.CreateBuilder();
 

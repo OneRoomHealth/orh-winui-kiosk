@@ -22,19 +22,20 @@ The app automatically creates a default configuration file if it doesn't exist.
 {
   "kiosk": {
     "defaultUrl": "https://example.com/wall/default",
+    "machineType": "carewall",
     "targetMonitorIndex": 1,
     "videoMode": {
       "enabled": false,
       "carescapeVideoPath": "C:\\Videos\\carescape.mp4",
-      "demoVideoPath": "C:\\Videos\\demo.mp4",
+      "demoVideoPath1": "C:\\Videos\\demo1.mp4",
+      "demoVideoPath2": "C:\\Videos\\demo2.mp4",
       "mpvPath": null,
       "flicButtonEnabled": true
     }
   },
   "debug": {
     "enabled": true,
-    "hotkey": "Ctrl+Shift+I",
-    "autoOpenDevTools": false
+    "hotkey": "Ctrl+Shift+I"
   },
   "exit": {
     "enabled": true,
@@ -78,6 +79,17 @@ The app automatically creates a default configuration file if it doesn't exist.
       "enabled": true,
       "monitorInterval": 1.0,
       "devices": []
+    },
+    "biamp": {
+      "enabled": false,
+      "monitorInterval": 5.0,
+      "devices": []
+    },
+    "media": {
+      "enabled": false,
+      "baseDirectory": "",
+      "additionalDirectories": [],
+      "allowedExtensions": ["mp4", "webm", "ogg", "mp3", "wav", "m4a"]
     }
   }
 }
@@ -90,6 +102,7 @@ The app automatically creates a default configuration file if it doesn't exist.
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `defaultUrl` | String | OneRoom Frontend URL | URL to load when app starts |
+| `machineType` | String | `"carewall"` | Hardware profile. `"carewall"` = full AV with secondary display, `"providerhub"` = no DMX, primary display |
 | `targetMonitorIndex` | Integer | `1` | Monitor index (1-based). `1` = primary, `2` = secondary, etc. |
 
 **Note:** The kiosk always runs fullscreen and always-on-top. These behaviors are not configurable.
@@ -103,12 +116,13 @@ Located at `kiosk.videoMode`:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `enabled` | Boolean | `false` | Enable video mode (Flic button control) |
-| `carescapeVideoPath` | String | `C:\Videos\carescape.mp4` | Path to Carescape video file |
-| `demoVideoPath` | String | `C:\Videos\demo.mp4` | Path to demo video file |
+| `carescapeVideoPath` | String | `C:\Videos\carescape.mp4` | Path to looping Carescape video file |
+| `demoVideoPath1` | String | `C:\Videos\demo1.mp4` | Path to first demo video file |
+| `demoVideoPath2` | String | `C:\Videos\demo2.mp4` | Path to second demo video file |
 | `mpvPath` | String | `null` | Custom path to MPV executable (auto-detected if null) |
 | `flicButtonEnabled` | Boolean | `true` | Enable Flic button integration |
 
-**Note:** Volume is controlled via the Windows Volume Mixer. The app does not override system volume settings.
+**Note:** Volume is controlled via the Windows Volume Mixer. The app does not override system volume settings. Demo videos alternate automatically: when demo 1 ends, demo 2 plays, and vice versa.
 
 ---
 
@@ -117,9 +131,9 @@ Located at `kiosk.videoMode`:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `enabled` | Boolean | `true` | Enable debug mode hotkey |
-| `hotkey` | String | `Ctrl+Shift+I` | Hotkey to toggle debug mode (informational only) |
+| `hotkey` | String | `Ctrl+Shift+I` | Hotkey to toggle debug mode |
 
-**Note:** The hotkey string is logged but the actual hotkey is hardcoded to Ctrl+Shift+I.
+**Note:** The hotkey is hardcoded to Ctrl+Shift+I. The config value is used for reference/logging.
 
 ---
 
@@ -286,6 +300,55 @@ Controls Huddly cameras via direct SDK integration. Supports PTZ control, auto-t
 }
 ```
 
+### Biamp Module
+
+Controls Biamp Parle VBC 2800 video conferencing codecs via Telnet.
+
+```json
+"biamp": {
+  "enabled": false,
+  "monitorInterval": 5.0,
+  "devices": [
+    {
+      "id": "0",
+      "name": "Biamp VBC 2800",
+      "model": "Parle VBC 2800",
+      "ipAddress": "10.1.1.50",
+      "port": 23,
+      "username": "control",
+      "password": ""
+    }
+  ]
+}
+```
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `ipAddress` | String | - | Biamp device IP address |
+| `port` | Integer | `23` | Telnet port |
+| `username` | String | `"control"` | Telnet login username |
+| `password` | String | `""` | Telnet login password |
+
+### Media Serving
+
+Enables an HTTP endpoint on the Hardware API server to serve local media files (video, audio) for use by the frontend.
+
+```json
+"media": {
+  "enabled": false,
+  "baseDirectory": "%USERPROFILE%\\Videos",
+  "additionalDirectories": [],
+  "allowedExtensions": ["mp4", "webm", "ogg", "mp3", "wav", "m4a"]
+}
+```
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `enabled` | Boolean | `false` | Enable media file serving endpoint |
+| `baseDirectory` | String | `""` | Base directory for media files (supports environment variables) |
+| `additionalDirectories` | String[] | `[]` | Additional directories to search |
+| `allowedExtensions` | String[] | See above | Allowed file extensions |
+
 ---
 
 ## Environment Variables
@@ -344,11 +407,13 @@ Supported in path settings:
 {
   "kiosk": {
     "defaultUrl": "https://your-url.com/wall/default",
+    "machineType": "carewall",
     "targetMonitorIndex": 2,
     "videoMode": {
       "enabled": true,
       "carescapeVideoPath": "C:\\Users\\CareWall\\Videos\\carescape.mp4",
-      "demoVideoPath": "C:\\Users\\CareWall\\Videos\\demo.mp4",
+      "demoVideoPath1": "C:\\Users\\CareWall\\Videos\\demo1.mp4",
+      "demoVideoPath2": "C:\\Users\\CareWall\\Videos\\demo2.mp4",
       "flicButtonEnabled": true
     }
   }

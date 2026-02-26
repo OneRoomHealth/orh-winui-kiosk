@@ -1,7 +1,7 @@
 # Debug Mode Documentation
 
 **Status:** ✅ Fully Implemented
-**Last Updated:** February 18, 2026
+**Last Updated:** February 26, 2026
 
 ---
 
@@ -37,7 +37,7 @@ Returns to fullscreen kiosk mode with all debug features hidden.
 
 1. Password dialog appears
 2. Enter administrator password (default: `admin123`)
-3. Application exits and launches Explorer.exe (for Shell Launcher users)
+3. Application performs graceful cleanup (stops API servers, hardware modules, media tracks) and exits
 
 **Security:** Change the default password in production via config.json.
 
@@ -93,14 +93,11 @@ Debug mode settings in `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 {
   "debug": {
     "enabled": true,
-    "hotkey": "Ctrl+Shift+I",
-    "autoOpenDevTools": false,
-    "windowSizePercent": 80
+    "hotkey": "Ctrl+Shift+I"
   },
   "exit": {
     "enabled": true,
     "hotkey": "Ctrl+Shift+Q",
-    "requirePassword": true,
     "passwordHash": ""
   }
 }
@@ -111,11 +108,10 @@ Debug mode settings in `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `debug.enabled` | `true` | Enable/disable debug mode hotkey |
-| `debug.windowSizePercent` | `80` | Window size as % of screen |
-| `debug.autoOpenDevTools` | `false` | Auto-open DevTools when entering debug mode |
+| `debug.hotkey` | `Ctrl+Shift+I` | Hotkey reference (hardcoded) |
 | `exit.enabled` | `true` | Enable/disable exit hotkey |
-| `exit.requirePassword` | `true` | Require password to exit |
-| `exit.passwordHash` | `""` | SHA256 hash or plain text password |
+| `exit.hotkey` | `Ctrl+Shift+Q` | Hotkey reference (hardcoded) |
+| `exit.passwordHash` | `""` | SHA256 hash or plain text password. Empty uses default: `admin123` |
 
 ---
 

@@ -318,9 +318,9 @@ $cert.Subject
 
 ## 📚 Additional Resources
 
-- **Main Documentation**: [README.md](README.md)
-- **Deployment Guide**: [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
-- **Certificate Management**: [build/certs/README.md](build/certs/README.md)
+- **Main Documentation**: [README.md](../README.md)
+- **Deployment Guide**: [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md)
+- **Certificate Management**: [build/certs/README.md](../build/certs/README.md)
 - **GitHub Actions Documentation**: https://docs.github.com/en/actions
 - **Code Signing in CI/CD**: https://docs.microsoft.com/en-us/windows/msix/package/sign-package-with-signtool
 

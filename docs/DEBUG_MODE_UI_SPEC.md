@@ -1,5 +1,8 @@
 # OneRoom Health Kiosk - Debug Mode UI Redesign Specification
 
+**Status:** Fully Implemented
+**Note:** This is a historical design spec. All items below have been implemented. For current feature documentation, see [DEBUG_MODE.md](DEBUG_MODE.md).
+
 ## Overview
 
 Redesign the debug mode UI to follow a VS Code / Windows Terminal aesthetic. The goal is a professional dark theme that's familiar to developers while remaining polished enough for field technicians.

@@ -35,6 +35,9 @@ public sealed partial class MainWindow
     // Suppress API mode toggle event when programmatically changing the toggle
     private bool _suppressApiModeToggleEvent = false;
 
+    // Prevent concurrent mode switches (reentrancy guard)
+    private bool _isModeSwitching = false;
+
     #endregion
 
     #region Debug Mode
@@ -545,6 +548,19 @@ public sealed partial class MainWindow
             return;
         }
 
+        // Prevent concurrent mode switches — revert the toggle and bail out
+        if (_isModeSwitching)
+        {
+            Logger.Log("API mode toggle: Ignoring — mode switch already in progress");
+            _suppressApiModeToggleEvent = true;
+            try { toggle.IsOn = !toggle.IsOn; }
+            finally { _suppressApiModeToggleEvent = false; }
+            return;
+        }
+
+        _isModeSwitching = true;
+        toggle.IsEnabled = false;
+
         try
         {
             if (toggle.IsOn)
@@ -556,6 +572,18 @@ public sealed partial class MainWindow
                 if (App.Instance != null)
                 {
                     await App.Instance.EnableHardwareApiModeAsync(this);
+
+                    if (!App.IsHardwareApiMode)
+                    {
+                        Logger.Log("API mode toggle: EnableHardwareApiModeAsync did not switch — reverting toggle");
+                        _suppressApiModeToggleEvent = true;
+                        try { toggle.IsOn = false; }
+                        finally { _suppressApiModeToggleEvent = false; }
+                        ShowStatus("Error", "Failed to enable Hardware API mode (timeout or already switching)");
+                        _ = Task.Delay(3000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+                        return;
+                    }
+
                     TitleBarApiEndpoint.Text = "localhost:8081";
                     TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
                         App.HardwareApiServer?.IsRunning == true
@@ -592,6 +620,18 @@ public sealed partial class MainWindow
                 if (App.Instance != null)
                 {
                     await App.Instance.DisableHardwareApiModeAsync(this);
+
+                    if (App.IsHardwareApiMode)
+                    {
+                        Logger.Log("API mode toggle: DisableHardwareApiModeAsync did not switch — reverting toggle");
+                        _suppressApiModeToggleEvent = true;
+                        try { toggle.IsOn = true; }
+                        finally { _suppressApiModeToggleEvent = false; }
+                        ShowStatus("Error", "Failed to disable Hardware API mode (timeout or already switching)");
+                        _ = Task.Delay(3000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+                        return;
+                    }
+
                     TitleBarApiEndpoint.Text = "localhost:8787";
                     TitleBarApiStatusIcon.Foreground = new SolidColorBrush(
                         LocalCommandServer.IsRunning
@@ -616,8 +656,18 @@ public sealed partial class MainWindow
         catch (Exception ex)
         {
             Logger.Log($"Error toggling API mode: {ex.Message}");
+
+            _suppressApiModeToggleEvent = true;
+            try { toggle.IsOn = App.IsHardwareApiMode; }
+            finally { _suppressApiModeToggleEvent = false; }
+
             ShowStatus("Error", $"Failed to switch API mode: {ex.Message}");
             _ = Task.Delay(3000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
+        }
+        finally
+        {
+            _isModeSwitching = false;
+            toggle.IsEnabled = true;
         }
     }
 
@@ -1646,6 +1696,15 @@ public sealed partial class MainWindow
 
             // Unhook keyboard hook
             RemoveKeyboardHook();
+
+            // Gracefully stop all services (API servers, hardware modules, health monitoring)
+            // so ports are released before the process exits
+            if (App.Instance != null)
+            {
+                Logger.Log("Shutting down services (API servers, hardware)...");
+                await App.Instance.ShutdownServicesAsync();
+                Logger.Log("Services shut down successfully");
+            }
 
             Logger.Log("Closing application window...");
 

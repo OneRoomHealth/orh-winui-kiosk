@@ -1,6 +1,6 @@
 # Hardware Configuration Example
 
-Complete example `config.json` for a fully configured OneRoom Health kiosk with all 6 hardware modules.
+Complete example `config.json` for a fully configured OneRoom Health kiosk with all 7 hardware modules.
 
 **Config File Location:** `%ProgramData%\OneRoomHealth\Kiosk\config.json`
 
@@ -12,11 +12,13 @@ Complete example `config.json` for a fully configured OneRoom Health kiosk with 
 {
   "kiosk": {
     "defaultUrl": "https://orh-frontend-dev-container.politebeach-927fe169.westus2.azurecontainerapps.io/wall/default",
+    "machineType": "carewall",
     "targetMonitorIndex": 2,
     "videoMode": {
       "enabled": true,
       "carescapeVideoPath": "C:\\Users\\CareWall\\Videos\\carescape.mp4",
-      "demoVideoPath": "C:\\Users\\CareWall\\Videos\\demo.mp4",
+      "demoVideoPath1": "C:\\Users\\CareWall\\Videos\\demo1.mp4",
+      "demoVideoPath2": "C:\\Users\\CareWall\\Videos\\demo2.mp4",
       "flicButtonEnabled": true
     }
   },
@@ -116,6 +118,27 @@ Complete example `config.json` for a fully configured OneRoom Health kiosk with 
           "deviceId": "28e6:4074"
         }
       ]
+    },
+    "biamp": {
+      "enabled": true,
+      "monitorInterval": 5.0,
+      "devices": [
+        {
+          "id": "biamp-main",
+          "name": "Biamp Parle VBC 2800",
+          "model": "Parle VBC 2800",
+          "ipAddress": "10.1.1.50",
+          "port": 23,
+          "username": "control",
+          "password": ""
+        }
+      ]
+    },
+    "media": {
+      "enabled": true,
+      "baseDirectory": "C:\\Users\\CareWall\\Videos",
+      "additionalDirectories": [],
+      "allowedExtensions": ["mp4", "webm", "ogg", "mp3", "wav", "m4a"]
     }
   }
 }
@@ -308,6 +331,62 @@ Controls network speakers via HTTP API.
 | `id` | Yes | Unique identifier |
 | `name` | Yes | Human-readable name |
 | `deviceId` | No | USB/Network device identifier |
+
+---
+
+### Biamp Module
+
+Controls Biamp Parle VBC 2800 video conferencing codecs via Telnet.
+
+```json
+"biamp": {
+  "enabled": true,
+  "monitorInterval": 5.0,
+  "devices": [
+    {
+      "id": "biamp-main",
+      "name": "Biamp Parle VBC 2800",
+      "model": "Parle VBC 2800",
+      "ipAddress": "10.1.1.50",
+      "port": 23,
+      "username": "control",
+      "password": ""
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Unique identifier |
+| `name` | Yes | Human-readable name |
+| `model` | No | Device model (for reference) |
+| `ipAddress` | Yes | Device IP address |
+| `port` | No | Telnet port (default: 23) |
+| `username` | No | Telnet login username (default: "control") |
+| `password` | No | Telnet login password |
+
+---
+
+### Media Serving
+
+Enables an HTTP endpoint on the Hardware API server (port 8081) to serve local media files for frontend use.
+
+```json
+"media": {
+  "enabled": true,
+  "baseDirectory": "C:\\Users\\CareWall\\Videos",
+  "additionalDirectories": [],
+  "allowedExtensions": ["mp4", "webm", "ogg", "mp3", "wav", "m4a"]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `enabled` | No | Enable media serving endpoint (default: false) |
+| `baseDirectory` | Yes (if enabled) | Base directory for media files (supports environment variables) |
+| `additionalDirectories` | No | Additional directories to search |
+| `allowedExtensions` | No | Allowed file extensions (default: mp4, webm, ogg, mp3, wav, m4a) |
 
 ---
 

@@ -201,14 +201,14 @@ public static class ChromiumController
         .WithDescription("Navigate the browser to a new URL");
 
         // POST /api/v1/chromium/{id}/url - Set browser URL (alternate method)
-        group.MapPost("/{id}/url", async (string id, [FromBody] UrlRequest request) =>
-            await HandleSetUrl(id, "POST", request))
-        .Produces<object>(200)
-        .Produces<object>(400)
-        .Produces<object>(404)
-        .Produces<object>(500)
-        .WithSummary("Set browser URL (POST)")
-        .WithDescription("Navigate the browser to a new URL");
+        // group.MapPost("/{id}/url", async (string id, [FromBody] UrlRequest request) =>
+        //     await HandleSetUrl(id, "POST", request))
+        // .Produces<object>(200)
+        // .Produces<object>(400)
+        // .Produces<object>(404)
+        // .Produces<object>(500)
+        // .WithSummary("Set browser URL (POST)")
+        // .WithDescription("Navigate the browser to a new URL");
 
         // POST /api/v1/chromium/{id}/open - Open browser (no-op for WebView)
         group.MapPost("/{id}/open", (string id) =>

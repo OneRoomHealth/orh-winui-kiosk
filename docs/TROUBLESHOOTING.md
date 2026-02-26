@@ -150,7 +150,7 @@ taskkill /PID <PID> /F
 **Solutions:**
 1. Check internet connectivity
 2. Check firewall settings
-3. Try different URL (edit `MainWindow.xaml.cs` line 106)
+3. Try different URL (edit `defaultUrl` in `%ProgramData%\OneRoomHealth\Kiosk\config.json`)
 4. Check Event Viewer for WebView2 errors
 
 ### App Crashes Immediately
@@ -391,5 +391,5 @@ When the app is working correctly, you should see:
 
 ---
 
-**For additional help, see:** [README.md](README.md) | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+**For additional help, see:** [README.md](../README.md) | [DEPLOYMENT_GUIDE.md](../DEPLOYMENT_GUIDE.md)
 

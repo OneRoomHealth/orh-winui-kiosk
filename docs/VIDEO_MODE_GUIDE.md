@@ -38,14 +38,12 @@ Edit `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 ```json
 {
   "kiosk": {
+    "targetMonitorIndex": 2,
     "videoMode": {
       "enabled": true,
       "carescapeVideoPath": "C:\\Videos\\carescape.mp4",
       "demoVideoPath1": "C:\\Videos\\demo1.mp4",
       "demoVideoPath2": "C:\\Videos\\demo2.mp4",
-      "carescapeVolume": 50,
-      "demoVolume": 75,
-      "targetMonitor": 2,
       "flicButtonEnabled": true
     }
   }
@@ -64,16 +62,18 @@ Edit `%ProgramData%\OneRoomHealth\Kiosk\config.json`:
 
 ## Configuration Options
 
+Located at `kiosk.videoMode` in config.json:
+
 | Setting | Description | Default |
 |---------|-------------|---------|
 | `enabled` | Enable/disable video mode | `false` |
 | `carescapeVideoPath` | Path to looping carescape video | `C:\Videos\carescape.mp4` |
 | `demoVideoPath1` | Path to first demo video | `C:\Videos\demo1.mp4` |
 | `demoVideoPath2` | Path to second demo video | `C:\Videos\demo2.mp4` |
-| `carescapeVolume` | Volume for carescape (0-100) | `50` |
-| `demoVolume` | Volume for demo videos (0-100) | `75` |
-| `targetMonitor` | Monitor number (1-based) | `1` |
+| `mpvPath` | Custom MPV executable path (auto-detected if null) | `null` |
 | `flicButtonEnabled` | Enable Flic button control | `true` |
+
+The target monitor is set via `kiosk.targetMonitorIndex` (1-based). Volume is controlled via the Windows Volume Mixer.
 
 ---
 
@@ -205,7 +205,7 @@ When video mode is enabled:
 
 ## See Also
 
-- [Deployment Guide](DEPLOYMENT_GUIDE.md) - Full deployment instructions
+- [Deployment Guide](../DEPLOYMENT_GUIDE.md) - Full deployment instructions
 - [Troubleshooting Guide](TROUBLESHOOTING.md) - Common issues and solutions
-- [Configuration Reference](CONFIGURATION.md) - All configuration options
+- [Configuration Reference](configuration.md) - All configuration options
 

@@ -30,6 +30,7 @@ public partial class App : Application
 	private HealthVisualizationService? _healthVisualizationService;
 	private CancellationTokenSource? _servicesCts;
 	private static bool _isHardwareApiMode = false;
+	private readonly SemaphoreSlim _modeSwitchLock = new(1, 1);
 
 	/// <summary>
 	/// Provides access to the hardware health visualization service for the debug panel.
@@ -79,20 +80,44 @@ public partial class App : Application
 		Debug.WriteLine("App constructor completed");
 	}
 
+	private bool _handlingUnhandledException = false;
+
 	private void App_UnhandledException(object sender, Microsoft.UI.Xaml.UnhandledExceptionEventArgs e)
 	{
-		// Log the exception
-		Logger.Log($"UNHANDLED EXCEPTION: {e.Exception.Message}");
-		Logger.Log(e.Exception.StackTrace ?? "<no stack>");
-		
+		// Guard against re-entrancy (WinUI can fire this recursively when its
+		// internal error ContentDialog conflicts with itself)
+		if (_handlingUnhandledException)
+		{
+			try { Logger.Log($"UNHANDLED EXCEPTION (re-entrant, suppressed): {e.Exception.Message}"); } catch { }
+			e.Handled = true;
+			return;
+		}
+
+		_handlingUnhandledException = true;
 		try
 		{
-			MessageBoxW(System.IntPtr.Zero, $"An unrecoverable error occurred.\n\n{e.Exception.Message}", "Kiosk App Error", 0x00000010 /* MB_ICONERROR */);
-		}
-		catch { }
+			// Log the exception
+			Logger.Log($"UNHANDLED EXCEPTION: {e.Exception.Message}");
+			Logger.Log(e.Exception.StackTrace ?? "<no stack>");
+			if (e.Exception.InnerException != null)
+			{
+				Logger.Log($"  Inner: {e.Exception.InnerException.Message}");
+				Logger.Log(e.Exception.InnerException.StackTrace ?? "<no inner stack>");
+			}
 
-		// Prevent crash to allow log capture in some cases
-		e.Handled = true;
+			try
+			{
+				MessageBoxW(System.IntPtr.Zero, $"An unrecoverable error occurred.\n\n{e.Exception.Message}", "Kiosk App Error", 0x00000010 /* MB_ICONERROR */);
+			}
+			catch { }
+
+			// Prevent crash to allow log capture in some cases
+			e.Handled = true;
+		}
+		finally
+		{
+			_handlingUnhandledException = false;
+		}
 	}
 
 	protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
@@ -345,6 +370,14 @@ public partial class App : Application
 	/// <param name="mainWindow">The MainWindow to use for WebView navigation.</param>
 	public async Task EnableHardwareApiModeAsync(MainWindow? mainWindow = null)
 	{
+		if (!await _modeSwitchLock.WaitAsync(TimeSpan.FromSeconds(30)))
+		{
+			Logger.Log("EnableHardwareApiModeAsync: Timed out waiting for mode switch lock");
+			return;
+		}
+
+		try
+		{
 		if (_isHardwareApiMode)
 		{
 			Logger.Log("Hardware API mode already enabled");
@@ -470,6 +503,11 @@ public partial class App : Application
 		{
 			Logger.Log("Warning: HardwareApiServer not configured, cannot enable Hardware API mode");
 		}
+		}
+		finally
+		{
+			_modeSwitchLock.Release();
+		}
 	}
 
 	/// <summary>
@@ -479,6 +517,14 @@ public partial class App : Application
 	/// </summary>
 	public async Task DisableHardwareApiModeAsync(MainWindow window)
 	{
+		if (!await _modeSwitchLock.WaitAsync(TimeSpan.FromSeconds(30)))
+		{
+			Logger.Log("DisableHardwareApiModeAsync: Timed out waiting for mode switch lock");
+			return;
+		}
+
+		try
+		{
 		if (!_isHardwareApiMode)
 		{
 			Logger.Log("Hardware API mode already disabled");
@@ -528,6 +574,11 @@ public partial class App : Application
 		_ = LocalCommandServer.StartAsync(window);
 		_isHardwareApiMode = false;
 		Logger.Log("LocalCommandServer mode enabled - listening on port 8787");
+		}
+		finally
+		{
+			_modeSwitchLock.Release();
+		}
 	}
 
 	/// <summary>

@@ -20,7 +20,7 @@ The integration of workstation-api hardware modules into orh-winui-kiosk is **10
 | Speaker Module | ✅ Complete | Network speaker support |
 | Camera Module | ✅ Complete | Direct Huddly SDK integration |
 | Lighting Module | ✅ Complete | DMX512 via FTD2XX_NET |
-| API Endpoints | ✅ 100% | 45+ endpoints implemented |
+| API Endpoints | ✅ 100% | 55+ endpoints implemented |
 | Debug Mode | ✅ Complete | Hotkeys, windowing, dev tools, panels |
 | Health Visualization | ✅ Complete | Real-time health panel in debug mode |
 | Unified Logging | ✅ Complete | Serilog with per-module filtering |
@@ -83,6 +83,11 @@ HardwareManager → IHardwareModule → Controllers → Kestrel
 - **Features:** Device enumeration, per-device volume, network speaker support
 - **Endpoints:** 4+ endpoints
 
+### Biamp Module ✅
+- **Files:** `BiampModule.cs`, `BiampDeviceState.cs`, `BiampController.cs`
+- **Features:** Telnet-based control for Biamp Parle VBC 2800 codecs, device health monitoring
+- **Endpoints:** 4+ endpoints
+
 ---
 
 ## Debug Mode Features
@@ -116,9 +121,9 @@ All resource disposal issues have been addressed:
 
 ---
 
-## Removed Components
+## Browser Integration
 
-**Chromium Module** was removed as WebView2 handles all browser functionality natively within the WinUI 3 application. No separate browser process management is needed.
+The standalone **Chromium Module** (which managed a separate browser process in Python) was replaced by WebView2 in the WinUI 3 application. However, workstation-api-compatible **Chromium endpoints** are still exposed via `ChromiumController.cs` for remote URL navigation and browser status queries. These endpoints control the embedded WebView2 instance rather than an external process.
 
 ---
 
@@ -133,7 +138,9 @@ All resource disposal issues have been addressed:
 | System Audio | 4 |
 | Microphone | 6 |
 | Speaker | 4+ |
-| **Total** | **45+** |
+| Biamp | 4+ |
+| Chromium | 6 |
+| **Total** | **55+** |
 
 ---
 
