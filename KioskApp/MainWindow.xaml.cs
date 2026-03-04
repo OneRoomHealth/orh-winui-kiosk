@@ -20,6 +20,7 @@ namespace KioskApp;
 /// - MainWindow.MediaDevices.cs - Camera/microphone device management
 /// - MainWindow.Panels.cs - Navigation handlers, health panel, log viewer
 /// - MainWindow.DeviceControl.cs - Device Control tab (REST API hardware control)
+/// - MainWindow.Tabs.cs - Tab bar management for techtablet machine type
 /// </summary>
 public sealed partial class MainWindow : Window
 {
@@ -49,6 +50,9 @@ public sealed partial class MainWindow : Window
     /// Indicates whether the application is in video mode (vs screensaver/WebView mode).
     /// </summary>
     private bool _isVideoMode = false;
+
+    /// <summary>True when machineType is "techtablet"; enables tab bar and touch gestures.</summary>
+    private bool _isTabMode = false;
 
     #endregion
 

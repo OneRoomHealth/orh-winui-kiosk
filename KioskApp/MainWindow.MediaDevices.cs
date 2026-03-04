@@ -549,19 +549,33 @@ public sealed partial class MainWindow
             }
         }
 
-        // Final fallback: auto-select Huddly camera if available (preferred default over BiAmp)
-        var huddlyIndex = cameras.FindIndex(c => c.Label != null && c.Label.Contains("Huddly", StringComparison.OrdinalIgnoreCase));
-        if (huddlyIndex >= 0)
+        // Final fallback: auto-select based on machine type
+        var machineType = _config.Kiosk.MachineType;
+        if (machineType.Equals("techtablet", StringComparison.OrdinalIgnoreCase))
         {
-            CameraSelector.SelectedIndex = huddlyIndex;
-            _selectedCameraId = cameras[huddlyIndex].DeviceId;
-            _selectedCameraLabel = cameras[huddlyIndex].Label;
+            // techtablet has no preferred camera; leave unselected
+            Logger.Log("techtablet: skipping camera auto-selection");
+            return;
+        }
+
+        string hint = machineType.Equals("providerhub", StringComparison.OrdinalIgnoreCase)
+            ? "NVIDIA Broadcast"
+            : "Huddly";
+
+        var autoIndex = cameras.FindIndex(c => c.Label != null &&
+            c.Label.Contains(hint, StringComparison.OrdinalIgnoreCase));
+
+        if (autoIndex >= 0)
+        {
+            CameraSelector.SelectedIndex = autoIndex;
+            _selectedCameraId   = cameras[autoIndex].DeviceId;
+            _selectedCameraLabel = cameras[autoIndex].Label;
             SavePersistedMediaDevicePreferences();
-            Logger.Log($"Auto-selected Huddly camera at index {huddlyIndex}: {_selectedCameraLabel}");
+            Logger.Log($"Auto-selected {hint} camera at index {autoIndex}: {_selectedCameraLabel}");
         }
         else
         {
-            Logger.Log("No Huddly camera found in enumerated devices for auto-selection");
+            Logger.Log($"No {hint} camera found for auto-selection ({machineType})");
         }
     }
 

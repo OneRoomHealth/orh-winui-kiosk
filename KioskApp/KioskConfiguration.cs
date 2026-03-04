@@ -32,7 +32,8 @@ public class KioskSettings
 {
     /// <summary>
     /// Machine type identifier. Determines hardware profile and default behavior.
-    /// Values: "carewall" (full AV, secondary display), "providerhub" (no DMX, primary display).
+    /// Values: "carewall" (full AV, secondary display), "providerhub" (no DMX, primary display),
+    ///         "techtablet" (browser-only, touch-optimized, tab bar, primary display).
     /// </summary>
     [JsonPropertyName("machineType")]
     public string MachineType { get; set; } = "carewall";

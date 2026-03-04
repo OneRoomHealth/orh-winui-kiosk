@@ -62,6 +62,13 @@ public sealed partial class MainWindow
 
                 await SetupWebViewAsync();
 
+                // Initialize tab mode if techtablet (must run before navigation so _isTabMode
+                // is set when NewWindowRequested fires)
+                if (_config.Kiosk.MachineType.Equals("techtablet", StringComparison.OrdinalIgnoreCase))
+                {
+                    InitializeTabMode();
+                }
+
                 // Navigate to the configured URL
                 _currentUrl = _config.Kiosk.DefaultUrl;
                 Logger.Log($"Setting WebView source to: {_config.Kiosk.DefaultUrl}");
@@ -181,20 +188,21 @@ public sealed partial class MainWindow
         }
 
         var settings = KioskWebView.CoreWebView2.Settings;
+        var isTablet = _config.Kiosk.MachineType.Equals("techtablet", StringComparison.OrdinalIgnoreCase);
 
-        // Kiosk mode settings
+        // Kiosk mode settings (touch-optimised overrides for techtablet)
         settings.IsGeneralAutofillEnabled = false;
         settings.IsPasswordAutosaveEnabled = false;
-        settings.IsPinchZoomEnabled = false;
-        settings.IsSwipeNavigationEnabled = false;
-        settings.IsZoomControlEnabled = false;
-        settings.IsStatusBarEnabled = false;
+        settings.IsPinchZoomEnabled = isTablet;
+        settings.IsSwipeNavigationEnabled = isTablet;
+        settings.IsZoomControlEnabled = isTablet;
+        settings.IsStatusBarEnabled = isTablet;
 
         // Developer tools are initially disabled (unless debug mode is active)
         settings.AreDevToolsEnabled = _isDebugMode;
-        settings.AreDefaultContextMenusEnabled = _isDebugMode;
+        settings.AreDefaultContextMenusEnabled = _isDebugMode || isTablet;
         settings.AreDefaultScriptDialogsEnabled = true;
-        settings.AreBrowserAcceleratorKeysEnabled = false; // Disable F5, Ctrl+R, etc.
+        settings.AreBrowserAcceleratorKeysEnabled = isTablet; // Disable F5, Ctrl+R, etc. except on techtablet
 
         // Navigation event handlers (control-level; only wire once)
         if (!_webViewNavigationCompletedInitialized)
@@ -233,10 +241,19 @@ public sealed partial class MainWindow
                 Logger.Log($"Auto-allowed permission: {args.PermissionKind} for {args.Uri}");
             };
 
-            // Disable new window requests
+            // New window requests: open as tab for techtablet, block for other machine types
             core.NewWindowRequested += (sender, args) =>
             {
-                args.Handled = true; // Block popups and new windows
+                if (_isTabMode)
+                {
+                    var url = args.Uri;
+                    args.Handled = true;
+                    DispatcherQueue.TryEnqueue(async () => await AddNewTabAsync(url));
+                }
+                else
+                {
+                    args.Handled = true; // Block popups for carewall/providerhub
+                }
             };
 
             // Prevent WebView from capturing all keyboard input
@@ -263,6 +280,21 @@ public sealed partial class MainWindow
 
         // Start periodic sync timer to ensure localStorage stays in sync with app prefs
         StartMediaPreferenceSyncTimer();
+    }
+
+    /// <summary>Applies touch-optimised WebView2 settings for techtablet tabs.</summary>
+    private static void ApplyTabletWebViewSettings(CoreWebView2Settings s, bool isDebugMode)
+    {
+        s.IsGeneralAutofillEnabled         = false;
+        s.IsPasswordAutosaveEnabled        = false;
+        s.IsPinchZoomEnabled               = true;
+        s.IsSwipeNavigationEnabled         = true;
+        s.IsZoomControlEnabled             = true;
+        s.IsStatusBarEnabled               = true;
+        s.AreDevToolsEnabled               = isDebugMode;
+        s.AreDefaultContextMenusEnabled    = true;
+        s.AreDefaultScriptDialogsEnabled   = true;
+        s.AreBrowserAcceleratorKeysEnabled = true;
     }
 
     /// <summary>

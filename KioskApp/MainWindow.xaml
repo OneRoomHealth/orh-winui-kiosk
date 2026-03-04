@@ -209,43 +209,68 @@
         <!-- ==================== MAIN CONTENT AREA ==================== -->
         <Grid Grid.Row="1">
             <Grid.RowDefinitions>
+                <RowDefinition x:Name="TabBarRow" Height="Auto"/>  <!-- Tab Bar (techtablet only) -->
                 <RowDefinition Height="*"/>      <!-- WebView -->
                 <RowDefinition Height="Auto"/>   <!-- Bottom Panel (debug mode only) -->
                 <RowDefinition Height="Auto"/>   <!-- Status Bar (debug mode only) -->
             </Grid.RowDefinitions>
 
-            <!-- WebView -->
-            <controls:WebView2 x:Name="KioskWebView"
-                               Grid.Row="0"
-                               HorizontalAlignment="Stretch"
-                               VerticalAlignment="Stretch"
-                               DefaultBackgroundColor="Transparent"/>
-
-            <!-- Status overlay shown during loading/errors -->
-            <Border x:Name="StatusOverlay"
-                    Grid.Row="0"
-                    Background="#80000000"
-                    Visibility="Collapsed">
-                <StackPanel HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Spacing="8">
-                    <TextBlock x:Name="StatusTitle"
-                               Text="Loading kiosk..."
-                               Foreground="White"
-                               FontSize="20"
-                               TextAlignment="Center"/>
-                    <TextBlock x:Name="StatusDetail"
-                               Text=""
-                               Foreground="White"
-                               Opacity="0.8"
-                               TextAlignment="Center"
-                               TextWrapping="WrapWholeWords"
-                               MaxWidth="800"/>
-                </StackPanel>
+            <!-- Tab Bar (techtablet only, initially Collapsed) -->
+            <Border x:Name="TabBarContainer" Grid.Row="0" Height="48" Visibility="Collapsed"
+                    Background="#1A1A2E" BorderBrush="#2D2D4E" BorderThickness="0,0,0,1">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <ScrollViewer x:Name="TabBarScrollViewer" Grid.Column="0"
+                                  HorizontalScrollBarVisibility="Auto"
+                                  VerticalScrollBarVisibility="Hidden"
+                                  Margin="4,4">
+                        <StackPanel x:Name="TabBarPanel" Orientation="Horizontal" Spacing="2"/>
+                    </ScrollViewer>
+                    <Button x:Name="NewTabButton" Grid.Column="1"
+                            Width="48" Height="48" Padding="0"
+                            Click="NewTabButton_Click"
+                            ToolTipService.ToolTip="Open new tab">
+                        <TextBlock Text="+" FontSize="22" HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" Foreground="#CCCCCC"/>
+                    </Button>
+                </Grid>
             </Border>
 
+            <!-- WebView -->
+            <Grid x:Name="WebViewContainer" Grid.Row="1">
+                <controls:WebView2 x:Name="KioskWebView"
+                                   HorizontalAlignment="Stretch"
+                                   VerticalAlignment="Stretch"
+                                   DefaultBackgroundColor="Transparent"/>
+
+                <!-- Status overlay shown during loading/errors -->
+                <Border x:Name="StatusOverlay"
+                        Background="#80000000"
+                        Visibility="Collapsed">
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Spacing="8">
+                        <TextBlock x:Name="StatusTitle"
+                                   Text="Loading kiosk..."
+                                   Foreground="White"
+                                   FontSize="20"
+                                   TextAlignment="Center"/>
+                        <TextBlock x:Name="StatusDetail"
+                                   Text=""
+                                   Foreground="White"
+                                   Opacity="0.8"
+                                   TextAlignment="Center"
+                                   TextWrapping="WrapWholeWords"
+                                   MaxWidth="800"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
             <!-- ===== TABBED BOTTOM PANEL ===== -->
-            <Grid x:Name="TabbedBottomPanel" Grid.Row="1"
+            <Grid x:Name="TabbedBottomPanel" Grid.Row="2"
                   Background="#252526"
                   Height="280"
                   MinHeight="120"
@@ -785,7 +810,7 @@
             </Grid>
 
             <!-- ===== STATUS BAR ===== -->
-            <Grid x:Name="DebugStatusBar" Grid.Row="2"
+            <Grid x:Name="DebugStatusBar" Grid.Row="3"
                   Height="22" Background="#007ACC"
                   Visibility="Collapsed">
                 <Grid.ColumnDefinitions>
