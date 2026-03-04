@@ -70,6 +70,18 @@ public class VideoModeSettings
 
     [JsonPropertyName("flicButtonEnabled")]
     public bool FlicButtonEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Ordered list of video file paths for Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 hotkeys.
+    /// Each path plays on a continuous loop. Empty strings are skipped.
+    /// </summary>
+    [JsonPropertyName("videoPaths")]
+    public List<string> VideoPaths { get; set; } = new()
+    {
+        @"C:\Videos\video1.mp4",
+        @"C:\Videos\video2.mp4",
+        @"C:\Videos\video3.mp4"
+    };
 }
 
 /// <summary>

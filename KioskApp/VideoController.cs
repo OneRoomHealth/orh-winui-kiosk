@@ -104,6 +104,50 @@ namespace KioskApp
         }
 
         /// <summary>
+        /// Play a specific video from the VideoPaths list by 1-based index, looping indefinitely.
+        /// Maps to Ctrl+Alt+1 (index 1), Ctrl+Alt+2 (index 2), Ctrl+Alt+3 (index 3).
+        /// </summary>
+        public async Task PlayVideoByIndexAsync(int index)
+        {
+            if (_settings.VideoPaths == null || index < 1 || index > _settings.VideoPaths.Count)
+            {
+                Logger.Log($"PlayVideoByIndexAsync: no video configured at index {index} (paths count: {_settings.VideoPaths?.Count ?? 0})");
+                return;
+            }
+
+            var videoPath = _settings.VideoPaths[index - 1];
+            if (string.IsNullOrWhiteSpace(videoPath))
+            {
+                Logger.Log($"PlayVideoByIndexAsync: videoPaths[{index - 1}] is empty, nothing to play");
+                return;
+            }
+
+            try
+            {
+                // Cancel any running demo monitoring
+                if (_isDemoPlaying)
+                {
+                    _cancellationSource?.Cancel();
+                    _cancellationSource?.Dispose();
+                    _cancellationSource = new CancellationTokenSource();
+                }
+
+                _isDemoPlaying = false;
+                _currentDemoIndex = 0;
+
+                bool success = await StartMpvAsync(videoPath, loop: true);
+                if (success)
+                    Logger.Log($"Video index {index} started (looping): {videoPath}");
+                else
+                    Logger.Log($"Failed to start video index {index}: {videoPath}");
+            }
+            catch (Exception ex)
+            {
+                Logger.Log($"Error playing video index {index}: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Play carescape video (loops indefinitely)
         /// </summary>
         public async Task PlayCarescapeVideoAsync()
@@ -346,7 +390,8 @@ namespace KioskApp
         }
 
         /// <summary>
-        /// Validate that video files exist
+        /// Validate that video files exist. Returns false only if core carescape/demo paths are missing.
+        /// Missing videoPaths entries are logged as warnings but do not block initialization.
         /// </summary>
         private bool ValidateVideoPaths()
         {
@@ -366,6 +411,19 @@ namespace KioskApp
             {
                 Logger.Log($"Demo video 2 not found: {_settings.DemoVideoPath2}");
                 return false;
+            }
+
+            // Warn (don't fail) for missing indexed video paths
+            if (_settings.VideoPaths != null)
+            {
+                for (int i = 0; i < _settings.VideoPaths.Count; i++)
+                {
+                    var path = _settings.VideoPaths[i];
+                    if (!string.IsNullOrWhiteSpace(path) && !File.Exists(path))
+                    {
+                        Logger.Log($"[WARNING] videoPaths[{i}] not found (Ctrl+Alt+{i + 1} will not work): {path}");
+                    }
+                }
             }
 
             return true;

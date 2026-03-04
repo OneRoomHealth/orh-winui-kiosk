@@ -56,6 +56,9 @@ public sealed partial class MainWindow
                 Logger.Log("    Ctrl+Alt+R: Play carescape video (enters video mode if needed)");
                 Logger.Log("    Ctrl+Alt+D: Toggle between demo videos (enters video mode if needed)");
                 Logger.Log("    Ctrl+Alt+E: Switch to SCREENSAVER MODE");
+                Logger.Log("    Ctrl+Alt+1: Play videoPaths[0] on loop (enters video mode if needed)");
+                Logger.Log("    Ctrl+Alt+2: Play videoPaths[1] on loop (enters video mode if needed)");
+                Logger.Log("    Ctrl+Alt+3: Play videoPaths[2] on loop (enters video mode if needed)");
             }
             Logger.Log("======================");
         }
@@ -122,7 +125,8 @@ public sealed partial class MainWindow
 
             // Log the key press (only log our hotkey combinations to avoid log spam)
             if ((ctrlPressed && shiftPressed && (vkCode == VirtualKey.I || vkCode == VirtualKey.Q)) ||
-                (ctrlPressed && altPressed && (vkCode == VirtualKey.D || vkCode == VirtualKey.E || vkCode == VirtualKey.R)))
+                (ctrlPressed && altPressed && (vkCode == VirtualKey.D || vkCode == VirtualKey.E || vkCode == VirtualKey.R ||
+                                               vkCode == VirtualKey.Number1 || vkCode == VirtualKey.Number2 || vkCode == VirtualKey.Number3)))
             {
                 Logger.Log($"[HOTKEY] LowLevelKeyboardHook: Key={vkCode}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
             }
@@ -145,7 +149,8 @@ public sealed partial class MainWindow
                 DispatcherQueue.TryEnqueue(async () => await HandleExitRequest());
             }
             // Video/Screensaver mode toggle controls
-            else if (ctrlPressed && altPressed && (vkCode == VirtualKey.D || vkCode == VirtualKey.E || vkCode == VirtualKey.R))
+            else if (ctrlPressed && altPressed && (vkCode == VirtualKey.D || vkCode == VirtualKey.E || vkCode == VirtualKey.R ||
+                                                   vkCode == VirtualKey.Number1 || vkCode == VirtualKey.Number2 || vkCode == VirtualKey.Number3))
             {
                 handled = HandleVideoModeHotkey(vkCode, "keyboard hook");
             }
@@ -178,7 +183,8 @@ public sealed partial class MainWindow
 
             // Log for debugging (only log our hotkey combinations)
             if ((ctrlPressed && shiftPressed && (e.Key == VirtualKey.I || e.Key == VirtualKey.Q)) ||
-                (ctrlPressed && altPressed && (e.Key == VirtualKey.D || e.Key == VirtualKey.E || e.Key == VirtualKey.R)))
+                (ctrlPressed && altPressed && (e.Key == VirtualKey.D || e.Key == VirtualKey.E || e.Key == VirtualKey.R ||
+                                               e.Key == VirtualKey.Number1 || e.Key == VirtualKey.Number2 || e.Key == VirtualKey.Number3)))
             {
                 Logger.Log($"[HOTKEY] Content_PreviewKeyDown: Key={e.Key}, Ctrl={ctrlPressed}, Shift={shiftPressed}, Alt={altPressed}");
             }
@@ -194,7 +200,8 @@ public sealed partial class MainWindow
                 e.Handled = true;
                 await HandleExitRequest();
             }
-            else if (ctrlPressed && altPressed && (e.Key == VirtualKey.D || e.Key == VirtualKey.E || e.Key == VirtualKey.R))
+            else if (ctrlPressed && altPressed && (e.Key == VirtualKey.D || e.Key == VirtualKey.E || e.Key == VirtualKey.R ||
+                                                   e.Key == VirtualKey.Number1 || e.Key == VirtualKey.Number2 || e.Key == VirtualKey.Number3))
             {
                 if (HandleVideoModeHotkey(e.Key, "PreviewKeyDown"))
                 {
@@ -319,6 +326,27 @@ public sealed partial class MainWindow
             await SwitchToVideoModeAndPlayCarescape();
         };
         content.KeyboardAccelerators.Add(carescapeAccel);
+
+        // Play indexed video: Ctrl+Alt+1 / Ctrl+Alt+2 / Ctrl+Alt+3
+        foreach (var (key, idx) in new[] {
+            (VirtualKey.Number1, 1),
+            (VirtualKey.Number2, 2),
+            (VirtualKey.Number3, 3) })
+        {
+            var videoIndex = idx; // capture loop variable
+            var accel = new KeyboardAccelerator
+            {
+                Key = key,
+                Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu
+            };
+            accel.Invoked += async (s, e) =>
+            {
+                e.Handled = true;
+                Logger.Log($"Play video index {videoIndex} accelerator invoked");
+                await SwitchToVideoModeAndPlayByIndex(videoIndex);
+            };
+            content.KeyboardAccelerators.Add(accel);
+        }
     }
 
     #endregion
@@ -354,6 +382,21 @@ public sealed partial class MainWindow
             case VirtualKey.R:
                 Logger.Log($"Play carescape (Ctrl+Alt+R) via {source}");
                 DispatcherQueue.TryEnqueue(async () => await SwitchToVideoModeAndPlayCarescape());
+                return true;
+
+            case VirtualKey.Number1:
+                Logger.Log($"Play video 1 (Ctrl+Alt+1) via {source}");
+                DispatcherQueue.TryEnqueue(async () => await SwitchToVideoModeAndPlayByIndex(1));
+                return true;
+
+            case VirtualKey.Number2:
+                Logger.Log($"Play video 2 (Ctrl+Alt+2) via {source}");
+                DispatcherQueue.TryEnqueue(async () => await SwitchToVideoModeAndPlayByIndex(2));
+                return true;
+
+            case VirtualKey.Number3:
+                Logger.Log($"Play video 3 (Ctrl+Alt+3) via {source}");
+                DispatcherQueue.TryEnqueue(async () => await SwitchToVideoModeAndPlayByIndex(3));
                 return true;
 
             default:

@@ -2,7 +2,7 @@
 
 Complete reference for all configuration options in the OneRoom Health Kiosk App.
 
-**Last Updated:** February 2026
+**Last Updated:** March 2026
 
 ---
 
@@ -29,6 +29,11 @@ The app automatically creates a default configuration file if it doesn't exist.
       "carescapeVideoPath": "C:\\Videos\\carescape.mp4",
       "demoVideoPath1": "C:\\Videos\\demo1.mp4",
       "demoVideoPath2": "C:\\Videos\\demo2.mp4",
+      "videoPaths": [
+        "C:\\Videos\\video1.mp4",
+        "C:\\Videos\\video2.mp4",
+        "C:\\Videos\\video3.mp4"
+      ],
       "mpvPath": null,
       "flicButtonEnabled": true
     }
@@ -102,7 +107,7 @@ The app automatically creates a default configuration file if it doesn't exist.
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `defaultUrl` | String | OneRoom Frontend URL | URL to load when app starts |
-| `machineType` | String | `"carewall"` | Hardware profile. `"carewall"` = full AV with secondary display, `"providerhub"` = no DMX, primary display |
+| `machineType` | String | `"carewall"` | Hardware profile. `"carewall"` = full AV with secondary display, `"providerhub"` = no DMX, primary display, `"techtablet"` = browser-only, touch-optimized, tab bar, primary display |
 | `targetMonitorIndex` | Integer | `1` | Monitor index (1-based). `1` = primary, `2` = secondary, etc. |
 
 **Note:** The kiosk always runs fullscreen and always-on-top. These behaviors are not configurable.
@@ -119,6 +124,7 @@ Located at `kiosk.videoMode`:
 | `carescapeVideoPath` | String | `C:\Videos\carescape.mp4` | Path to looping Carescape video file |
 | `demoVideoPath1` | String | `C:\Videos\demo1.mp4` | Path to first demo video file |
 | `demoVideoPath2` | String | `C:\Videos\demo2.mp4` | Path to second demo video file |
+| `videoPaths` | String[] | 3 default entries | Ordered list of video paths for `Ctrl+Alt+1`, `Ctrl+Alt+2`, `Ctrl+Alt+3`; each plays on loop |
 | `mpvPath` | String | `null` | Custom path to MPV executable (auto-detected if null) |
 | `flicButtonEnabled` | Boolean | `true` | Enable Flic button integration |
 
@@ -414,6 +420,11 @@ Supported in path settings:
       "carescapeVideoPath": "C:\\Users\\CareWall\\Videos\\carescape.mp4",
       "demoVideoPath1": "C:\\Users\\CareWall\\Videos\\demo1.mp4",
       "demoVideoPath2": "C:\\Users\\CareWall\\Videos\\demo2.mp4",
+      "videoPaths": [
+        "C:\\Users\\CareWall\\Videos\\video1.mp4",
+        "C:\\Users\\CareWall\\Videos\\video2.mp4",
+        "C:\\Users\\CareWall\\Videos\\video3.mp4"
+      ],
       "flicButtonEnabled": true
     }
   }

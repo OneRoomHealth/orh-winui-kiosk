@@ -1398,6 +1398,34 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
+    /// Switches to video mode (if needed) and plays the video at the given 1-based index from
+    /// <c>kiosk.videoMode.videoPaths</c>, looping indefinitely.
+    /// Ctrl+Alt+1, Ctrl+Alt+2, Ctrl+Alt+3 handlers.
+    /// </summary>
+    private async Task SwitchToVideoModeAndPlayByIndex(int index)
+    {
+        try
+        {
+            bool entered = await EnterVideoModeIfNeeded();
+            if (!entered)
+            {
+                Logger.Log($"Failed to enter video mode, skipping video index {index} playback");
+                return;
+            }
+
+            if (_videoController != null)
+            {
+                await _videoController.PlayVideoByIndexAsync(index);
+                Logger.Log($"Video index {index} started");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Log($"Error playing video index {index}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Legacy method - switches to video mode and starts demo toggle.
     /// </summary>
     private async Task SwitchToVideoMode()
