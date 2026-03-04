@@ -127,7 +127,7 @@ public sealed partial class MainWindow
         if (tab.WebView != null)
         {
             WebViewContainer.Children.Remove(tab.WebView);
-            tab.WebView.CoreWebView2?.Close();
+            tab.WebView.Close();
         }
         _tabs.RemoveAt(index);
         Logger.Log($"[TABS] Tab closed: {tab.Title}");
