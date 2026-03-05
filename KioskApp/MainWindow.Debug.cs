@@ -35,6 +35,9 @@ public sealed partial class MainWindow
     // Suppress API mode toggle event when programmatically changing the toggle
     private bool _suppressApiModeToggleEvent = false;
 
+    // Suppress machine type selector event when programmatically setting the selection
+    private bool _suppressMachineTypeEvent = false;
+
     // Prevent concurrent mode switches (reentrancy guard)
     private bool _isModeSwitching = false;
 
@@ -211,15 +214,28 @@ public sealed partial class MainWindow
                         _suppressApiModeToggleEvent = false;
                     }
 
-                    // Update URL textbox with current URL
-                    if (!string.IsNullOrEmpty(_currentUrl))
+                    // Initialize machine type selector to reflect current config (suppress event)
+                    _suppressMachineTypeEvent = true;
+                    try
                     {
-                        UrlTextBox.Text = _currentUrl;
+                        MachineTypeSelector.SelectedIndex = _config.Kiosk.MachineType.ToLowerInvariant() switch
+                        {
+                            "providerhub" => 1,
+                            "techtablet"  => 2,
+                            _             => 0
+                        };
                     }
+                    finally
+                    {
+                        _suppressMachineTypeEvent = false;
+                    }
+
+                    // Update URL textbox with active tab URL
+                    var activeUrl = _isTabMode ? GetActiveTabUrl() : _currentUrl;
+                    if (!string.IsNullOrEmpty(activeUrl))
+                        UrlTextBox.Text = activeUrl;
                     else if (KioskWebView?.Source != null)
-                    {
                         UrlTextBox.Text = KioskWebView.Source.ToString();
-                    }
 
                     // Enable WebView2 developer features
                     if (KioskWebView?.CoreWebView2?.Settings != null)
@@ -669,6 +685,54 @@ public sealed partial class MainWindow
             _isModeSwitching = false;
             toggle.IsEnabled = true;
         }
+    }
+
+    /// <summary>
+    /// Handles the machine type ComboBox selection changing.
+    /// Updates config immediately and applies what can be changed at runtime (tab bar visibility).
+    /// A restart is required for full effect (hardware modules, WebView touch settings, camera auto-selection).
+    /// </summary>
+    private void MachineTypeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressMachineTypeEvent) return;
+        if (MachineTypeSelector.SelectedItem is not ComboBoxItem item) return;
+
+        var newType = item.Tag?.ToString() ?? "carewall";
+        var oldType = _config.Kiosk.MachineType;
+
+        if (string.Equals(newType, oldType, StringComparison.OrdinalIgnoreCase)) return;
+
+        Logger.LogSecurityEvent("MachineTypeChanged",
+            $"Machine type changed from '{oldType}' to '{newType}' via debug mode");
+
+        _config.Kiosk.MachineType = newType;
+        ConfigurationManager.Save(_config);
+
+        // Apply tab bar visibility immediately
+        var isTablet = newType.Equals("techtablet", StringComparison.OrdinalIgnoreCase);
+        if (isTablet && !_isTabMode)
+        {
+            // Activate tab bar; initialize tabs if this is the first time
+            if (_tabs.Count == 0)
+                InitializeTabMode();
+            else
+            {
+                _isTabMode = true;
+                TabBarContainer.Visibility = Visibility.Visible;
+            }
+            Logger.Log("[MACHINE TYPE] techtablet: tab bar enabled");
+        }
+        else if (!isTablet && _isTabMode)
+        {
+            // Switch to first tab so KioskWebView is visible, then hide the bar
+            if (_tabs.Count > 0) SwitchToTab(_tabs[0]);
+            _isTabMode = false;
+            TabBarContainer.Visibility = Visibility.Collapsed;
+            Logger.Log("[MACHINE TYPE] tab bar hidden");
+        }
+
+        ShowStatus("Machine Type Changed", $"Saved as \"{newType}\". Restart for full effect (hardware, camera, touch settings).");
+        _ = Task.Delay(3500).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
     }
 
     #endregion

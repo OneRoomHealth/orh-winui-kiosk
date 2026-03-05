@@ -644,8 +644,9 @@ public sealed partial class MainWindow
                     _currentUrl = uri;
                     Logger.Log($"Current URL updated to: {_currentUrl}");
 
-                    // Update URL textbox if in debug mode
-                    if (_isDebugMode && UrlTextBox != null)
+                    // Update URL textbox if in debug mode.
+                    // In tab mode, only update when the first tab (KioskWebView) is active.
+                    if (_isDebugMode && UrlTextBox != null && (!_isTabMode || _activeTabIndex == 0))
                     {
                         UrlTextBox.Text = _currentUrl;
                     }

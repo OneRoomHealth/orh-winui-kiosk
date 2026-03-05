@@ -89,6 +89,15 @@ public sealed partial class MainWindow
         webView.CoreWebView2.DocumentTitleChanged += (_, _) =>
             UpdateTabTitle(newTab, webView.CoreWebView2.DocumentTitle);
 
+        // Track URL changes so the debug URL bar stays in sync
+        webView.CoreWebView2.NavigationCompleted += (_, _) =>
+        {
+            var navigatedUrl = webView.Source?.ToString() ?? "";
+            newTab.Url = navigatedUrl;
+            if (_isDebugMode && _activeTabIndex == _tabs.IndexOf(newTab) && UrlTextBox != null)
+                DispatcherQueue.TryEnqueue(() => { if (UrlTextBox != null) UrlTextBox.Text = navigatedUrl; });
+        };
+
         // New-window requests from this tab → open as another tab
         webView.CoreWebView2.NewWindowRequested += (_, args) =>
         {
@@ -114,6 +123,21 @@ public sealed partial class MainWindow
             UpdateTabButtonStyle(_tabs[i].TabButton, i == targetIndex);
         }
         _activeTabIndex = targetIndex;
+
+        // Keep debug URL bar in sync with the newly-active tab
+        if (_isDebugMode && UrlTextBox != null)
+            UrlTextBox.Text = GetActiveTabUrl();
+    }
+
+    /// <summary>Returns the URL of the currently-active tab (or _currentUrl for non-tab mode).</summary>
+    internal string GetActiveTabUrl()
+    {
+        if (!_isTabMode || _activeTabIndex < 0 || _activeTabIndex >= _tabs.Count)
+            return _currentUrl;
+
+        return _activeTabIndex == 0
+            ? (KioskWebView.Source?.ToString() ?? _currentUrl)
+            : (_tabs[_activeTabIndex].WebView?.Source?.ToString() ?? _tabs[_activeTabIndex].Url);
     }
 
     private void CloseTab(TabInfo tab)
@@ -178,10 +202,12 @@ public sealed partial class MainWindow
         var btn = new Button
         {
             Content = inner,
-            Height = 48,
+            Height = 40,
             MinWidth = 100,
             MaxWidth = 200,
             Padding = new Thickness(12, 0, 8, 0),
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(255, 45, 45, 45)),
         };
         btn.Click += (_, _) => SwitchToTab(tab);
         return btn;
@@ -200,6 +226,11 @@ public sealed partial class MainWindow
     private static void MarkTabActive(Button btn) => UpdateTabButtonStyle(btn, true);
     private static void UpdateTabButtonStyle(Button btn, bool active)
     {
-        btn.Opacity = active ? 1.0 : 0.6;
+        // Active tab: lighter gray — Inactive tab: darker gray for clear contrast
+        btn.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+            active
+                ? Windows.UI.Color.FromArgb(255, 63, 63, 63)   // #3F3F3F — active
+                : Windows.UI.Color.FromArgb(255, 37, 37, 38));  // #252526 — inactive (matches bar)
+        btn.Opacity = 1.0;
     }
 }

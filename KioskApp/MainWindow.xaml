@@ -57,6 +57,19 @@
                                       VerticalAlignment="Center"
                                       Style="{StaticResource ApiModeToggleStyle}"/>
                     </StackPanel>
+                    <!-- Machine Type Selector -->
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <TextBlock Text="Type:" Foreground="#858585" FontSize="11"
+                                   FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                        <ComboBox x:Name="MachineTypeSelector"
+                                  MinWidth="110"
+                                  Style="{StaticResource DebugComboBoxStyle}"
+                                  SelectionChanged="MachineTypeSelector_SelectionChanged">
+                            <ComboBoxItem Content="carewall" Tag="carewall"/>
+                            <ComboBoxItem Content="providerhub" Tag="providerhub"/>
+                            <ComboBoxItem Content="techtablet" Tag="techtablet"/>
+                        </ComboBox>
+                    </StackPanel>
                     <!-- API Status -->
                     <StackPanel Orientation="Horizontal" Spacing="4">
                         <TextBlock x:Name="TitleBarApiStatusIcon" Text="&#x25CF;" Foreground="#4EC9B0" FontSize="10" VerticalAlignment="Center"/>
@@ -217,7 +230,7 @@
 
             <!-- Tab Bar (techtablet only, initially Collapsed) -->
             <Border x:Name="TabBarContainer" Grid.Row="0" Height="48" Visibility="Collapsed"
-                    Background="#1A1A2E" BorderBrush="#2D2D4E" BorderThickness="0,0,0,1">
+                    Background="#252526" BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -230,10 +243,10 @@
                         <StackPanel x:Name="TabBarPanel" Orientation="Horizontal" Spacing="2"/>
                     </ScrollViewer>
                     <Button x:Name="NewTabButton" Grid.Column="1"
-                            Width="48" Height="48" Padding="0"
+                            Width="40" Height="40" Padding="0"
                             Click="NewTabButton_Click"
                             ToolTipService.ToolTip="Open new tab">
-                        <TextBlock Text="+" FontSize="22" HorizontalAlignment="Center"
+                        <TextBlock Text="+" FontSize="18" HorizontalAlignment="Center"
                                    VerticalAlignment="Center" Foreground="#CCCCCC"/>
                     </Button>
                 </Grid>
