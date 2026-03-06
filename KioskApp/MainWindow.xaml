@@ -229,7 +229,7 @@
             </Grid.RowDefinitions>
 
             <!-- Tab Bar (techtablet only, initially Collapsed) -->
-            <Border x:Name="TabBarContainer" Grid.Row="0" Height="48" Visibility="Collapsed"
+            <Border x:Name="TabBarContainer" Grid.Row="0" Height="64" Visibility="Collapsed"
                     Background="#252526" BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>

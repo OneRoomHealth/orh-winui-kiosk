@@ -712,12 +712,16 @@ public sealed partial class MainWindow
         var isTablet = newType.Equals("techtablet", StringComparison.OrdinalIgnoreCase);
         if (isTablet && !_isTabMode)
         {
-            // Activate tab bar; initialize tabs if this is the first time
             if (_tabs.Count == 0)
+            {
+                // First time entering techtablet — full initialization (creates inline "+" etc.)
                 InitializeTabMode();
+            }
             else
             {
+                // Tabs already set up from a previous techtablet session; just restore visibility
                 _isTabMode = true;
+                NewTabButton.Visibility = Visibility.Collapsed;
                 TabBarContainer.Visibility = Visibility.Visible;
             }
             Logger.Log("[MACHINE TYPE] techtablet: tab bar enabled");

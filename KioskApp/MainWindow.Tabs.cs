@@ -24,7 +24,8 @@ public sealed partial class MainWindow
 
     // ── State ──────────────────────────────────────────────────────────────
     private readonly List<TabInfo> _tabs = new();
-    private int  _activeTabIndex = -1;
+    private int    _activeTabIndex    = -1;
+    private Button _inlineNewTabButton = null!;  // lives inside TabBarPanel, always last
 
     // ── Initialization ────────────────────────────────────────────────────
     private void InitializeTabMode()
@@ -35,10 +36,16 @@ public sealed partial class MainWindow
         _isTabMode = true;
         TabBarContainer.Visibility = Visibility.Visible;
 
-        // First tab is backed by the already-initialized KioskWebView
+        // The XAML declares NewTabButton in a fixed side column; hide it and replace with
+        // an inline button inside TabBarPanel so "+" always trails directly after the last tab.
+        NewTabButton.Visibility = Visibility.Collapsed;
+        _inlineNewTabButton = BuildInlineNewTabButton();
+
+        // First tab backed by the already-initialized KioskWebView
         var firstTab = new TabInfo { Url = _config.Kiosk.DefaultUrl, Title = "Home" };
         firstTab.TabButton = BuildTabButton(firstTab, isFirst: true);
         TabBarPanel.Children.Add(firstTab.TabButton);
+        TabBarPanel.Children.Add(_inlineNewTabButton);   // "+" always last
         _tabs.Add(firstTab);
         _activeTabIndex = 0;
 
@@ -82,7 +89,9 @@ public sealed partial class MainWindow
 
         var newTab = new TabInfo { Url = url, WebView = webView };
         newTab.TabButton = BuildTabButton(newTab, isFirst: false);
-        TabBarPanel.Children.Add(newTab.TabButton);
+        // Insert before the inline "+" so it stays last
+        var plusIndex = TabBarPanel.Children.IndexOf(_inlineNewTabButton);
+        TabBarPanel.Children.Insert(plusIndex >= 0 ? plusIndex : TabBarPanel.Children.Count, newTab.TabButton);
         _tabs.Add(newTab);
 
         // Keep title in sync
@@ -157,21 +166,82 @@ public sealed partial class MainWindow
         Logger.Log($"[TABS] Tab closed: {tab.Title}");
     }
 
+    // ── Active-tab navigation (used by debug URL bar and Back/Forward/Refresh) ──────
+    /// <summary>
+    /// Returns the WebView2 for the currently-active tab.
+    /// Falls back to KioskWebView for tab 0 or when not in tab mode.
+    /// </summary>
+    internal WebView2 GetActiveWebView()
+        => (_isTabMode && _activeTabIndex > 0 && _tabs[_activeTabIndex].WebView != null)
+            ? _tabs[_activeTabIndex].WebView!
+            : KioskWebView;
+
+    /// <summary>
+    /// Navigates the currently-active tab to <paramref name="url"/>.
+    /// In non-tab mode (or on tab 0) this calls through to NavigateToUrl.
+    /// </summary>
+    internal void NavigateActiveTab(string url)
+    {
+        if (!_isTabMode || _activeTabIndex == 0)
+        {
+            NavigateToUrl(url);
+            return;
+        }
+
+        var activeTab = _tabs[_activeTabIndex];
+        if (activeTab.WebView?.CoreWebView2 == null)
+        {
+            Logger.Log("[TABS] NavigateActiveTab: active tab WebView not ready");
+            return;
+        }
+
+        activeTab.Url = url;
+        activeTab.WebView.Source = new Uri(url);
+        Logger.Log($"[TABS] Tab {_activeTabIndex} navigating to: {url}");
+    }
+
     // ── Click handlers ────────────────────────────────────────────────────
     private void NewTabButton_Click(object sender, RoutedEventArgs e)
         => _ = AddNewTabAsync();
 
     // ── Helpers ───────────────────────────────────────────────────────────
+
+    /// <summary>Builds the inline "+" button that lives at the end of TabBarPanel.</summary>
+    private Button BuildInlineNewTabButton()
+    {
+        var label = new TextBlock
+        {
+            Text = "+",
+            FontSize = 22,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment   = VerticalAlignment.Center,
+            Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(255, 204, 204, 204))
+        };
+        var btn = new Button
+        {
+            Content = label,
+            Width   = 56,
+            Height  = 56,
+            Padding = new Thickness(0),
+            Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
+                Windows.UI.Color.FromArgb(255, 37, 37, 38))
+        };
+        ToolTipService.SetToolTip(btn, "Open new tab");
+        btn.Click += (_, _) => _ = AddNewTabAsync();
+        return btn;
+    }
+
     private Button BuildTabButton(TabInfo tab, bool isFirst)
     {
         var titleLabel = new TextBlock
         {
             VerticalAlignment = VerticalAlignment.Center,
-            FontSize = 13,
-            MaxWidth = 140,
+            FontSize = 15,
+            MaxWidth = 160,
             TextTrimming = TextTrimming.CharacterEllipsis,
             Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(
-                Windows.UI.Color.FromArgb(255, 204, 204, 204)),
+                Windows.UI.Color.FromArgb(255, 220, 220, 220)),
             Text = tab.Title
         };
         tab.TitleLabel = titleLabel;
@@ -179,7 +249,7 @@ public sealed partial class MainWindow
         var inner = new StackPanel
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = 10,
             VerticalAlignment = VerticalAlignment.Center
         };
         inner.Children.Add(titleLabel);
@@ -189,10 +259,10 @@ public sealed partial class MainWindow
             var closeBtn = new Button
             {
                 Content = "×",
-                Width = 24,
-                Height = 24,
+                Width = 32,
+                Height = 32,
                 Padding = new Thickness(0),
-                FontSize = 14,
+                FontSize = 16,
                 VerticalAlignment = VerticalAlignment.Center
             };
             closeBtn.Click += (_, _) => CloseTab(tab);
@@ -201,11 +271,11 @@ public sealed partial class MainWindow
 
         var btn = new Button
         {
-            Content = inner,
-            Height = 40,
-            MinWidth = 100,
-            MaxWidth = 200,
-            Padding = new Thickness(12, 0, 8, 0),
+            Content  = inner,
+            Height   = 56,
+            MinWidth = 120,
+            MaxWidth = 240,
+            Padding  = new Thickness(14, 0, 10, 0),
             Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(
                 Windows.UI.Color.FromArgb(255, 45, 45, 45)),
         };

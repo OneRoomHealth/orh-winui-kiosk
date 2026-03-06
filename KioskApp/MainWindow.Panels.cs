@@ -84,13 +84,14 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Navigates to the URL in the textbox.
+    /// Navigates the active tab to the URL in the textbox.
+    /// In tab mode this targets whichever tab is currently selected.
     /// </summary>
     private void GoButton_Click(object sender, RoutedEventArgs e)
     {
-        if (KioskWebView?.CoreWebView2 == null)
+        if (GetActiveWebView()?.CoreWebView2 == null)
         {
-            Logger.Log("Cannot navigate: WebView2 not initialized");
+            Logger.Log("Cannot navigate: active tab WebView2 not initialized");
             ShowStatus("Error", "WebView2 is not ready. Please wait for initialization.");
             _ = Task.Delay(2000).ContinueWith(_ => DispatcherQueue.TryEnqueue(() => HideStatus()));
             return;
@@ -100,10 +101,9 @@ public sealed partial class MainWindow
         {
             var url = UrlTextBox.Text;
             if (!url.StartsWith("http://") && !url.StartsWith("https://"))
-            {
                 url = "https://" + url;
-            }
-            NavigateToUrl(url);
+
+            NavigateActiveTab(url);
         }
     }
 
@@ -134,65 +134,53 @@ public sealed partial class MainWindow
     }
 
     /// <summary>
-    /// Navigate back.
+    /// Navigate back in the active tab.
     /// </summary>
     private void BackButton_Click(object sender, RoutedEventArgs e)
     {
-        if (KioskWebView?.CoreWebView2 != null && KioskWebView.CanGoBack == true)
-        {
-            KioskWebView.GoBack();
-        }
+        var wv = GetActiveWebView();
+        if (wv?.CoreWebView2 != null && wv.CanGoBack)
+            wv.GoBack();
         else
-        {
-            Logger.Log("Cannot go back: WebView2 not initialized or no history");
-        }
+            Logger.Log("Cannot go back: no history or WebView not initialized");
     }
 
     /// <summary>
-    /// Navigate forward.
+    /// Navigate forward in the active tab.
     /// </summary>
     private void ForwardButton_Click(object sender, RoutedEventArgs e)
     {
-        if (KioskWebView?.CoreWebView2 != null && KioskWebView.CanGoForward == true)
-        {
-            KioskWebView.GoForward();
-        }
+        var wv = GetActiveWebView();
+        if (wv?.CoreWebView2 != null && wv.CanGoForward)
+            wv.GoForward();
         else
-        {
-            Logger.Log("Cannot go forward: WebView2 not initialized or no history");
-        }
+            Logger.Log("Cannot go forward: no history or WebView not initialized");
     }
 
     /// <summary>
-    /// Refresh the current page.
+    /// Refresh the active tab.
     /// </summary>
     private void RefreshButton_Click(object sender, RoutedEventArgs e)
     {
-        if (KioskWebView?.CoreWebView2 != null)
+        var wv = GetActiveWebView();
+        if (wv?.CoreWebView2 != null)
         {
-            var currentSource = KioskWebView.Source?.ToString();
+            var currentSource = wv.Source?.ToString();
 
             // If source is about:blank or invalid, navigate to stored URL instead
             if (string.IsNullOrEmpty(currentSource) ||
                 currentSource.Equals("about:blank", StringComparison.OrdinalIgnoreCase) ||
                 !Uri.TryCreate(currentSource, UriKind.Absolute, out _))
             {
-                if (!string.IsNullOrEmpty(_currentUrl))
-                {
-                    Logger.Log($"Reload: Current source is invalid ({currentSource}), navigating to stored URL: {_currentUrl}");
-                    NavigateToUrl(_currentUrl);
-                }
-                else
-                {
-                    var defaultUrl = _config.Kiosk.DefaultUrl;
-                    Logger.Log($"Reload: No valid URL, navigating to default: {defaultUrl}");
-                    NavigateToUrl(defaultUrl);
-                }
+                var fallback = GetActiveTabUrl();
+                if (string.IsNullOrEmpty(fallback)) fallback = _config.Kiosk.DefaultUrl;
+                Logger.Log($"Reload: source invalid, navigating to: {fallback}");
+                NavigateActiveTab(fallback);
             }
             else
             {
-                KioskWebView.Reload();
-                Logger.Log($"Reloading current page: {currentSource}");
+                wv.Reload();
+                Logger.Log($"Reloading active tab: {currentSource}");
             }
         }
         else
