@@ -330,9 +330,9 @@ jobs:
         $appInstallerContent += "`n"
         $appInstallerContent += '  <UpdateSettings>' + "`n"
         $appInstallerContent += '    <OnLaunch' + "`n"
-        $appInstallerContent += '        HoursBetweenUpdateChecks="0"' + "`n"
+        $appInstallerContent += '        HoursBetweenUpdateChecks="12"' + "`n"
         $appInstallerContent += '        ShowPrompt="false"' + "`n"
-        $appInstallerContent += '        UpdateBlocksActivation="true" />' + "`n"
+        $appInstallerContent += '        UpdateBlocksActivation="false" />' + "`n"
         $appInstallerContent += '    <AutomaticBackgroundTask />' + "`n"
         $appInstallerContent += '  </UpdateSettings>' + "`n"
         $appInstallerContent += '</AppInstaller>'
@@ -350,6 +350,10 @@ jobs:
         name: Release ${{ env.APP_VERSION }}
         body: |
           ## Kiosk App v${{ env.APP_VERSION }}
+          
+          > **Pre-release** — production kiosks will NOT receive this update until it is promoted.
+          > To promote: edit this release in GitHub and uncheck **"Set as a pre-release"**.
+          > The `/releases/latest/download/` URL only resolves to full (non-pre-release) versions.
           
           ### Installation Instructions
           
@@ -380,7 +384,7 @@ jobs:
           ${{ env.APPINSTALLER_PATH }}
           ${{ env.CER_PATH }}
         draft: false
-        prerelease: false
+        prerelease: true
         token: ${{ secrets.RELEASE_TOKEN }}
 
     - name: Upload artifacts

@@ -13,7 +13,7 @@
   
   <UpdateSettings>
     <OnLaunch
-      HoursBetweenUpdateChecks="0"
+      HoursBetweenUpdateChecks="12"
       ShowPrompt="false"
       UpdateBlocksActivation="false" />
     <AutomaticBackgroundTask />

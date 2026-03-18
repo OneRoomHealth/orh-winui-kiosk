@@ -174,43 +174,83 @@ public sealed partial class MainWindow
 
     /// <summary>
     /// Verifies and corrects window position after initial placement.
+    /// Retries with increasing delays to handle monitors that are slow to initialize
+    /// (e.g. Samsung monitors via HDMI that may not be fully reported at app startup).
+    /// On each attempt, display info is re-queried so stale startup bounds are not reused.
     /// </summary>
     private async Task VerifyWindowPositionAsync(WindowId windowId, DisplayArea targetDisplay, RectInt32 bounds)
     {
-        Logger.Log("Waiting 200ms before verifying window position...");
-        await Task.Delay(200);
+        // Increasing delays: 200ms, 500ms, 1000ms, 1500ms, 2000ms — up to ~5.2s total before giving up.
+        int[] retryDelays = { 200, 500, 1000, 1500, 2000 };
 
-        DispatcherQueue.TryEnqueue(() =>
+        foreach (int delay in retryDelays)
         {
-            try
-            {
-                Logger.Log("========== WINDOW POSITION VERIFICATION ==========");
-                var currentDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.None);
-                Logger.Log($"Current display: {(currentDisplay != null ? currentDisplay.DisplayId.Value.ToString() : "NULL")}");
-                Logger.Log($"Target display: {targetDisplay.DisplayId.Value}");
+            Logger.Log($"Waiting {delay}ms before verifying window position...");
+            await Task.Delay(delay);
 
-                // Check actual window position
-                if (Win32Native.GetWindowRect(_hwnd, out var windowRect))
-                {
-                    Logger.Log($"  Actual window position: X={windowRect.Left}, Y={windowRect.Top}, W={windowRect.Width}, H={windowRect.Height}");
-                }
-
-                if (currentDisplay == null || currentDisplay.DisplayId != targetDisplay.DisplayId)
-                {
-                    Logger.Log("Window is NOT on target display - repositioning...");
-                    Win32Native.SetWindowPositionTopmost(_hwnd, bounds.X, bounds.Y, bounds.Width, bounds.Height);
-                    Logger.Log("  SetWindowPos called for retry");
-                }
-                else
-                {
-                    Logger.Log("Window successfully positioned on target display");
-                }
-            }
-            catch (Exception ex)
+            var tcs = new TaskCompletionSource<bool>();
+            DispatcherQueue.TryEnqueue(() =>
             {
-                Logger.Log($"ERROR during window position verification: {ex.Message}");
-            }
-        });
+                try
+                {
+                    Logger.Log("========== WINDOW POSITION VERIFICATION ==========");
+
+                    // Re-query displays on each attempt — secondary monitors (e.g. Samsung via HDMI)
+                    // may not be fully initialized by Windows when the Activated event first fired,
+                    // causing the initial query to return stale or zero-size bounds.
+                    var allDisplays = DisplayArea.FindAll();
+                    var freshTarget = GetTargetDisplay(allDisplays, windowId);
+                    var freshBounds = freshTarget.OuterBounds;
+
+                    Logger.Log($"Fresh target display: {freshTarget.DisplayId.Value}");
+                    Logger.Log($"Fresh bounds: X={freshBounds.X}, Y={freshBounds.Y}, W={freshBounds.Width}, H={freshBounds.Height}");
+
+                    var currentDisplay = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.None);
+                    Logger.Log($"Current display: {(currentDisplay != null ? currentDisplay.DisplayId.Value.ToString() : "NULL")}");
+
+                    bool hasValidBounds = freshBounds.Width > 0 && freshBounds.Height > 0;
+                    bool onCorrectDisplay = currentDisplay != null && currentDisplay.DisplayId == freshTarget.DisplayId;
+
+                    bool correctSize = false;
+                    if (Win32Native.GetWindowRect(_hwnd, out var windowRect))
+                    {
+                        Logger.Log($"Actual window: X={windowRect.Left}, Y={windowRect.Top}, W={windowRect.Width}, H={windowRect.Height}");
+                        correctSize = windowRect.Width == freshBounds.Width && windowRect.Height == freshBounds.Height;
+                    }
+
+                    if (onCorrectDisplay && correctSize)
+                    {
+                        Logger.Log("Window successfully positioned on target display with correct size");
+                        tcs.SetResult(true);
+                        return;
+                    }
+
+                    Logger.Log($"Window not correctly positioned (onCorrectDisplay={onCorrectDisplay}, correctSize={correctSize}, hasValidBounds={hasValidBounds}) — repositioning...");
+
+                    if (hasValidBounds)
+                    {
+                        // Update stored bounds in case the monitor reported different values at startup
+                        _normalWindowBounds = new Rect(freshBounds.X, freshBounds.Y, freshBounds.Width, freshBounds.Height);
+                        Win32Native.SetWindowPositionTopmost(_hwnd, freshBounds.X, freshBounds.Y, freshBounds.Width, freshBounds.Height);
+                        Logger.Log("SetWindowPos called for retry");
+                    }
+                    else
+                    {
+                        Logger.Log("Fresh display bounds are not yet valid (0x0) — will retry");
+                    }
+
+                    tcs.SetResult(false);
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"ERROR during window position verification: {ex.Message}");
+                    tcs.SetResult(false);
+                }
+            });
+
+            if (await tcs.Task)
+                break;
+        }
     }
 
     #endregion

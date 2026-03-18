@@ -499,6 +499,15 @@ public sealed partial class MainWindow
                     }
 
                     _ = InstallMediaOverrideOnDocumentCreatedAsync();
+
+                    // Apply the override to the current page immediately. RestoreCameraSelection
+                    // runs with _suppressMediaSelectionEvents = true so CameraSelector_SelectionChanged
+                    // never fires, meaning ApplyMediaDeviceOverrideAsync is never called through the
+                    // normal user-selection path. Without this, the dropdown shows the correct camera
+                    // but window.__preferredCameraId and localStorage are stale on the live page,
+                    // causing getUserMedia to fall back to the browser default.
+                    if (!string.IsNullOrWhiteSpace(_selectedCameraId))
+                        _ = ApplyMediaDeviceOverrideAsync(showStatus: false);
                 });
             }
             else if (cameras != null && cameras.Count == 0)
@@ -651,6 +660,12 @@ public sealed partial class MainWindow
                     }
 
                     _ = InstallMediaOverrideOnDocumentCreatedAsync();
+
+                    // Same fix as LoadCamerasAsyncCore: selection is restored with events suppressed,
+                    // so MicrophoneSelector_SelectionChanged never fires. Apply the override now so
+                    // the live page's getUserMedia constraint picks up the correct microphone.
+                    if (!string.IsNullOrWhiteSpace(_selectedMicrophoneId))
+                        _ = ApplyMediaDeviceOverrideAsync(showStatus: false);
                 });
             }
             else if (microphones != null && microphones.Count == 0)
@@ -773,6 +788,12 @@ public sealed partial class MainWindow
                     }
 
                     _ = InstallMediaOverrideOnDocumentCreatedAsync();
+
+                    // Same fix as LoadCamerasAsyncCore / LoadMicrophonesAsyncCore: selection is
+                    // restored with events suppressed, so SpeakerSelector_SelectionChanged never
+                    // fires. Apply the override now so the live page picks up the correct speaker.
+                    if (!string.IsNullOrWhiteSpace(_selectedSpeakerId))
+                        _ = ApplyMediaDeviceOverrideAsync(showStatus: false);
                 });
             }
             else if (speakers != null && speakers.Count == 0)
