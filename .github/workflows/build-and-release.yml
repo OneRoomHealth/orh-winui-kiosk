@@ -315,6 +315,11 @@ jobs:
         $bundleName = "${{ env.BUNDLE_NAME }}"
         $solutionName = "${{ env.SOLUTION_NAME }}"
         
+        # Detect whether the build produced a bundle (.msixbundle) or single package (.msix).
+        # MainBundle → neutral architecture bundle; MainPackage → architecture-specific package.
+        $isBundle = $bundleName.EndsWith(".msixbundle")
+        $downloadUri = $repoUrl + '/releases/latest/download/' + $bundleName
+        
         # Create AppInstaller content using string concatenation to avoid YAML conflicts
         $appInstallerContent = '<?xml version="1.0" encoding="utf-8"?>' + "`n"
         $appInstallerContent += '<AppInstaller' + "`n"
@@ -322,11 +327,20 @@ jobs:
         $appInstallerContent += '    Version="' + $version + '"' + "`n"
         $appInstallerContent += '    xmlns="http://schemas.microsoft.com/appx/appinstaller/2018">' + "`n"
         $appInstallerContent += "`n"
-        $appInstallerContent += '  <MainBundle' + "`n"
-        $appInstallerContent += '      Name="' + $solutionName + '"' + "`n"
-        $appInstallerContent += '      Publisher="CN=OneRoomHealth"' + "`n"
-        $appInstallerContent += '      Version="' + $version + '"' + "`n"
-        $appInstallerContent += '      Uri="' + $repoUrl + '/releases/latest/download/' + $bundleName + '" />' + "`n"
+        if ($isBundle) {
+            $appInstallerContent += '  <MainBundle' + "`n"
+            $appInstallerContent += '      Name="' + $solutionName + '"' + "`n"
+            $appInstallerContent += '      Publisher="CN=OneRoomHealth"' + "`n"
+            $appInstallerContent += '      Version="' + $version + '"' + "`n"
+            $appInstallerContent += '      Uri="' + $downloadUri + '" />' + "`n"
+        } else {
+            $appInstallerContent += '  <MainPackage' + "`n"
+            $appInstallerContent += '      Name="' + $solutionName + '"' + "`n"
+            $appInstallerContent += '      Publisher="CN=OneRoomHealth"' + "`n"
+            $appInstallerContent += '      Version="' + $version + '"' + "`n"
+            $appInstallerContent += '      ProcessorArchitecture="x64"' + "`n"
+            $appInstallerContent += '      Uri="' + $downloadUri + '" />' + "`n"
+        }
         $appInstallerContent += "`n"
         $appInstallerContent += '  <UpdateSettings>' + "`n"
         $appInstallerContent += '    <OnLaunch' + "`n"
