@@ -14,6 +14,7 @@ using OneRoomHealth.Hardware.Modules.Microphone;
 using OneRoomHealth.Hardware.Modules.Speaker;
 using OneRoomHealth.Hardware.Modules.Biamp;
 using KioskApp.Helpers;
+using KioskApp.Services;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace KioskApp;
@@ -25,7 +26,9 @@ public partial class App : Application
 
 	private Window? m_window;
 	private ServiceProvider? _serviceProvider;
+	private KioskConfiguration? _config;
 	private HardwareApiServer? _hardwareApiServer;
+	private WebPubSubService? _webPubSubService;
 	private HealthMonitorService? _healthMonitorService;
 	private HealthVisualizationService? _healthVisualizationService;
 	private CancellationTokenSource? _servicesCts;
@@ -138,6 +141,7 @@ public partial class App : Application
 
 			// Load configuration
 			var config = ConfigurationManager.Load();
+			_config = config;
 			Logger.Log($"Configuration loaded — machine type: {config.Kiosk.MachineType}, target monitor: {config.Kiosk.TargetMonitorIndex}");
 
 			// Set up dependency injection and services
@@ -324,6 +328,15 @@ public partial class App : Application
 				Logger.Log("Health monitoring stopped");
 			}
 
+			// Stop WebPubSub fallback service
+			if (_webPubSubService != null)
+			{
+				await _webPubSubService.StopAsync();
+				await _webPubSubService.DisposeAsync();
+				_webPubSubService = null;
+				Logger.Log("WebPubSub fallback service stopped");
+			}
+
 			// Stop API servers
 			LocalCommandServer.Stop();
 			if (_hardwareApiServer != null)
@@ -390,11 +403,41 @@ public partial class App : Application
 		LocalCommandServer.Stop();
 
 		// Set up navigation service for chromium endpoints if MainWindow provided
+		WebViewNavigationService? navigationService = null;
 		if (mainWindow != null && _hardwareApiServer != null)
 		{
-			var navigationService = new WebViewNavigationService(mainWindow);
+			navigationService = new WebViewNavigationService(mainWindow);
 			_hardwareApiServer.SetNavigationService(navigationService);
 			Logger.Log("WebView navigation service configured for chromium endpoints");
+		}
+
+		// Start Web PubSub fallback service if enabled and navigation is available
+		if (navigationService != null
+			&& _config != null
+			&& _config.WebPubSub.Enabled
+			&& !string.IsNullOrEmpty(_config.WebPubSub.WorkstationId)
+			&& !string.IsNullOrEmpty(_config.WebPubSub.NegotiateUrl))
+		{
+			// Dispose any leftover instance from a previous failed attempt
+			if (_webPubSubService != null)
+			{
+				await _webPubSubService.StopAsync();
+				await _webPubSubService.DisposeAsync();
+				_webPubSubService = null;
+			}
+
+			_webPubSubService = new WebPubSubService(_config.WebPubSub, navigationService);
+			try
+			{
+				await _webPubSubService.StartAsync();
+				Logger.Log("WebPubSub fallback service started");
+			}
+			catch (Exception ex)
+			{
+				Logger.Log($"WebPubSub fallback service failed to start: {ex.Message}");
+				await _webPubSubService.DisposeAsync();
+				_webPubSubService = null;
+			}
 		}
 
 		if (_serviceProvider == null)
@@ -561,6 +604,15 @@ public partial class App : Application
 				await hardwareManager.ShutdownAllModulesAsync();
 				Logger.Log("Hardware modules shut down");
 			}
+		}
+
+		// Stop WebPubSub fallback service
+		if (_webPubSubService != null)
+		{
+			await _webPubSubService.StopAsync();
+			await _webPubSubService.DisposeAsync();
+			_webPubSubService = null;
+			Logger.Log("WebPubSub fallback service stopped");
 		}
 
 		// Stop HardwareApiServer

@@ -23,6 +23,9 @@ public class KioskConfiguration
 
     [JsonPropertyName("hardware")]
     public HardwareConfiguration Hardware { get; set; } = new();
+
+    [JsonPropertyName("webPubSub")]
+    public WebPubSubSettings WebPubSub { get; set; } = new();
 }
 
 /// <summary>
@@ -109,6 +112,36 @@ public class ExitSettings
 
     [JsonPropertyName("passwordHash")]
     public string PasswordHash { get; set; } = ""; // Empty uses default password "admin123"
+}
+
+/// <summary>
+/// Azure Web PubSub fallback service settings.
+/// Provides an always-on connection that delivers workstation-api navigation commands
+/// as a fallback when IoT Hub is unavailable.
+/// </summary>
+public class WebPubSubSettings
+{
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// Used as the userId when calling the negotiate endpoint.
+    /// </summary>
+    [JsonPropertyName("workstationId")]
+    public string WorkstationId { get; set; } = "";
+
+    /// <summary>
+    /// Full URL to POST to for token negotiation.
+    /// e.g. "https://backend.example.com/webpubsub/negotiate"
+    /// </summary>
+    [JsonPropertyName("negotiateUrl")]
+    public string NegotiateUrl { get; set; } = "";
+
+    /// <summary>
+    /// Seconds to wait before re-negotiation on connect failure.
+    /// </summary>
+    [JsonPropertyName("reconnectIntervalSeconds")]
+    public int ReconnectIntervalSeconds { get; set; } = 30;
 }
 
 /// <summary>
