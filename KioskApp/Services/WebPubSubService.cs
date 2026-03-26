@@ -147,26 +147,28 @@ public class WebPubSubService : IAsyncDisposable
         return new Uri(url);
     }
 
-    private void OnConnected(WebPubSubClient sender, WebPubSubConnectedEventArgs e)
+    private Task OnConnected(WebPubSubConnectedEventArgs e)
     {
         IsConnected = true;
         Logger.Log($"WebPubSubService: connected (connectionId={e.ConnectionId})");
+        return Task.CompletedTask;
     }
 
-    private void OnDisconnected(WebPubSubClient sender, WebPubSubDisconnectedEventArgs e)
+    private Task OnDisconnected(WebPubSubDisconnectedEventArgs e)
     {
         IsConnected = false;
-        Logger.Log($"WebPubSubService: disconnected — {e.DisconnectedMessage?.Message ?? "(no message)"}");
+        Logger.Log($"WebPubSubService: disconnected — {e.DisconnectedMessage?.Reason ?? "(no reason)"}");
+        return Task.CompletedTask;
     }
 
-    private void OnServerMessageReceived(WebPubSubClient sender, WebPubSubServerMessageEventArgs e)
+    private Task OnServerMessageReceived(WebPubSubServerMessageEventArgs e)
     {
         try
         {
-            if (e.Message.Data.IsEmpty)
+            if (e.Message.Data.ToMemory().Length == 0)
             {
                 Logger.Log("WebPubSubService: received empty message, ignoring");
-                return;
+                return Task.CompletedTask;
             }
 
             var json = e.Message.Data.ToString();
@@ -176,21 +178,21 @@ public class WebPubSubService : IAsyncDisposable
             if (!root.TryGetProperty("type", out var typeProp)
                 || typeProp.GetString() != "workstation-api")
             {
-                return;
+                return Task.CompletedTask;
             }
 
             if (!root.TryGetProperty("payload", out var payloadProp)
                 || !payloadProp.TryGetProperty("url", out var urlProp))
             {
                 Logger.Log("WebPubSubService: workstation-api message missing payload.url, ignoring");
-                return;
+                return Task.CompletedTask;
             }
 
             var navUrl = urlProp.GetString();
             if (string.IsNullOrEmpty(navUrl))
             {
                 Logger.Log("WebPubSubService: payload.url is empty, ignoring");
-                return;
+                return Task.CompletedTask;
             }
 
             Logger.Log($"WebPubSubService: received navigation command — url={navUrl}");
@@ -200,6 +202,7 @@ public class WebPubSubService : IAsyncDisposable
         {
             Logger.Log($"WebPubSubService: error handling server message: {ex.Message}");
         }
+        return Task.CompletedTask;
     }
 
     public async ValueTask DisposeAsync()
