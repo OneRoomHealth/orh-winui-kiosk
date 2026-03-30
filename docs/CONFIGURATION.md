@@ -52,6 +52,12 @@ The app automatically creates a default configuration file if it doesn't exist.
     "maxSizeKb": 10240,
     "maxFiles": 5
   },
+  "webPubSub": {
+    "enabled": false,
+    "workstationId": "",
+    "negotiateUrl": "",
+    "reconnectIntervalSeconds": 30
+  },
   "hardware": {
     "displays": {
       "enabled": true,
@@ -167,6 +173,35 @@ Located at `kiosk.videoMode`:
 | `path` | String | `%LocalAppData%\OneRoomHealthKiosk\logs` | Log directory |
 | `maxSizeKb` | Integer | `10240` | Max log file size in KB |
 | `maxFiles` | Integer | `5` | Max number of log files to keep |
+
+---
+
+## Web PubSub Settings
+
+The `webPubSub` section configures an always-on Azure Web PubSub connection that serves as a fallback navigation channel when IoT Hub is unavailable. It starts and stops with Hardware API mode.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `enabled` | Boolean | `false` | Enable the Web PubSub fallback service |
+| `workstationId` | String | `""` | Workstation identifier sent as `userId` during token negotiation. Must match the ID the backend uses to target this machine. |
+| `negotiateUrl` | String | `""` | Full URL of the backend negotiate endpoint (e.g. `https://your-backend/webpubsub/negotiate`). POSTed with `{ "userId": "<workstationId>" }` to obtain a client access token. |
+| `reconnectIntervalSeconds` | Integer | `30` | Seconds between reconnect attempts on connection failure (informational — the SDK's built-in auto-reconnect handles timing). |
+
+**Notes:**
+- The service only starts when `enabled = true`, `workstationId` is non-empty, and `negotiateUrl` is non-empty — all three must be set.
+- The service shares the Hardware API mode lifecycle: it starts in `EnableHardwareApiModeAsync` and stops in `DisableHardwareApiModeAsync`.
+- Token negotiation is re-run on every (re)connect, so 60-minute token expiry is handled automatically.
+- Incoming messages must have `type: "workstation-api"` and `payload.url` to trigger navigation. Other message types are ignored and logged.
+
+**Expected log sequence on successful startup:**
+```
+WebPubSubService: enabled=True, workstationId=<id>, negotiateUrl=<url>, ...
+WebPubSubService: starting for workstationId=<id>
+WebPubSubService: negotiating token from <url>
+WebPubSubService: token negotiated successfully
+WebPubSubService: connected (connectionId=<id>)
+WebPubSubService: startup complete, listening for workstation-api messages
+```
 
 ---
 
@@ -404,6 +439,12 @@ Supported in path settings:
   "logging": {
     "maxSizeKb": 5120,
     "maxFiles": 3
+  },
+  "webPubSub": {
+    "enabled": true,
+    "workstationId": "carewall-location-01",
+    "negotiateUrl": "https://your-backend.com/webpubsub/negotiate",
+    "reconnectIntervalSeconds": 30
   }
 }
 ```
@@ -427,6 +468,23 @@ Supported in path settings:
       ],
       "flicButtonEnabled": true
     }
+  }
+}
+```
+
+### With Web PubSub Fallback
+```json
+{
+  "kiosk": {
+    "defaultUrl": "https://your-frontend-url.com/wall/default",
+    "machineType": "carewall",
+    "targetMonitorIndex": 2
+  },
+  "webPubSub": {
+    "enabled": true,
+    "workstationId": "carewall-location-01",
+    "negotiateUrl": "https://your-backend.com/webpubsub/negotiate",
+    "reconnectIntervalSeconds": 30
   }
 }
 ```

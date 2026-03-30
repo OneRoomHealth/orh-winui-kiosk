@@ -361,6 +361,79 @@ Include:
 
 ---
 
+## 🌐 Web PubSub Fallback Service
+
+The Web PubSub service provides a secondary navigation channel that runs alongside IoT Hub when Hardware API mode is active. Use the kiosk log file to diagnose issues (`%LocalAppData%\OneRoomHealthKiosk\logs\`).
+
+### Service never starts (no Web PubSub log lines at all)
+
+The service start is guarded by three conditions. Check the first log line printed by `StartAsync`:
+```
+WebPubSubService: enabled=True, workstationId=carewall-01, negotiateUrl=https://...
+```
+If `enabled=False`, or either field is blank, the service silently skips start. Fix the config at `%ProgramData%\OneRoomHealth\Kiosk\config.json`.
+
+Also confirm Hardware API mode is active — the service only starts in Hardware API mode, not Navigate mode.
+
+### Token negotiation fails
+
+**Log pattern:**
+```
+WebPubSubService: negotiate failed — HTTP 401 Unauthorized: {"error":"..."}
+WebPubSubService: initial connection failed (HttpRequestException): ...
+```
+
+**Common causes:**
+- `workstationId` doesn't match a registered workstation in the backend
+- `negotiateUrl` is wrong or the backend isn't reachable
+- Backend requires authentication the kiosk isn't providing
+
+**Steps:**
+1. Verify the URL is reachable from the kiosk: `Invoke-WebRequest -Uri "<negotiateUrl>" -Method POST -Body '{"userId":"<workstationId>"}' -ContentType "application/json"`
+2. Check the HTTP status code and error body in the log
+3. Confirm `workstationId` matches what the backend expects
+
+### Connected but messages never arrive
+
+**Log pattern:**
+```
+WebPubSubService: connected (connectionId=...)
+WebPubSubService: startup complete, listening for workstation-api messages
+(then nothing when a command is sent)
+```
+
+**Steps:**
+1. Confirm the backend is sending to the correct `userId` (must match `workstationId` in config)
+2. Send a test message directly via the backend's `/webpubsub/send-to-user` endpoint and watch for `"server message received"` in the log
+3. If the log shows `"unhandled message type '...'"`, the `type` field in the payload doesn't match `"workstation-api"`
+
+### Message arrives but navigation doesn't happen
+
+**Log pattern:**
+```
+WebPubSubService: workstation-api command — requestId=..., method=PUT, endpoint=http://.../chromium/1/url
+WebPubSubService: payload.url is empty or missing ...
+```
+or
+```
+WebPubSubService: dispatching navigation — url=https://...
+WebPubSubService: navigation completed — success=False
+```
+
+**Steps:**
+- If `payload.url is empty or missing`: the backend message is missing `payload.url`. Log will show `payload kind=` — if it's `String`, the payload was double-stringified on the backend.
+- If `success=False`: navigation reached the WebView but was rejected. Check the URL for validity and ensure the WebView is fully initialized.
+
+### Service stops unexpectedly
+
+**Log pattern:**
+```
+WebPubSubService: disconnected — <reason>
+```
+With `AutoReconnect = true` the SDK will reconnect automatically. Each reconnect triggers a fresh token negotiation. Watch for repeated negotiate failures after a disconnect, which would indicate an expired credential or backend outage.
+
+---
+
 ## ✅ Success Indicators
 
 When the app is working correctly, you should see:

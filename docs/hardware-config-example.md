@@ -36,6 +36,12 @@ Complete example `config.json` for a fully configured OneRoom Health kiosk with 
     "maxSizeKb": 10240,
     "maxFiles": 5
   },
+  "webPubSub": {
+    "enabled": true,
+    "workstationId": "carewall-location-01",
+    "negotiateUrl": "https://your-backend.com/webpubsub/negotiate",
+    "reconnectIntervalSeconds": 30
+  },
   "hardware": {
     "displays": {
       "enabled": true,

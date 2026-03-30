@@ -38,6 +38,8 @@ public class WebPubSubService : IAsyncDisposable
     /// </summary>
     public async Task StartAsync()
     {
+        Logger.Log($"WebPubSubService: enabled={_config.Enabled}, workstationId={_config.WorkstationId}, negotiateUrl={_config.NegotiateUrl}, reconnectIntervalSeconds={_config.ReconnectIntervalSeconds}");
+
         if (!_config.Enabled)
         {
             Logger.Log("WebPubSubService: not enabled, skipping start");
@@ -76,10 +78,11 @@ public class WebPubSubService : IAsyncDisposable
         try
         {
             await _client.StartAsync(_cts.Token).ConfigureAwait(false);
+            Logger.Log("WebPubSubService: startup complete, listening for workstation-api messages");
         }
         catch (Exception ex)
         {
-            Logger.Log($"WebPubSubService: initial connection failed: {ex.Message}");
+            Logger.Log($"WebPubSubService: initial connection failed ({ex.GetType().Name}): {ex.Message}");
             _client.Connected -= OnConnected;
             _client.Disconnected -= OnDisconnected;
             _client.ServerMessageReceived -= OnServerMessageReceived;
@@ -136,7 +139,13 @@ public class WebPubSubService : IAsyncDisposable
         using var content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
 
         using var response = await _httpClient.PostAsync(_config.NegotiateUrl, content, ct).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            Logger.Log($"WebPubSubService: negotiate failed — HTTP {(int)response.StatusCode} {response.ReasonPhrase}: {errorBody}");
+            response.EnsureSuccessStatusCode();
+        }
 
         var json = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         using var doc = JsonDocument.Parse(json);
@@ -165,42 +174,82 @@ public class WebPubSubService : IAsyncDisposable
     {
         try
         {
+            Logger.Log("WebPubSubService: server message received");
+
             if (e.Message.Data.ToMemory().Length == 0)
             {
-                Logger.Log("WebPubSubService: received empty message, ignoring");
+                Logger.Log("WebPubSubService: message body is empty, ignoring");
                 return Task.CompletedTask;
             }
 
             var json = e.Message.Data.ToString();
+            Logger.Log($"WebPubSubService: message body — {json}");
+
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
 
-            if (!root.TryGetProperty("type", out var typeProp)
-                || typeProp.GetString() != "workstation-api")
+            if (!root.TryGetProperty("type", out var typeProp))
             {
+                Logger.Log("WebPubSubService: message has no 'type' field, ignoring");
                 return Task.CompletedTask;
             }
 
-            if (!root.TryGetProperty("payload", out var payloadProp)
-                || !payloadProp.TryGetProperty("url", out var urlProp))
+            var messageType = typeProp.GetString();
+            if (messageType != "workstation-api")
             {
-                Logger.Log("WebPubSubService: workstation-api message missing payload.url, ignoring");
+                Logger.Log($"WebPubSubService: unhandled message type '{messageType}', ignoring");
                 return Task.CompletedTask;
             }
 
-            var navUrl = urlProp.GetString();
+            // Log the command envelope fields for traceability
+            var requestId = root.TryGetProperty("requestId", out var reqProp) ? reqProp.GetString() : null;
+            var endpoint  = root.TryGetProperty("url",       out var epProp)  ? epProp.GetString()  : null;
+            var method    = root.TryGetProperty("method",    out var mProp)   ? mProp.GetString()   : null;
+            Logger.Log($"WebPubSubService: workstation-api command — requestId={requestId}, method={method}, endpoint={endpoint}");
+
+            if (!root.TryGetProperty("payload", out var payloadProp))
+            {
+                Logger.Log("WebPubSubService: message missing 'payload' field, ignoring");
+                return Task.CompletedTask;
+            }
+
+            // payload may arrive as a nested object {"url":"..."} or as a stringified JSON string
+            string? navUrl = null;
+            if (payloadProp.ValueKind == JsonValueKind.Object)
+            {
+                navUrl = payloadProp.TryGetProperty("url", out var navUrlProp) ? navUrlProp.GetString() : null;
+            }
+            else if (payloadProp.ValueKind == JsonValueKind.String)
+            {
+                var payloadStr = payloadProp.GetString() ?? "";
+                Logger.Log($"WebPubSubService: payload is a JSON string, deserializing — {payloadStr}");
+                using var payloadDoc = JsonDocument.Parse(payloadStr);
+                navUrl = payloadDoc.RootElement.TryGetProperty("url", out var navUrlProp) ? navUrlProp.GetString() : null;
+            }
+            else
+            {
+                Logger.Log($"WebPubSubService: unexpected payload kind '{payloadProp.ValueKind}', ignoring");
+                return Task.CompletedTask;
+            }
+
             if (string.IsNullOrEmpty(navUrl))
             {
-                Logger.Log("WebPubSubService: payload.url is empty, ignoring");
+                Logger.Log($"WebPubSubService: payload.url is empty or missing, ignoring");
                 return Task.CompletedTask;
             }
 
-            Logger.Log($"WebPubSubService: received navigation command — url={navUrl}");
-            _ = _navigationService.NavigateAsync(navUrl);
+            Logger.Log($"WebPubSubService: dispatching navigation — url={navUrl}");
+            _ = _navigationService.NavigateAsync(navUrl).ContinueWith(t =>
+            {
+                if (t.IsFaulted)
+                    Logger.Log($"WebPubSubService: navigation failed — {t.Exception?.GetBaseException().Message}");
+                else
+                    Logger.Log($"WebPubSubService: navigation completed — success={t.Result}");
+            }, TaskScheduler.Default);
         }
         catch (Exception ex)
         {
-            Logger.Log($"WebPubSubService: error handling server message: {ex.Message}");
+            Logger.Log($"WebPubSubService: error handling server message ({ex.GetType().Name}): {ex.Message}");
         }
         return Task.CompletedTask;
     }
