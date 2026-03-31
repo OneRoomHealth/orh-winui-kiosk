@@ -13,6 +13,7 @@ using OneRoomHealth.Hardware.Modules.SystemAudio;
 using OneRoomHealth.Hardware.Modules.Microphone;
 using OneRoomHealth.Hardware.Modules.Speaker;
 using OneRoomHealth.Hardware.Modules.Biamp;
+using OneRoomHealth.Hardware.Modules.Firefly;
 using KioskApp.Helpers;
 using KioskApp.Services;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
@@ -272,6 +273,15 @@ public partial class App : Application
 		});
 		Logger.Log("BiampModule registered");
 
+		services.AddSingleton(sp =>
+		{
+			var logger = sp.GetRequiredService<ILogger<FireflyModule>>();
+			var fireflyConfig = config.Hardware.Firefly ?? new FireflyConfiguration { Enabled = false };
+			var httpClient = sp.GetRequiredService<HttpClient>();
+			return new FireflyModule(logger, fireflyConfig, httpClient);
+		});
+		Logger.Log("FireflyModule registered");
+
 		// Register hardware services
 		services.AddSingleton<HardwareManager>();
 		services.AddSingleton<HealthMonitorService>();
@@ -358,9 +368,15 @@ public partial class App : Application
 
 			_isHardwareApiMode = false;
 
-			// Dispose service provider
-			_serviceProvider?.Dispose();
-			_serviceProvider = null;
+			// Dispose service provider — must use DisposeAsync so the container
+			// correctly calls DisposeAsync() on IAsyncDisposable-only singletons
+			// (e.g. FireflyModule). Calling Dispose() synchronously throws
+			// InvalidOperationException for async-only disposables in .NET 8.
+			if (_serviceProvider != null)
+			{
+				await _serviceProvider.DisposeAsync();
+				_serviceProvider = null;
+			}
 			Services = null;
 
 			// Flush and close Serilog
@@ -517,6 +533,17 @@ public partial class App : Application
 		else
 		{
 			Logger.Log("BiampModule skipped - not configured or disabled");
+		}
+
+		var fireflyModule = _serviceProvider.GetService<FireflyModule>();
+		if (fireflyModule != null && fireflyModule.IsEnabled)
+		{
+			hardwareManager.RegisterModule(fireflyModule);
+			Logger.Log("FireflyModule registered with HardwareManager");
+		}
+		else
+		{
+			Logger.Log("FireflyModule skipped - not configured or disabled");
 		}
 
 		// Initialize all registered modules

@@ -1,0 +1,25 @@
+Microsoft Visual Studio Solution File, Format Version 10.00
+# Visual Studio 2008
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "amcap", "amcap.vcproj", "{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug Unicode|Default = Debug Unicode|Default
+		Debug|Default = Debug|Default
+		Release Unicode|Default = Release Unicode|Default
+		Release|Default = Release|Default
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}.Debug Unicode|Default.ActiveCfg = Debug Unicode|Win32
+		{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}.Debug Unicode|Default.Build.0 = Debug Unicode|Win32
+		{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}.Debug|Default.ActiveCfg = Debug|Win32
+		{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}.Debug|Default.Build.0 = Debug|Win32
+		{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}.Release Unicode|Default.ActiveCfg = Release Unicode|Win32
+		{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}.Release Unicode|Default.Build.0 = Release Unicode|Win32
+		{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}.Release|Default.ActiveCfg = Release|Win32
+		{6FAD39D4-E4F2-44A8-856E-C5BAAA344A3F}.Release|Default.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

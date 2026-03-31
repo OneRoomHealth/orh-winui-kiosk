@@ -30,6 +30,9 @@ public class HardwareConfiguration
 
     [JsonPropertyName("media")]
     public MediaConfiguration? Media { get; set; }
+
+    [JsonPropertyName("firefly")]
+    public FireflyConfiguration? Firefly { get; set; }
 }
 
 /// <summary>
@@ -272,4 +275,98 @@ public class MediaConfiguration
     /// </summary>
     [JsonPropertyName("allowedExtensions")]
     public List<string> AllowedExtensions { get; set; } = new() { "mp4", "webm", "ogg", "mp3", "wav", "m4a" };
+}
+
+/// <summary>
+/// Firefly UVC otoscope camera module configuration.
+/// Manages the FireflyCapture.Bridge subprocess and downstream image delivery.
+/// </summary>
+public class FireflyConfiguration : ModuleConfigurationBase
+{
+    /// <summary>
+    /// Path to the FireflyCapture.Bridge.exe (32-bit bridge process).
+    /// Relative paths are resolved from the kiosk exe directory.
+    /// </summary>
+    [JsonPropertyName("bridgeExePath")]
+    public string BridgeExePath { get; set; } = "hardware\\firefly\\FireflyCapture.Bridge.exe";
+
+    /// <summary>
+    /// TCP port the bridge process listens on. Must match Bridge:Port in bridge appsettings.json.
+    /// Default: 5200.
+    /// </summary>
+    [JsonPropertyName("bridgePort")]
+    public int BridgePort { get; set; } = 5200;
+
+    /// <summary>
+    /// Path to SnapDll.dll passed to the bridge process. Relative to the bridge exe directory.
+    /// Default: "SnapDll.dll" (same folder as bridge exe).
+    /// </summary>
+    [JsonPropertyName("snapDllPath")]
+    public string SnapDllPath { get; set; } = "SnapDll.dll";
+
+    /// <summary>
+    /// How often the bridge polls IsButtonpress() in milliseconds. Default: 10.
+    /// </summary>
+    [JsonPropertyName("pollingIntervalMs")]
+    public int PollingIntervalMs { get; set; } = 10;
+
+    /// <summary>
+    /// Seconds to wait for the bridge process to become healthy on startup.
+    /// Default: 10.
+    /// </summary>
+    [JsonPropertyName("startupGracePeriodSeconds")]
+    public int StartupGracePeriodSeconds { get; set; } = 10;
+
+    /// <summary>
+    /// Maximum number of times to restart the bridge process before marking it degraded.
+    /// Default: 5.
+    /// </summary>
+    [JsonPropertyName("maxRestartAttempts")]
+    public int MaxRestartAttempts { get; set; } = 5;
+
+    /// <summary>
+    /// Downstream image delivery configuration.
+    /// When Enabled is false captured images are returned from the API but not forwarded.
+    /// </summary>
+    [JsonPropertyName("downstream")]
+    public FireflyDownstreamConfig Downstream { get; set; } = new();
+}
+
+/// <summary>
+/// Downstream HTTP delivery settings for captured Firefly images.
+/// </summary>
+public class FireflyDownstreamConfig
+{
+    /// <summary>Whether to forward captured images to the downstream URL.</summary>
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>Full URL to POST the captured image to.</summary>
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = "";
+
+    /// <summary>
+    /// Delivery method. One of: "multipart" (multipart/form-data),
+    /// "base64" (JSON body { "image": "&lt;base64&gt;" }), "raw" (application/octet-stream).
+    /// Default: "multipart".
+    /// </summary>
+    [JsonPropertyName("method")]
+    public string Method { get; set; } = "multipart";
+
+    /// <summary>
+    /// Optional Authorization header value (e.g., "Bearer __TOKEN__").
+    /// When null or empty no Authorization header is sent.
+    /// </summary>
+    [JsonPropertyName("authHeader")]
+    public string? AuthHeader { get; set; }
+
+    /// <summary>
+    /// Field name used for the image file in multipart delivery. Default: "image".
+    /// </summary>
+    [JsonPropertyName("multipartFieldName")]
+    public string MultipartFieldName { get; set; } = "image";
+
+    /// <summary>HTTP timeout for the downstream request in seconds. Default: 30.</summary>
+    [JsonPropertyName("timeoutSeconds")]
+    public int TimeoutSeconds { get; set; } = 30;
 }

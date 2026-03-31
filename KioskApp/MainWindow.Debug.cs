@@ -21,7 +21,7 @@ public sealed partial class MainWindow
 {
     #region Debug Mode State
 
-    private enum DebugTab { Health, Logs, Performance, DeviceControl }
+    private enum DebugTab { Health, Logs, Performance, DeviceControl, MedicalDevices }
     private DebugTab _activeTab = DebugTab.Health;
     private Timer? _debugModeRefreshTimer;
     private ModuleHealthViewModel? _selectedModule;
@@ -758,6 +758,11 @@ public sealed partial class MainWindow
         SwitchToTab(DebugTab.Performance);
     }
 
+    private void MedicalDevicesTabButton_Click(object sender, RoutedEventArgs e)
+    {
+        SwitchToTab(DebugTab.MedicalDevices);
+    }
+
     private void SwitchToTab(DebugTab tab)
     {
         // Unsubscribe from previous tab's updates
@@ -792,6 +797,10 @@ public sealed partial class MainWindow
             _dcAutoRefreshTimer = null;
 
             _deviceControlVisible = false;
+        }
+        if (_activeTab == DebugTab.MedicalDevices && tab != DebugTab.MedicalDevices)
+        {
+            _fireflyPanelVisible = false;
         }
 
         _activeTab = tab;
@@ -829,6 +838,11 @@ public sealed partial class MainWindow
                 InitializeDeviceControlTab();
                 RefreshDeviceControlDisplay();
                 break;
+
+            case DebugTab.MedicalDevices:
+                _fireflyPanelVisible = true;
+                _ = RefreshFireflyDevicesAsync();
+                break;
         }
 
         // Hide module detail panel when switching tabs
@@ -845,6 +859,7 @@ public sealed partial class MainWindow
         LogsTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonStyle"];
         PerfTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonStyle"];
         DeviceControlTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonStyle"];
+        MedicalDevicesTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonStyle"];
 
         // Set active tab style
         switch (_activeTab)
@@ -861,6 +876,9 @@ public sealed partial class MainWindow
             case DebugTab.DeviceControl:
                 DeviceControlTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonActiveStyle"];
                 break;
+            case DebugTab.MedicalDevices:
+                MedicalDevicesTabButton.Style = (Style)Application.Current.Resources["DebugTabButtonActiveStyle"];
+                break;
         }
     }
 
@@ -870,6 +888,7 @@ public sealed partial class MainWindow
         LogsTabContent.Visibility = _activeTab == DebugTab.Logs ? Visibility.Visible : Visibility.Collapsed;
         PerfTabContent.Visibility = _activeTab == DebugTab.Performance ? Visibility.Visible : Visibility.Collapsed;
         DeviceControlTabContent.Visibility = _activeTab == DebugTab.DeviceControl ? Visibility.Visible : Visibility.Collapsed;
+        MedicalDevicesTabContent.Visibility = _activeTab == DebugTab.MedicalDevices ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void RefreshPanelButton_Click(object sender, RoutedEventArgs e)
@@ -887,6 +906,9 @@ public sealed partial class MainWindow
                 break;
             case DebugTab.DeviceControl:
                 RefreshDeviceControlDisplay();
+                break;
+            case DebugTab.MedicalDevices:
+                _ = RefreshFireflyDevicesAsync();
                 break;
         }
         Logger.Log($"Manual refresh triggered for {_activeTab} tab");

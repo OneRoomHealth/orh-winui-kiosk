@@ -363,6 +363,14 @@
                                 <TextBlock Text="Device Control" FontSize="12" Foreground="#858585"/>
                             </StackPanel>
                         </Button>
+                        <Button x:Name="MedicalDevicesTabButton"
+                                Style="{StaticResource DebugTabButtonStyle}"
+                                Click="MedicalDevicesTabButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="&#x1F489;" FontSize="12" Foreground="#858585"/>
+                                <TextBlock Text="Medical Devices" FontSize="12" Foreground="#858585"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
 
                     <!-- Panel Controls -->
@@ -815,6 +823,61 @@
                                        FontFamily="Cascadia Code, Consolas"/>
                             <TextBlock Grid.Column="1" x:Name="DcRequestCountText"
                                        Text="0 requests"
+                                       Foreground="#666666" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                        </Grid>
+                    </Grid>
+
+                    <!-- ===== MEDICAL DEVICES TAB CONTENT ===== -->
+                    <Grid x:Name="MedicalDevicesTabContent" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Header -->
+                        <Border Grid.Row="0" Background="#2D2D2D" Padding="8,6" BorderBrush="#3C3C3C" BorderThickness="0,0,0,1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <TextBlock Text="&#x1F489;" FontSize="12" Foreground="#4EC9B0" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Firefly Otoscope Cameras" Foreground="#CCCCCC" FontSize="12"
+                                               FontFamily="Cascadia Code, Consolas" VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <Button Grid.Column="1" x:Name="RefreshFireflyButton"
+                                        Style="{StaticResource DebugToolbarButtonStyle}"
+                                        Click="RefreshFireflyButton_Click"
+                                        ToolTipService.ToolTip="Refresh Firefly devices">
+                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                        <TextBlock Text="&#x21BB;" FontSize="12"/>
+                                        <TextBlock Text="Refresh" FontSize="11" Foreground="#CCCCCC"/>
+                                    </StackPanel>
+                                </Button>
+                            </Grid>
+                        </Border>
+
+                        <!-- Device List -->
+                        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      Padding="12">
+                            <StackPanel x:Name="FireflyDeviceListPanel" Spacing="8"/>
+                        </ScrollViewer>
+
+                        <!-- Footer -->
+                        <Grid Grid.Row="2" Background="#252526" Padding="12,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="VID: 0x21CD (Firefly Medical)"
+                                       Foreground="#858585" FontSize="11"
+                                       FontFamily="Cascadia Code, Consolas"/>
+                            <TextBlock Grid.Column="1" x:Name="FireflyLastRefreshText"
+                                       Text="Never refreshed"
                                        Foreground="#666666" FontSize="11"
                                        FontFamily="Cascadia Code, Consolas"/>
                         </Grid>

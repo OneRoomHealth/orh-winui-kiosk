@@ -482,6 +482,20 @@ public class HardwareApiServer
         {
             _logger.LogWarning(ex, "Could not register Media endpoints");
         }
+
+        try
+        {
+            var fireflyModule = app.Services.GetService<Modules.Firefly.FireflyModule>();
+            if (fireflyModule != null)
+            {
+                app.MapFireflyEndpoints(_logger);
+                _logger.LogInformation("Firefly endpoints registered");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not register Firefly endpoints");
+        }
     }
 
 }
