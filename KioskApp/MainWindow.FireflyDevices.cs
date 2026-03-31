@@ -115,7 +115,7 @@ public sealed partial class MainWindow
         });
     }
 
-    private Border BuildFireflyDeviceCard(DeviceInfo device, FireflyDeviceStatus? status)
+    private Border BuildFireflyDeviceCard(OneRoomHealth.Hardware.Abstractions.DeviceInfo device, FireflyDeviceStatus? status)
     {
         var healthColor = device.Health switch
         {
