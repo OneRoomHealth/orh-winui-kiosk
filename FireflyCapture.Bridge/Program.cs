@@ -55,7 +55,7 @@ builder.WebHost.UseKestrel(k => k.ListenLocalhost(bridgeOptions.Port));
 var app = builder.Build();
 
 // Ensure SnapDllInterop is created eagerly so load errors appear at startup
-var _ = app.Services.GetRequiredService<SnapDllInterop>();
+_ = app.Services.GetRequiredService<SnapDllInterop>();
 
 var startTime = DateTimeOffset.UtcNow;
 var jsonOpts = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
