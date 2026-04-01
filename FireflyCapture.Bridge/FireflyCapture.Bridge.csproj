@@ -7,7 +7,7 @@
     <Platforms>x86</Platforms>
     <RuntimeIdentifier>win-x86</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
-    <PublishSingleFile>false</PublishSingleFile>
+    <PublishSingleFile>true</PublishSingleFile>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -17,9 +17,14 @@
 
   <ItemGroup>
     <!-- SnapDll.dll must sit next to this exe at runtime.
-         See docs/snapdll-setup.md for placement instructions. -->
+         See docs/snapdll-setup.md for placement instructions.
+         CopyToPublishDirectory is required in addition to CopyToOutputDirectory:
+         dotnet publish resolves content via CopyToPublishDirectory (default Never),
+         not CopyToOutputDirectory, so omitting it causes SnapDll.dll to be absent
+         from the publish output and the bridge exe to fail with a missing DLL error. -->
     <Content Include="..\SnapDll.dll" Link="SnapDll.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 

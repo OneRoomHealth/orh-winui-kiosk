@@ -62,5 +62,54 @@
   <ItemGroup>
     <ProjectReference Include="..\OneRoomHealth.Hardware\OneRoomHealth.Hardware.csproj" />
   </ItemGroup>
+
+  <!--
+    Publish FireflyCapture.Bridge (x86, self-contained, single-file) and copy its
+    output into hardware\firefly\ inside the MSIX package layout.
+
+    The bridge must be x86 to load the 32-bit SnapDll.dll.  PublishSingleFile
+    bundles all managed assemblies; native .NET runtime DLLs (coreclr.dll, etc.)
+    land alongside the exe and are included via the wildcard below.
+
+    Incremental: the target is skipped when the bridge exe is up-to-date relative
+    to the bridge source files, project file, NuGet lock file, and any solution-level
+    MSBuild props or global.json that affect dependency resolution.
+
+    Non-existent paths in Inputs are silently ignored by MSBuild (they only
+    participate in the timestamp check once they exist on disk), so listing
+    packages.lock.json, Directory.*.props, and global.json here is safe even
+    though none of them currently exist in this repo.
+  -->
+  <Target Name="PublishFireflyBridge"
+          BeforeTargets="AssignTargetPaths"
+          Inputs="..\FireflyCapture.Bridge\**\*.cs;
+                  ..\FireflyCapture.Bridge\**\*.csproj;
+                  ..\FireflyCapture.Bridge\**\packages.lock.json;
+                  ..\SnapDll.dll;
+                  ..\Directory.Build.props;
+                  ..\Directory.Packages.props;
+                  ..\global.json"
+          Outputs="$(MSBuildThisFileDirectory)..\FireflyCapture.Bridge\bin\x86\$(Configuration)\net8.0-windows\win-x86\publish\FireflyCapture.Bridge.exe;
+                   $(MSBuildThisFileDirectory)..\FireflyCapture.Bridge\bin\x86\$(Configuration)\net8.0-windows\win-x86\publish\SnapDll.dll">
+    <MSBuild Projects="..\FireflyCapture.Bridge\FireflyCapture.Bridge.csproj"
+             Properties="Configuration=$(Configuration);Platform=x86;RuntimeIdentifier=win-x86;SelfContained=true;PublishSingleFile=true"
+             Targets="Publish" />
+
+    <!-- Register publish output as Content items after files exist. -->
+    <ItemGroup>
+      <_FireflyBridgeFiles
+          Include="..\FireflyCapture.Bridge\bin\x86\$(Configuration)\net8.0-windows\win-x86\publish\**\*"
+          Exclude="**\*.pdb;**\*.xml" />
+    </ItemGroup>
+    <ItemGroup>
+      <Content Include="@(_FireflyBridgeFiles)">
+        <Link>hardware\firefly\%(RecursiveDir)%(Filename)%(Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <!-- CopyToPublishDirectory is required for dotnet publish / MSIX publish
+             pipeline. CopyToOutputDirectory alone only covers msbuild /t:Build. -->
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </Content>
+    </ItemGroup>
+  </Target>
 </Project>
 

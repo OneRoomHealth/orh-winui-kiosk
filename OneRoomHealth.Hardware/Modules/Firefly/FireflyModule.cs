@@ -226,6 +226,17 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
     }
 
     // -------------------------------------------------------------------------
+    // On-demand enumeration (for debug UI refresh)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Forces an immediate re-enumeration of connected Firefly devices,
+    /// bypassing the periodic monitoring interval. Intended for the debug UI
+    /// refresh button so results reflect the current hardware state.
+    /// </summary>
+    public Task RefreshDevicesAsync() => EnumerateDevicesAsync();
+
+    // -------------------------------------------------------------------------
     // Capture
     // -------------------------------------------------------------------------
 
