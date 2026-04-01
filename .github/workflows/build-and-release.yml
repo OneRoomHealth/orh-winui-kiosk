@@ -34,7 +34,9 @@ jobs:
       uses: microsoft/setup-msbuild@v2
 
     - name: Restore NuGet packages
-      run: dotnet restore ${{ env.PROJECT_PATH }}
+      run: |
+        dotnet restore ${{ env.PROJECT_PATH }}
+        dotnet restore FireflyCapture.Bridge/FireflyCapture.Bridge.csproj
 
     - name: Decode and install signing certificate
       run: |
