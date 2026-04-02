@@ -576,7 +576,8 @@ public sealed partial class MainWindow
             }
 
             // Only handle our internal messages
-            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag" && type != "orh.media.override" && type != "orh.console")
+            if (type != "orh.mediaDevices.result" && type != "orh.webrtc.diag" && type != "orh.media.override"
+                && type != "orh.console" && type != "orh.fireflyCapture.result")
             {
                 Logger.Log($"[WEBMSG] Unknown type: {type}");
                 return;

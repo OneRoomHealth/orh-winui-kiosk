@@ -1526,6 +1526,7 @@ public sealed partial class MainWindow
 
                     if (navigator && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {{
                         const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+                        window.__orhOrigGetUserMedia = originalGetUserMedia;
 
                         if (!window.__orhLocalUserMediaStreams) window.__orhLocalUserMediaStreams = [];
 

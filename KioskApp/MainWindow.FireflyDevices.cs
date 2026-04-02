@@ -1,3 +1,5 @@
+using System.IO;
+using System.Text.Json;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -5,10 +7,6 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using OneRoomHealth.Hardware.Abstractions;
 using OneRoomHealth.Hardware.Modules.Firefly;
-using Windows.Media.Capture;
-using Windows.Media.Core;
-using Windows.Media.MediaProperties;
-using Windows.Media.Playback;
 
 namespace KioskApp;
 
@@ -20,12 +18,6 @@ public sealed partial class MainWindow
     #region Fields
 
     private bool _fireflyPanelVisible = false;
-
-    // Keyed by logical device ID (e.g. "firefly-0").
-    // Stores the open MediaCapture and the MediaPlayerElement it is rendering to
-    // so StopAllFireflyPreviewsAsync can cleanly stop the preview and
-    // clear the element before disposing the capture.
-    private readonly Dictionary<string, (MediaCapture Capture, MediaPlayerElement Preview)> _previewCaptures = new();
 
     // Named handler delegates stored here so they can be explicitly unsubscribed
     // before FireflyDeviceListPanel.Children.Clear() discards the card elements.
@@ -44,6 +36,18 @@ public sealed partial class MainWindow
     private static void LogFirefly(string message) =>
         Logger.Log($"[FIREFLY] {message}");
 
+    /// <summary>
+    /// Formats an exception for logging, including HRESULT for COM exceptions
+    /// (which frequently have empty or unhelpful Message strings).
+    /// </summary>
+    private static string FormatFireflyException(Exception ex)
+    {
+        var hresult = ex is System.Runtime.InteropServices.COMException com
+            ? $" (HRESULT: 0x{com.HResult:X8})"
+            : string.Empty;
+        return $"[{ex.GetType().Name}] {ex.Message}{hresult}";
+    }
+
     #endregion
 
     #region Refresh
@@ -56,21 +60,20 @@ public sealed partial class MainWindow
 
             if (fireflyModule == null)
             {
-                await StopAllFireflyPreviewsAsync();
-                DispatcherQueue.TryEnqueue(() => RenderFireflyUnavailable("Firefly module is not registered. Enable Hardware API mode first."));
+                // No awaits have run yet — we are still on the UI thread.
+                // Call RenderFireflyUnavailable directly so handler cleanup is
+                // synchronous with the return; a deferred TryEnqueue would leave
+                // _cardButtonHandlers non-empty until the UI thread drains its queue,
+                // allowing a rapid re-entry to race against stale handlers.
+                RenderFireflyUnavailable("Firefly module is not registered. Enable Hardware API mode first.");
                 return;
             }
 
             if (!fireflyModule.IsEnabled)
             {
-                await StopAllFireflyPreviewsAsync();
-                DispatcherQueue.TryEnqueue(() => RenderFireflyUnavailable("Firefly module is disabled. Set hardware.firefly.enabled = true in config.json."));
+                RenderFireflyUnavailable("Firefly module is disabled. Set hardware.firefly.enabled = true in config.json.");
                 return;
             }
-
-            // Stop any active previews before rebuilding the card list, since the
-            // old card elements will be discarded and new ones created.
-            await StopAllFireflyPreviewsAsync();
 
             await fireflyModule.RefreshDevicesAsync();
             var devices = await fireflyModule.GetDevicesAsync();
@@ -119,7 +122,6 @@ public sealed partial class MainWindow
         catch (Exception ex)
         {
             LogFirefly($"Error refreshing Firefly devices: {ex.Message}");
-            await StopAllFireflyPreviewsAsync();
             DispatcherQueue.TryEnqueue(() => RenderFireflyUnavailable($"Error: {ex.Message}"));
         }
     }
@@ -259,7 +261,7 @@ public sealed partial class MainWindow
                     ColorHelper.FromArgb(255, 244, 135, 113));
             }
 
-            // ── Interactive controls (only when we have a device path) ──────────
+            // ── Interactive controls ──────────────────────────────────────────────
 
             // Status feedback text (hidden until an action produces output)
             var actionStatus = new TextBlock
@@ -270,19 +272,6 @@ public sealed partial class MainWindow
                 Foreground = new SolidColorBrush(ColorHelper.FromArgb(255, 133, 133, 133)),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 4, 0, 0)
-            };
-
-            // Live preview element (hidden until Preview is started).
-            // WinUI 3 does not have CaptureElement; use MediaPlayerElement +
-            // MediaPlayer backed by MediaSource.CreateFromMediaFrameSource instead.
-            var previewElement = new MediaPlayerElement
-            {
-                Visibility = Visibility.Collapsed,
-                Width = 320,
-                Height = 240,
-                Margin = new Thickness(0, 6, 0, 0),
-                Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
-                AreTransportControlsEnabled = false
             };
 
             // Last-captured image (hidden until a capture completes)
@@ -311,14 +300,20 @@ public sealed partial class MainWindow
             };
 
             var deviceId = device.Id;
-            var deviceInterfaceId = status.DeviceInterfaceId;
+            var deviceLabel = status.FriendlyName ?? device.Name;  // captured before lambda
 
             // Named delegates so they can be unsubscribed when the panel is cleared.
-            RoutedEventHandler previewHandler = async (_, _) =>
-                await ToggleFireflyPreviewAsync(deviceId, deviceInterfaceId,
-                    previewButton, captureButton, previewElement, actionStatus);
+            //
+            // Preview is info-only: the browser owns the Firefly during an ACS call;
+            // native MediaCapture would conflict with the browser's exclusive access.
+            RoutedEventHandler previewHandler = (_, _) =>
+                SetFireflyActionStatus(actionStatus,
+                    "Live preview is available in the active ACS video call. " +
+                    "The Firefly camera streams through the WebView \u2014 no native preview needed.",
+                    isError: false);
+
             RoutedEventHandler captureHandler = async (_, _) =>
-                await CaptureFireflyAsync(deviceId, captureImage, actionStatus);
+                await CaptureFireflyViaWebAsync(deviceId, deviceLabel, captureImage, actionStatus);
 
             previewButton.Click += previewHandler;
             captureButton.Click += captureHandler;
@@ -335,7 +330,6 @@ public sealed partial class MainWindow
 
             content.Children.Add(buttonRow);
             content.Children.Add(actionStatus);
-            content.Children.Add(previewElement);
             content.Children.Add(captureImage);
         }
 
@@ -374,253 +368,73 @@ public sealed partial class MainWindow
 
     #endregion
 
-    #region Preview
-
-    private async Task ToggleFireflyPreviewAsync(
-        string deviceId,
-        string deviceInterfaceId,
-        Button previewButton,
-        Button captureButton,
-        MediaPlayerElement previewElement,
-        TextBlock actionStatus)
-    {
-        if (_previewCaptures.ContainsKey(deviceId))
-        {
-            await StopFireflyPreviewAsync(deviceId, previewButton, captureButton, actionStatus);
-        }
-        else
-        {
-            await StartFireflyPreviewAsync(deviceId, deviceInterfaceId,
-                previewButton, captureButton, previewElement, actionStatus);
-        }
-    }
-
-    private async Task StartFireflyPreviewAsync(
-        string deviceId,
-        string deviceInterfaceId,
-        Button previewButton,
-        Button captureButton,
-        MediaPlayerElement previewElement,
-        TextBlock actionStatus)
-    {
-        previewButton.IsEnabled = false;
-        captureButton.IsEnabled = false;
-        LogFirefly($"Starting preview for {deviceId}");
-        LogFirefly($"DEBUG: device path: {deviceInterfaceId}");
-
-        // Declared outside try so the finally can conditionally dispose it.
-        // Once ownership is transferred to _previewCaptures the local is nulled,
-        // preventing the finally from disposing a live session.
-        MediaCapture? capture = null;
-        try
-        {
-            capture = new MediaCapture();
-            LogFirefly($"DEBUG: {deviceId}: calling InitializeAsync (ExclusiveControl, Video)");
-            await capture.InitializeAsync(new MediaCaptureInitializationSettings
-            {
-                VideoDeviceId = deviceInterfaceId,
-                StreamingCaptureMode = StreamingCaptureMode.Video,
-                SharingMode = MediaCaptureSharingMode.ExclusiveControl
-            });
-
-            LogFirefly($"{deviceId}: MediaCapture initialized — {capture.FrameSources.Count} frame source(s)");
-
-            // Log all available frame sources so we know exactly what the camera exposes.
-            foreach (var fs in capture.FrameSources.Values)
-            {
-                LogFirefly($"DEBUG: {deviceId}: source type={fs.Info.MediaStreamType} " +
-                           $"subtype={fs.CurrentFormat?.Subtype} " +
-                           $"{fs.CurrentFormat?.VideoFormat?.Width}x{fs.CurrentFormat?.VideoFormat?.Height} " +
-                           $"@{fs.CurrentFormat?.FrameRate?.Numerator}/{fs.CurrentFormat?.FrameRate?.Denominator}fps");
-            }
-
-            // Start the internal MF preview pipeline (required for CapturePhotoToStreamAsync)
-            // then bind a MediaPlayer to a frame source for visual rendering via
-            // MediaPlayerElement — WinUI 3 does not have CaptureElement.
-            LogFirefly($"DEBUG: {deviceId}: calling StartPreviewAsync");
-            await capture.StartPreviewAsync();
-
-            var frameSource = capture.FrameSources.Values.FirstOrDefault();
-            if (frameSource != null)
-            {
-                LogFirefly($"DEBUG: {deviceId}: binding MediaPlayerElement via FrameSource");
-                var mediaSource = MediaSource.CreateFromMediaFrameSource(frameSource);
-                var player = new MediaPlayer { Source = mediaSource };
-                previewElement.SetMediaPlayer(player);
-                player.Play();
-            }
-            else
-            {
-                LogFirefly($"DEBUG: {deviceId}: no FrameSources — preview running but no visual render");
-            }
-            previewElement.Visibility = Visibility.Visible;
-
-            LogFirefly($"{deviceId}: preview started");
-
-            _previewCaptures[deviceId] = (capture, previewElement);
-            capture = null; // ownership transferred — don't dispose in finally
-
-            previewButton.Content = "Stop Preview";
-            previewButton.IsEnabled = true;
-            captureButton.IsEnabled = true;
-            SetFireflyActionStatus(actionStatus, "Preview active — Capture will use this session.", isError: false);
-            LogFirefly($"{deviceId}: preview live ({_previewCaptures.Count} total active)");
-        }
-        catch (Exception ex)
-        {
-            var detail = FormatFireflyException(ex);
-            var failedPlayer = previewElement.MediaPlayer;
-            previewElement.SetMediaPlayer(null);
-            failedPlayer?.Dispose();
-            previewElement.Visibility = Visibility.Collapsed;
-            previewButton.IsEnabled = true;
-            captureButton.IsEnabled = true;
-            SetFireflyActionStatus(actionStatus, $"Preview failed: {ex.Message}", isError: true);
-            LogFirefly($"{deviceId}: preview start failed — {detail}");
-        }
-        finally
-        {
-            // Stop and dispose capture on any failure path. No-op on success
-            // because ownership was transferred above (capture = null).
-            if (capture != null)
-            {
-                LogFirefly($"DEBUG: {deviceId}: cleanup after failed start");
-                try { await capture.StopPreviewAsync(); } catch { }
-                capture.Dispose();
-            }
-        }
-    }
-
-    /// <summary>
-    /// Formats an exception for logging, including HRESULT for COM exceptions
-    /// (which frequently have empty or unhelpful Message strings).
-    /// </summary>
-    private static string FormatFireflyException(Exception ex)
-    {
-        var hresult = ex is System.Runtime.InteropServices.COMException com
-            ? $" (HRESULT: 0x{com.HResult:X8})"
-            : string.Empty;
-        return $"[{ex.GetType().Name}] {ex.Message}{hresult}";
-    }
-
-    private async Task StopFireflyPreviewAsync(
-        string deviceId,
-        Button previewButton,
-        Button captureButton,
-        TextBlock actionStatus)
-    {
-        if (!_previewCaptures.TryGetValue(deviceId, out var session))
-            return;
-
-        LogFirefly($"{deviceId}: stopping preview");
-        _previewCaptures.Remove(deviceId);
-
-        var player = session.Preview.MediaPlayer;
-        session.Preview.SetMediaPlayer(null);
-        player?.Dispose();
-        try { await session.Capture.StopPreviewAsync(); } catch { /* already stopped */ }
-        session.Preview.Visibility = Visibility.Collapsed;
-        session.Capture.Dispose();
-
-        previewButton.Content = "Preview";
-        previewButton.IsEnabled = true;
-        captureButton.IsEnabled = true;
-        SetFireflyActionStatus(actionStatus, "Preview stopped.", isError: false);
-        LogFirefly($"{deviceId}: preview stopped ({_previewCaptures.Count} remaining)");
-    }
-
-    private async Task StopAllFireflyPreviewsAsync()
-    {
-        // Snapshot the keys before iterating because the loop mutates _previewCaptures.
-        var ids = _previewCaptures.Keys.ToList();
-        if (ids.Count > 0)
-            LogFirefly($"StopAll — stopping {ids.Count} active preview(s): {string.Join(", ", ids)}");
-
-        foreach (var id in ids)
-        {
-            if (_previewCaptures.TryGetValue(id, out var session))
-            {
-                _previewCaptures.Remove(id);
-
-                var player = session.Preview.MediaPlayer;
-                session.Preview.SetMediaPlayer(null);
-                player?.Dispose();
-                try { await session.Capture.StopPreviewAsync(); } catch { }
-                session.Preview.Visibility = Visibility.Collapsed;
-                session.Capture.Dispose();
-
-                LogFirefly($"DEBUG: {id}: stopped and disposed");
-            }
-        }
-    }
-
-    #endregion
-
     #region Capture
 
-    private async Task CaptureFireflyAsync(
+    /// <summary>
+    /// Asks the WebView JS side to grab a snapshot from the Firefly camera and returns
+    /// it as a base64 JPEG via postMessage.  The browser owns the camera device
+    /// exclusively; native MediaCapture would conflict with the WebRTC track.
+    /// </summary>
+    private async Task CaptureFireflyViaWebAsync(
         string deviceId,
+        string deviceLabel,
         Image captureImage,
         TextBlock actionStatus)
     {
+        if (KioskWebView?.CoreWebView2 == null)
+        {
+            SetFireflyActionStatus(actionStatus, "WebView not available.", isError: true);
+            LogFirefly($"{deviceId}: capture aborted — WebView is null");
+            return;
+        }
+
         SetFireflyActionStatus(actionStatus, "Capturing\u2026", isError: false);
+        LogFirefly($"{deviceId}: requesting JS-side capture (label: \"{deviceLabel}\")");
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var js = GetFireflyCaptureScript(requestId, deviceId, deviceLabel);
+
+        // SendWebMessageRequestAsync is defined in MainWindow.MediaDevices.cs and is
+        // accessible here because both files are the same partial class.
+        var json = await SendWebMessageRequestAsync(js, requestId, TimeSpan.FromSeconds(15));
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            SetFireflyActionStatus(actionStatus, "Capture timed out or failed.", isError: true);
+            LogFirefly($"{deviceId}: capture failed — no response from JS");
+            return;
+        }
+
+        LogFirefly($"{deviceId}: JS capture returned {json.Length} bytes");
 
         try
         {
-            byte[] imageBytes;
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
 
-            if (_previewCaptures.TryGetValue(deviceId, out var session))
+            if (root.TryGetProperty("error", out var errEl) &&
+                errEl.ValueKind != JsonValueKind.Null &&
+                errEl.ValueKind != JsonValueKind.Undefined)
             {
-                // Capture a JPEG snapshot via the MF photo sink.
-                //
-                // CapturePhotoToStreamAsync works here because StartPreviewAsync has
-                // already started the video stream; the MF graph is running and the
-                // photo sink can share that pipeline.  JPEG encoding is handled
-                // natively by the MF graph — no SoftwareBitmap or BitmapEncoder needed.
-                LogFirefly($"{deviceId}: capturing via CapturePhotoToStreamAsync (preview active)");
-
-                using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-                await session.Capture.CapturePhotoToStreamAsync(
-                    ImageEncodingProperties.CreateJpeg(), stream);
-
-                LogFirefly($"DEBUG: {deviceId}: photo stream size = {stream.Size} bytes");
-
-                if (stream.Size == 0)
-                {
-                    SetFireflyActionStatus(actionStatus, "Capture produced an empty stream.", isError: true);
-                    LogFirefly($"{deviceId}: capture aborted — CapturePhotoToStreamAsync produced 0 bytes");
-                    return;
-                }
-
-                stream.Seek(0);
-                var bytes = new byte[stream.Size];
-                using var reader = new Windows.Storage.Streams.DataReader(stream);
-                await reader.LoadAsync((uint)stream.Size);
-                reader.ReadBytes(bytes);
-
-                LogFirefly($"{deviceId}: captured {bytes.Length} bytes JPEG");
-                imageBytes = bytes;
+                var errMsg = errEl.GetString() ?? "Unknown error";
+                SetFireflyActionStatus(actionStatus, $"Capture failed: {errMsg}", isError: true);
+                LogFirefly($"{deviceId}: JS capture error — {errMsg}");
+                return;
             }
-            else
+
+            if (!root.TryGetProperty("jpeg", out var jpegEl) ||
+                jpegEl.ValueKind == JsonValueKind.Null ||
+                string.IsNullOrEmpty(jpegEl.GetString()))
             {
-                // No active preview — delegate to FireflyModule which opens a new
-                // ExclusiveControl session, starts preview, captures, then closes.
-                LogFirefly($"{deviceId}: no active preview — delegating to FireflyModule");
-                var fireflyModule = App.Services?.GetService(typeof(FireflyModule)) as FireflyModule;
-                if (fireflyModule == null)
-                {
-                    SetFireflyActionStatus(actionStatus, "Firefly module unavailable.", isError: true);
-                    LogFirefly($"{deviceId}: capture aborted — FireflyModule not available");
-                    return;
-                }
-                imageBytes = await fireflyModule.TriggerCaptureAsync(deviceId);
-                LogFirefly($"DEBUG: {deviceId}: FireflyModule returned {imageBytes.Length} bytes");
+                SetFireflyActionStatus(actionStatus, "Capture returned no image.", isError: true);
+                LogFirefly($"{deviceId}: JS capture returned null jpeg");
+                return;
             }
+
+            var base64 = jpegEl.GetString()!;
+            var imageBytes = Convert.FromBase64String(base64);
 
             // Decode JPEG and display thumbnail.
-            // Both the MemoryStream and the IRandomAccessStream wrapper are scoped
-            // to the block so they are disposed as soon as SetSourceAsync returns,
-            // not at the end of the wider try block.
             var bitmap = new BitmapImage();
             using (var ms = new MemoryStream(imageBytes))
             using (var ras = ms.AsRandomAccessStream())
@@ -630,15 +444,156 @@ public sealed partial class MainWindow
             captureImage.Source = bitmap;
             captureImage.Visibility = Visibility.Visible;
 
-            SetFireflyActionStatus(actionStatus, $"Captured {imageBytes.Length / 1024:N0} KB", isError: false);
-            LogFirefly($"{deviceId}: capture OK — {imageBytes.Length / 1024} KB ({imageBytes.Length} bytes)");
+            var kbSize = imageBytes.Length / 1024;
+            SetFireflyActionStatus(actionStatus, $"Captured {kbSize:N0} KB", isError: false);
+            LogFirefly($"{deviceId}: capture OK — {kbSize} KB ({imageBytes.Length} bytes)");
         }
         catch (Exception ex)
         {
             var detail = FormatFireflyException(ex);
             SetFireflyActionStatus(actionStatus, $"Capture failed: {ex.Message}", isError: true);
-            LogFirefly($"{deviceId}: capture failed — {detail}");
+            LogFirefly($"{deviceId}: capture error — {detail}");
         }
+    }
+
+    /// <summary>
+    /// Returns a self-executing JS script that:
+    ///   1. Finds the browser deviceId for the Firefly by label substring match.
+    ///   2. Reuses an already-open live track (avoids reopening during an ACS call).
+    ///   3. Falls back to opening a temporary getUserMedia stream.
+    ///   4. Captures via ImageCapture.takePhoto() or a canvas draw fallback.
+    ///   5. Posts { type: 'orh.fireflyCapture.result', requestId, deviceId, jpeg, error }
+    ///      via chrome.webview.postMessage.
+    /// Uses window.__orhOrigGetUserMedia (stored before the getUserMedia override) so the
+    /// override's camera-selection logic does not replace the Firefly deviceId.
+    /// </summary>
+    private string GetFireflyCaptureScript(string requestId, string deviceId, string deviceLabel)
+    {
+        var requestIdJson    = JsonSerializer.Serialize(requestId);
+        var deviceIdJson     = JsonSerializer.Serialize(deviceId);
+        var deviceLabelJson  = JsonSerializer.Serialize(deviceLabel);
+
+        return $@"(async () => {{
+    const requestId   = {requestIdJson};
+    const nativeDevId = {deviceIdJson};
+    const deviceLabel = {deviceLabelJson};
+
+    const post = (payload) => {{
+        try {{
+            if (window.chrome && chrome.webview && chrome.webview.postMessage)
+                chrome.webview.postMessage(payload);
+        }} catch (e) {{}}
+    }};
+
+    let streamToClose = null;
+    try {{
+        // Prefer the original (un-overridden) getUserMedia so the device-selection
+        // override does not reroute the Firefly deviceId to the main camera.
+        const gum = (typeof window.__orhOrigGetUserMedia === 'function')
+            ? window.__orhOrigGetUserMedia
+            : navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+
+        // Locate the browser deviceId that matches our Firefly by label substring.
+        let targetDeviceId = null;
+        try {{
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const lbl = deviceLabel.toLowerCase();
+            const match = devices.find(d =>
+                d.kind === 'videoinput' && d.label &&
+                d.label.toLowerCase().includes(lbl));
+            if (match) targetDeviceId = match.deviceId;
+        }} catch (e) {{}}
+
+        if (!targetDeviceId) {{
+            post({{ type: 'orh.fireflyCapture.result', requestId, deviceId: nativeDevId,
+                    jpeg: null, error: 'Device not found in browser: ' + deviceLabel }});
+            return;
+        }}
+
+        // Reuse an already-open live track (avoids reopening the camera during an ACS call).
+        let track = null;
+        try {{
+            const streams = window.__orhLocalUserMediaStreams || [];
+            for (const s of streams) {{
+                if (!s || !s.active) continue;
+                const vts = s.getVideoTracks ? s.getVideoTracks() : [];
+                const vt  = vts.find(t => {{
+                    try {{
+                        return t.readyState === 'live' && t.getSettings &&
+                               t.getSettings().deviceId === targetDeviceId;
+                    }} catch (e) {{ return false; }}
+                }});
+                if (vt) {{ track = vt; break; }}
+            }}
+        }} catch (e) {{}}
+
+        // No existing track — open a temporary stream and remember to close it.
+        if (!track) {{
+            streamToClose = await gum({{ video: {{ deviceId: {{ exact: targetDeviceId }} }} }});
+            track = streamToClose.getVideoTracks()[0];
+        }}
+
+        if (!track) {{
+            post({{ type: 'orh.fireflyCapture.result', requestId, deviceId: nativeDevId,
+                    jpeg: null, error: 'No video track available' }});
+            return;
+        }}
+
+        // Capture — prefer ImageCapture API, fall back to canvas draw.
+        let blob = null;
+        try {{
+            if (typeof ImageCapture !== 'undefined') {{
+                const ic = new ImageCapture(track);
+                blob = await ic.takePhoto();
+            }}
+        }} catch (e) {{}}
+
+        if (!blob) {{
+            const video = document.createElement('video');
+            video.srcObject = new MediaStream([track]);
+            await new Promise((resolve, reject) => {{
+                video.onloadedmetadata = () => resolve();
+                video.onerror          = () => reject(new Error('video error'));
+                setTimeout(() => reject(new Error('loadedmetadata timeout')), 5000);
+            }});
+            video.play();
+            await new Promise(r => setTimeout(r, 250));
+            const canvas  = document.createElement('canvas');
+            canvas.width  = video.videoWidth  || 640;
+            canvas.height = video.videoHeight || 480;
+            const ctx = canvas.getContext('2d');
+            if (ctx) ctx.drawImage(video, 0, 0);
+            blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+        }}
+
+        if (!blob) {{
+            post({{ type: 'orh.fireflyCapture.result', requestId, deviceId: nativeDevId,
+                    jpeg: null, error: 'Failed to capture image blob' }});
+            return;
+        }}
+
+        // Convert blob → base64 in 8 192-byte chunks (avoids call-stack overflow for
+        // large frames when using String.fromCharCode.apply).
+        const ab    = await blob.arrayBuffer();
+        const ua    = new Uint8Array(ab);
+        let binary  = '';
+        const chunk = 8192;
+        for (let i = 0; i < ua.length; i += chunk) {{
+            binary += String.fromCharCode.apply(null, ua.subarray(i, Math.min(i + chunk, ua.length)));
+        }}
+        const base64 = btoa(binary);
+
+        post({{ type: 'orh.fireflyCapture.result', requestId, deviceId: nativeDevId,
+                jpeg: base64, error: null }});
+    }} catch (e) {{
+        post({{ type: 'orh.fireflyCapture.result', requestId, deviceId: nativeDevId,
+                jpeg: null, error: String(e) }});
+    }} finally {{
+        if (streamToClose) {{
+            try {{ streamToClose.getTracks().forEach(t => t.stop()); }} catch (e) {{}}
+        }}
+    }}
+}})();";
     }
 
     private void SetFireflyActionStatus(TextBlock block, string text, bool isError)
