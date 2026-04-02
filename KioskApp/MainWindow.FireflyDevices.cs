@@ -8,6 +8,7 @@ using OneRoomHealth.Hardware.Modules.Firefly;
 using Windows.Graphics.Imaging;
 using Windows.Media.Capture;
 using Windows.Media.Capture.Frames;
+using Windows.Media.MediaProperties;
 
 namespace KioskApp;
 
@@ -434,14 +435,18 @@ public sealed partial class MainWindow
             previewImage.Source = softwareBitmapSource;
             previewImage.Visibility = Visibility.Visible;
 
-            frameReader = await capture.CreateFrameReaderAsync(frameSource);
-            Logger.Log($"[MEDICAL DEVICES] MediaFrameReader created for {deviceId}");
+            // Request Bgra8 output so the system decodes compressed camera formats
+            // (e.g. MJPEG) before delivering frames. Without this, SoftwareBitmap is
+            // null for compressed frames and the preview displays nothing.
+            frameReader = await capture.CreateFrameReaderAsync(frameSource, MediaEncodingSubtypes.Bgra8);
+            Logger.Log($"[MEDICAL DEVICES] MediaFrameReader created for {deviceId} (output: Bgra8)");
 
             // Frame-drop flag: 0 = idle, 1 = a frame is currently queued for rendering.
             // int + Interlocked required because FrameArrived runs on the MediaFrameReader
             // background thread while the reset runs on the UI thread; a plain bool has
             // no visibility or ordering guarantees across threads in the C# memory model.
             int frameUpdatePending = 0;
+            int frameArrivalCount  = 0; // diagnostic: log first arrival and any null bitmaps
             frameReader.FrameArrived += (sender, _) =>
             {
                 // Atomically claim the slot; if it was already taken, drop this frame.
@@ -449,13 +454,24 @@ public sealed partial class MainWindow
 
                 using var frame = sender.TryAcquireLatestFrame();
                 var bitmap = frame?.VideoMediaFrame?.SoftwareBitmap;
+
+                var arrival = Interlocked.Increment(ref frameArrivalCount);
+                if (arrival == 1)
+                    Logger.Log($"[MEDICAL DEVICES] First frame for {deviceId}: bitmap={bitmap != null}, " +
+                               $"format={bitmap?.BitmapPixelFormat}, alpha={bitmap?.BitmapAlphaMode}");
+
                 if (bitmap == null)
                 {
+                    if (arrival <= 3)
+                        Logger.Log($"[MEDICAL DEVICES] Null SoftwareBitmap for {deviceId} (frame #{arrival}) — " +
+                                   "camera may not support Bgra8 decode");
                     Interlocked.Exchange(ref frameUpdatePending, 0);
                     return;
                 }
 
                 // SoftwareBitmapSource requires Bgra8 / Premultiplied.
+                // CreateFrameReaderAsync already requested Bgra8, so conversion is
+                // typically a no-op here, but we guard for unexpected alpha modes.
                 var displayBitmap = (bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8 &&
                                      bitmap.BitmapAlphaMode  == BitmapAlphaMode.Premultiplied)
                     ? SoftwareBitmap.Copy(bitmap)
@@ -602,20 +618,51 @@ public sealed partial class MainWindow
 
             if (_previewCaptures.TryGetValue(deviceId, out var session))
             {
-                // Capture from the active preview session.
-                // MediaFrameReader.StartAsync() activates the camera stream, so
-                // CapturePhotoToStreamAsync can take a still without re-opening the camera.
-                Logger.Log($"[MEDICAL DEVICES] Capturing via active preview session for {deviceId}");
-                using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-                await session.Capture.CapturePhotoToStreamAsync(
-                    Windows.Media.MediaProperties.ImageEncodingProperties.CreateJpeg(),
-                    stream);
+                // Capture a JPEG snapshot from the active MediaFrameReader.
+                //
+                // CapturePhotoToStreamAsync is intentionally NOT used here.  That API
+                // requires the camera to expose a hardware photo-capture sink (MFT).
+                // Firefly cameras only expose a single VideoRecord stream; they have no
+                // photo pipeline, so CapturePhotoToStreamAsync fails with 0xC00D3704
+                // (MF_E_HARDWARE_MFT_FAILED_START_STREAMING) every time.
+                //
+                // Instead we grab the latest buffered frame from the already-running
+                // frame reader (the same stream powering the live preview) and encode
+                // it to JPEG in software using BitmapEncoder.  We copy the SoftwareBitmap
+                // out of the MediaFrameReference immediately so we can release the
+                // reference before the async encoding step.
+                Logger.Log($"[MEDICAL DEVICES] Capturing snapshot from frame reader for {deviceId}");
 
-                stream.Seek(0);
-                var bytes = new byte[stream.Size];
-                using var reader = new Windows.Storage.Streams.DataReader(stream);
-                await reader.LoadAsync((uint)stream.Size);
-                reader.ReadBytes(bytes);
+                SoftwareBitmap? frameBitmap;
+                using (var latestFrame = session.Reader.TryAcquireLatestFrame())
+                {
+                    var raw = latestFrame?.VideoMediaFrame?.SoftwareBitmap;
+                    frameBitmap = raw != null ? SoftwareBitmap.Copy(raw) : null;
+                }
+
+                if (frameBitmap == null)
+                {
+                    SetFireflyActionStatus(actionStatus,
+                        "No frame available — wait for preview to produce frames, then try again.",
+                        isError: true);
+                    Logger.Log($"[MEDICAL DEVICES] Capture aborted for {deviceId}: no buffered frame available");
+                    return;
+                }
+
+                Logger.Log($"[MEDICAL DEVICES] Encoding frame for {deviceId}: " +
+                           $"{frameBitmap.PixelWidth}x{frameBitmap.PixelHeight} {frameBitmap.BitmapPixelFormat}");
+
+                using var encodeStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, encodeStream);
+                encoder.SetSoftwareBitmap(frameBitmap);
+                await encoder.FlushAsync();
+                frameBitmap.Dispose();
+
+                encodeStream.Seek(0);
+                var bytes = new byte[encodeStream.Size];
+                using var dataReader = new Windows.Storage.Streams.DataReader(encodeStream);
+                await dataReader.LoadAsync((uint)encodeStream.Size);
+                dataReader.ReadBytes(bytes);
                 imageBytes = bytes;
             }
             else
