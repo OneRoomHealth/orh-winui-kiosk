@@ -346,12 +346,25 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
                 capture.InitializeAsync(settings)
                     .AsTask().ConfigureAwait(false).GetAwaiter().GetResult();
 
+                // StartPreviewAsync activates the camera video stream.
+                // CapturePhotoToStreamAsync requires the stream to be active;
+                // without this call, it throws "Hardware MFT failed to start streaming".
+                capture.StartPreviewAsync()
+                    .AsTask().ConfigureAwait(false).GetAwaiter().GetResult();
+
                 // Capture at the device's native resolution
                 using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
                 capture.CapturePhotoToStreamAsync(
                         Windows.Media.MediaProperties.ImageEncodingProperties.CreateJpeg(),
                         stream)
                     .AsTask().ConfigureAwait(false).GetAwaiter().GetResult();
+
+                try
+                {
+                    capture.StopPreviewAsync()
+                        .AsTask().ConfigureAwait(false).GetAwaiter().GetResult();
+                }
+                catch { /* best-effort cleanup */ }
 
                 stream.Seek(0);
                 var bytes = new byte[stream.Size];

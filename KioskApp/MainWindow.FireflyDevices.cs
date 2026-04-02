@@ -5,8 +5,9 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using OneRoomHealth.Hardware.Abstractions;
 using OneRoomHealth.Hardware.Modules.Firefly;
+using Windows.Graphics.Imaging;
 using Windows.Media.Capture;
-using Windows.Media.Core;
+using Windows.Media.Capture.Frames;
 
 namespace KioskApp;
 
@@ -20,10 +21,10 @@ public sealed partial class MainWindow
     private bool _fireflyPanelVisible = false;
 
     // Keyed by logical device ID (e.g. "firefly-0").
-    // Stores both the open MediaCapture and the MediaPlayerElement it is feeding so
-    // that StopAllFireflyPreviewsAsync can clear the element source before disposing
-    // the capture (avoiding a use-after-free on the native media pipeline).
-    private readonly Dictionary<string, (MediaCapture Capture, MediaPlayerElement Element)> _previewCaptures = new();
+    // Stores the open MediaCapture, its active MediaFrameReader, and the Image element
+    // the reader is feeding — so StopAllFireflyPreviewsAsync can cleanly stop the
+    // reader and clear the element before disposing the capture.
+    private readonly Dictionary<string, (MediaCapture Capture, MediaFrameReader Reader, Image PreviewImage)> _previewCaptures = new();
 
     // Named handler delegates stored here so they can be explicitly unsubscribed
     // before FireflyDeviceListPanel.Children.Clear() discards the card elements.
@@ -258,12 +259,11 @@ public sealed partial class MainWindow
                 Margin = new Thickness(0, 4, 0, 0)
             };
 
-            // Live preview element (hidden until Preview is started)
-            var previewElement = new MediaPlayerElement
+            // Live preview image (hidden until Preview is started).
+            // Backed by a SoftwareBitmapSource updated by a MediaFrameReader.
+            var previewImage = new Image
             {
                 Visibility = Visibility.Collapsed,
-                AutoPlay = true,
-                AreTransportControlsEnabled = false,
                 MinHeight = 180,
                 Margin = new Thickness(0, 6, 0, 0),
                 Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
@@ -300,7 +300,7 @@ public sealed partial class MainWindow
             // Named delegates so they can be unsubscribed when the panel is cleared.
             RoutedEventHandler previewHandler = async (_, _) =>
                 await ToggleFireflyPreviewAsync(deviceId, deviceInterfaceId,
-                    previewButton, captureButton, previewElement, actionStatus);
+                    previewButton, captureButton, previewImage, actionStatus);
             RoutedEventHandler captureHandler = async (_, _) =>
                 await CaptureFireflyAsync(deviceId, captureImage, actionStatus);
 
@@ -319,7 +319,7 @@ public sealed partial class MainWindow
 
             content.Children.Add(buttonRow);
             content.Children.Add(actionStatus);
-            content.Children.Add(previewElement);
+            content.Children.Add(previewImage);
             content.Children.Add(captureImage);
         }
 
@@ -365,7 +365,7 @@ public sealed partial class MainWindow
         string deviceInterfaceId,
         Button previewButton,
         Button captureButton,
-        MediaPlayerElement previewElement,
+        Image previewImage,
         TextBlock actionStatus)
     {
         if (_previewCaptures.ContainsKey(deviceId))
@@ -375,7 +375,7 @@ public sealed partial class MainWindow
         else
         {
             await StartFireflyPreviewAsync(deviceId, deviceInterfaceId,
-                previewButton, captureButton, previewElement, actionStatus);
+                previewButton, captureButton, previewImage, actionStatus);
         }
     }
 
@@ -384,16 +384,18 @@ public sealed partial class MainWindow
         string deviceInterfaceId,
         Button previewButton,
         Button captureButton,
-        MediaPlayerElement previewElement,
+        Image previewImage,
         TextBlock actionStatus)
     {
         previewButton.IsEnabled = false;
         captureButton.IsEnabled = false;
+        Logger.Log($"[MEDICAL DEVICES] Starting preview for {deviceId} (path: {deviceInterfaceId})");
 
-        // Declared outside try so the finally can conditionally dispose it.
-        // Once ownership is transferred to _previewCaptures the local is nulled,
+        // Declared outside try so the finally can conditionally dispose them.
+        // Once ownership is transferred to _previewCaptures both locals are nulled,
         // preventing the finally from disposing a live session.
         MediaCapture? capture = null;
+        MediaFrameReader? frameReader = null;
         try
         {
             capture = new MediaCapture();
@@ -404,9 +406,9 @@ public sealed partial class MainWindow
                 SharingMode = MediaCaptureSharingMode.ExclusiveControl
             });
 
-            // Connect the camera to a MediaPlayerElement via a MediaFrameSource.
-            // CaptureElement is UWP-only; MediaSource.CreateFromMediaFrameSource is
-            // the WinUI 3-compatible equivalent.
+            Logger.Log($"[MEDICAL DEVICES] MediaCapture initialized for {deviceId} — {capture.FrameSources.Count} frame source(s)");
+
+            // Prefer VideoPreview, fall back to VideoRecord, then any available source.
             var frameSource = capture.FrameSources.Values
                 .FirstOrDefault(fs => fs.Info.MediaStreamType == MediaStreamType.VideoPreview)
                 ?? capture.FrameSources.Values
@@ -417,36 +419,121 @@ public sealed partial class MainWindow
             {
                 previewButton.IsEnabled = true;
                 captureButton.IsEnabled = true;
+                Logger.Log($"[MEDICAL DEVICES] No frame source found for {deviceId}");
                 SetFireflyActionStatus(actionStatus, "No video frame source found on this device.", isError: true);
                 return; // finally disposes capture
             }
 
-            var mediaSource = MediaSource.CreateFromMediaFrameSource(frameSource);
-            previewElement.Source = mediaSource;
-            previewElement.Visibility = Visibility.Visible;
+            Logger.Log($"[MEDICAL DEVICES] Frame source for {deviceId}: type={frameSource.Info.MediaStreamType}, " +
+                       $"format={frameSource.CurrentFormat?.VideoFormat?.Width}x{frameSource.CurrentFormat?.VideoFormat?.Height}");
 
-            _previewCaptures[deviceId] = (capture, previewElement);
-            capture = null; // ownership transferred — don't dispose in finally
+            // Use MediaFrameReader for continuous live preview.
+            // MediaSource.CreateFromMediaFrameSource only surfaces a single static frame;
+            // MediaFrameReader fires FrameArrived on every new camera frame.
+            var softwareBitmapSource = new SoftwareBitmapSource();
+            previewImage.Source = softwareBitmapSource;
+            previewImage.Visibility = Visibility.Visible;
+
+            frameReader = await capture.CreateFrameReaderAsync(frameSource);
+            Logger.Log($"[MEDICAL DEVICES] MediaFrameReader created for {deviceId}");
+
+            // Frame-drop flag: 0 = idle, 1 = a frame is currently queued for rendering.
+            // int + Interlocked required because FrameArrived runs on the MediaFrameReader
+            // background thread while the reset runs on the UI thread; a plain bool has
+            // no visibility or ordering guarantees across threads in the C# memory model.
+            int frameUpdatePending = 0;
+            frameReader.FrameArrived += (sender, _) =>
+            {
+                // Atomically claim the slot; if it was already taken, drop this frame.
+                if (Interlocked.CompareExchange(ref frameUpdatePending, 1, 0) != 0) return;
+
+                using var frame = sender.TryAcquireLatestFrame();
+                var bitmap = frame?.VideoMediaFrame?.SoftwareBitmap;
+                if (bitmap == null)
+                {
+                    Interlocked.Exchange(ref frameUpdatePending, 0);
+                    return;
+                }
+
+                // SoftwareBitmapSource requires Bgra8 / Premultiplied.
+                var displayBitmap = (bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8 &&
+                                     bitmap.BitmapAlphaMode  == BitmapAlphaMode.Premultiplied)
+                    ? SoftwareBitmap.Copy(bitmap)
+                    : SoftwareBitmap.Convert(bitmap, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+
+                // If TryEnqueue fails (dispatcher shut down) the callback never runs,
+                // so we must release resources and reset the flag here instead.
+                if (!DispatcherQueue.TryEnqueue(async () =>
+                {
+                    try   { await softwareBitmapSource.SetBitmapAsync(displayBitmap); }
+                    catch { /* preview may have been stopped */ }
+                    finally
+                    {
+                        displayBitmap.Dispose();
+                        Interlocked.Exchange(ref frameUpdatePending, 0);
+                    }
+                }))
+                {
+                    displayBitmap.Dispose();
+                    Interlocked.Exchange(ref frameUpdatePending, 0);
+                }
+            };
+
+            var startStatus = await frameReader.StartAsync();
+            Logger.Log($"[MEDICAL DEVICES] Frame reader started for {deviceId}: {startStatus}");
+
+            if (startStatus != MediaFrameReaderStartStatus.Success)
+            {
+                previewImage.Source = null;
+                previewImage.Visibility = Visibility.Collapsed;
+                previewButton.IsEnabled = true;
+                captureButton.IsEnabled = true;
+                SetFireflyActionStatus(actionStatus, $"Preview stream failed to start: {startStatus}", isError: true);
+                return; // finally stops and disposes frameReader + capture
+            }
+
+            _previewCaptures[deviceId] = (capture, frameReader, previewImage);
+            capture     = null; // ownership transferred — don't dispose in finally
+            frameReader = null; // ownership transferred — don't dispose in finally
 
             previewButton.Content = "Stop Preview";
             previewButton.IsEnabled = true;
             captureButton.IsEnabled = true;
             SetFireflyActionStatus(actionStatus, "Preview active — Capture will use this session.", isError: false);
+            Logger.Log($"[MEDICAL DEVICES] Preview live for {deviceId}");
         }
         catch (Exception ex)
         {
+            var detail = FormatFireflyException(ex);
             previewButton.IsEnabled = true;
             captureButton.IsEnabled = true;
             SetFireflyActionStatus(actionStatus, $"Preview failed: {ex.Message}", isError: true);
-            Logger.Log($"[MEDICAL DEVICES] Preview start failed for {deviceId}: {ex.Message}");
+            Logger.Log($"[MEDICAL DEVICES] Preview start failed for {deviceId}: {detail}");
         }
         finally
         {
-            // Disposes capture on any failure path (frameSource null, exception from
-            // CreateFromMediaFrameSource, or anything else).  No-op on success
-            // because ownership was transferred above (capture = null).
+            // Stop and dispose reader on any failure path. No-op on success
+            // because ownership was transferred above (frameReader = null).
+            if (frameReader != null)
+            {
+                try { await frameReader.StopAsync(); } catch { }
+                frameReader.Dispose();
+            }
+            // Dispose capture on any failure path (no-op on success: capture = null).
             capture?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Formats an exception for logging, including HRESULT for COM exceptions
+    /// (which frequently have empty or unhelpful Message strings).
+    /// </summary>
+    private static string FormatFireflyException(Exception ex)
+    {
+        var hresult = ex is System.Runtime.InteropServices.COMException com
+            ? $" (HRESULT: 0x{com.HResult:X8})"
+            : string.Empty;
+        return $"[{ex.GetType().Name}] {ex.Message}{hresult}";
     }
 
     private async Task StopFireflyPreviewAsync(
@@ -460,18 +547,20 @@ public sealed partial class MainWindow
 
         _previewCaptures.Remove(deviceId);
 
-        // Clear the source before disposing the capture so the media pipeline
-        // does not attempt to read from a disposed MediaCapture.
-        session.Element.Source = null;
-        session.Element.Visibility = Visibility.Collapsed;
+        // Detach image source before stopping the reader so the UI element is not
+        // left referencing a pipeline that is being torn down.
+        session.PreviewImage.Source = null;
+        session.PreviewImage.Visibility = Visibility.Collapsed;
 
-        try { await session.Capture.StopPreviewAsync(); } catch { /* already stopped */ }
+        try { await session.Reader.StopAsync(); } catch { /* already stopped */ }
+        session.Reader.Dispose();
         session.Capture.Dispose();
 
         previewButton.Content = "Preview";
         previewButton.IsEnabled = true;
         captureButton.IsEnabled = true;
         SetFireflyActionStatus(actionStatus, "Preview stopped.", isError: false);
+        Logger.Log($"[MEDICAL DEVICES] Preview stopped for {deviceId}");
     }
 
     private async Task StopAllFireflyPreviewsAsync()
@@ -484,12 +573,13 @@ public sealed partial class MainWindow
             {
                 _previewCaptures.Remove(id);
 
-                // Clear the element source first — same ordering as StopFireflyPreviewAsync —
-                // so the media pipeline is detached before the capture is disposed.
-                session.Element.Source = null;
-                session.Element.Visibility = Visibility.Collapsed;
+                // Detach image source before stopping the reader — same ordering as
+                // StopFireflyPreviewAsync — so the pipeline is torn down cleanly.
+                session.PreviewImage.Source = null;
+                session.PreviewImage.Visibility = Visibility.Collapsed;
 
-                try { await session.Capture.StopPreviewAsync(); } catch { }
+                try { await session.Reader.StopAsync(); } catch { }
+                session.Reader.Dispose();
                 session.Capture.Dispose();
             }
         }
@@ -512,9 +602,10 @@ public sealed partial class MainWindow
 
             if (_previewCaptures.TryGetValue(deviceId, out var session))
             {
-                // Capture from the active preview session — no need to open a new
-                // MediaCapture instance; CapturePhotoToStreamAsync works while
-                // the preview is running.
+                // Capture from the active preview session.
+                // MediaFrameReader.StartAsync() activates the camera stream, so
+                // CapturePhotoToStreamAsync can take a still without re-opening the camera.
+                Logger.Log($"[MEDICAL DEVICES] Capturing via active preview session for {deviceId}");
                 using var stream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
                 await session.Capture.CapturePhotoToStreamAsync(
                     Windows.Media.MediaProperties.ImageEncodingProperties.CreateJpeg(),
@@ -530,7 +621,8 @@ public sealed partial class MainWindow
             else
             {
                 // No active preview — delegate to FireflyModule which opens a new
-                // ExclusiveControl session, captures, and closes it.
+                // ExclusiveControl session, starts preview, captures, then closes.
+                Logger.Log($"[MEDICAL DEVICES] No active preview for {deviceId} — using FireflyModule capture");
                 var fireflyModule = App.Services?.GetService(typeof(FireflyModule)) as FireflyModule;
                 if (fireflyModule == null)
                 {
@@ -558,8 +650,9 @@ public sealed partial class MainWindow
         }
         catch (Exception ex)
         {
+            var detail = FormatFireflyException(ex);
             SetFireflyActionStatus(actionStatus, $"Capture failed: {ex.Message}", isError: true);
-            Logger.Log($"[MEDICAL DEVICES] Capture failed for {deviceId}: {ex.Message}");
+            Logger.Log($"[MEDICAL DEVICES] Capture failed for {deviceId}: {detail}");
         }
     }
 
