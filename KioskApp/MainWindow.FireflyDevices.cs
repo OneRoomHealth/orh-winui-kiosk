@@ -57,6 +57,19 @@ public sealed partial class MainWindow
 
     #region Refresh
 
+    /// <summary>
+    /// Wires the Firefly snap button to the JS-side capture path if the module is
+    /// available and enabled.  Called by <see cref="App.EnableHardwareApiModeAsync"/>
+    /// so the physical button works without requiring the debug panel to be opened.
+    /// Safe to call multiple times — <see cref="SubscribeFireflySnapButton"/> is idempotent.
+    /// </summary>
+    public void EnsureFireflySnapSubscribed()
+    {
+        var fireflyModule = App.Services?.GetService(typeof(FireflyModule)) as FireflyModule;
+        if (fireflyModule == null || !fireflyModule.IsEnabled) return;
+        SubscribeFireflySnapButton(fireflyModule);
+    }
+
     private async Task RefreshFireflyDevicesAsync()
     {
         try

@@ -581,6 +581,11 @@ public partial class App : Application
 			await _hardwareApiServer.StartAsync();
 			_isHardwareApiMode = true;
 			Logger.Log("Hardware API mode enabled - listening on port 8081");
+
+			// Wire the Firefly snap button to the JS-side capture path now that
+			// hardware modules are live.  Dispatched so it runs on the UI thread
+			// regardless of which thread EnableHardwareApiModeAsync completes on.
+			mainWindow?.DispatcherQueue.TryEnqueue(() => mainWindow.EnsureFireflySnapSubscribed());
 		}
 		else
 		{
