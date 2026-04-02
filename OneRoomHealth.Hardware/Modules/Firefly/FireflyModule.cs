@@ -494,7 +494,7 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
             return false;
         }
 
-        StopBridgeProcess();
+        await StopBridgeProcessAsync();
 
         var psi = new ProcessStartInfo
         {
