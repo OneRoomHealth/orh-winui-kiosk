@@ -41,37 +41,9 @@ public static class FireflyController
         .WithSummary("List Firefly devices")
         .WithDescription("Returns all connected Firefly UVC otoscope cameras");
 
-        // GET /api/v1/firefly/{id}
-        group.MapGet("/{id}", async (string id, FireflyModule fireflyModule) =>
-        {
-            logger.LogDebug("GET /api/v1/firefly/{Id}", id);
-            try
-            {
-                var status = await fireflyModule.GetDeviceStatusAsync(id);
-                if (status == null)
-                {
-                    return Results.Json(
-                        ApiErrorResponse.FromMessage(
-                            "FIREFLY_NOT_FOUND",
-                            $"Firefly device '{id}' not found"),
-                        statusCode: 404);
-                }
-
-                return Results.Ok(ApiResponse<object>.Ok(status));
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Error getting Firefly device {Id}", id);
-                return Results.Json(ApiErrorResponse.FromException(ex), statusCode: 500);
-            }
-        })
-        .Produces<ApiResponse<FireflyDeviceStatus>>(200)
-        .Produces<ApiErrorResponse>(404)
-        .Produces<ApiErrorResponse>(500)
-        .WithSummary("Get Firefly device status")
-        .WithDescription("Returns detailed status for a specific Firefly camera, including health, capture count, and last capture timestamp");
-
         // GET /api/v1/firefly/capture
+        // Registered BEFORE /{id} so that the literal segment wins over the route
+        // parameter regardless of how the Minimal API routing engine resolves priority.
         // Returns { imageBase64: string, contentType: string } — the format expected by
         // VITE_WINUI_CAPTURE_URL fetch in the MA SessionView.  Captures from the first
         // available Firefly device.  Uses the JS-side WebView delegate when registered
@@ -137,6 +109,36 @@ public static class FireflyController
             "Uses JS-side WebView capture during active ACS sessions; " +
             "falls back to native MediaCapture otherwise. " +
             "Target of VITE_WINUI_CAPTURE_URL in the frontend.");
+
+        // GET /api/v1/firefly/{id}
+        group.MapGet("/{id}", async (string id, FireflyModule fireflyModule) =>
+        {
+            logger.LogDebug("GET /api/v1/firefly/{Id}", id);
+            try
+            {
+                var status = await fireflyModule.GetDeviceStatusAsync(id);
+                if (status == null)
+                {
+                    return Results.Json(
+                        ApiErrorResponse.FromMessage(
+                            "FIREFLY_NOT_FOUND",
+                            $"Firefly device '{id}' not found"),
+                        statusCode: 404);
+                }
+
+                return Results.Ok(ApiResponse<object>.Ok(status));
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Error getting Firefly device {Id}", id);
+                return Results.Json(ApiErrorResponse.FromException(ex), statusCode: 500);
+            }
+        })
+        .Produces<ApiResponse<FireflyDeviceStatus>>(200)
+        .Produces<ApiErrorResponse>(404)
+        .Produces<ApiErrorResponse>(500)
+        .WithSummary("Get Firefly device status")
+        .WithDescription("Returns detailed status for a specific Firefly camera, including health, capture count, and last capture timestamp");
 
         // POST /api/v1/firefly/{id}/capture
         group.MapPost("/{id}/capture", async (string id, FireflyModule fireflyModule) =>
