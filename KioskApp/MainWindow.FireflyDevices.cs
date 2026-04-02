@@ -67,6 +67,12 @@ public sealed partial class MainWindow
     {
         var fireflyModule = App.Services?.GetService(typeof(FireflyModule)) as FireflyModule;
         if (fireflyModule == null || !fireflyModule.IsEnabled) return;
+
+        // Register the JS-side capture delegate so GET /api/v1/firefly/capture
+        // (the VITE_WINUI_CAPTURE_URL endpoint) also routes through the WebView path
+        // and works correctly during active ACS sessions.
+        fireflyModule.WebCaptureDelegate = CaptureFireflyJpegViaWebAsync;
+
         SubscribeFireflySnapButton(fireflyModule);
     }
 
@@ -93,8 +99,13 @@ public sealed partial class MainWindow
                 return;
             }
 
-            // Wire the hardware snap button to the JS-side capture path.
-            // Idempotent — skips re-subscription if the module instance hasn't changed.
+            // Wire the hardware snap button and the API capture delegate to the JS-side path.
+            // Both must be set together — if the module instance has been replaced (e.g. after
+            // a hardware API restart) SubscribeFireflySnapButton re-wires the event handler, and
+            // WebCaptureDelegate must be refreshed on the new instance at the same time so that
+            // GET /api/v1/firefly/capture continues to route through the WebView rather than
+            // falling back to native MediaCapture (which conflicts with browser-owned UVC during ACS).
+            fireflyModule.WebCaptureDelegate = CaptureFireflyJpegViaWebAsync;
             SubscribeFireflySnapButton(fireflyModule);
 
             await fireflyModule.RefreshDevicesAsync();

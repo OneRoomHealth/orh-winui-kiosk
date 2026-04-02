@@ -58,6 +58,15 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
     /// </summary>
     public event EventHandler<string>? SnapButtonPressed;
 
+    /// <summary>
+    /// Optional delegate registered by MainWindow so that API-triggered captures go through
+    /// the JS-side WebView path.  The browser owns the UVC device exclusively while WebRTC
+    /// (ACS) is active, so native MediaCapture conflicts; this delegate routes the capture
+    /// through the WebView JavaScript bridge instead.
+    /// Signature: (deviceId, deviceLabel) → JPEG bytes, or null on failure.
+    /// </summary>
+    public Func<string, string, Task<byte[]?>>? WebCaptureDelegate { get; set; }
+
     public FireflyModule(
         ILogger<FireflyModule> logger,
         FireflyConfiguration config,
