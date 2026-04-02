@@ -6,7 +6,9 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using OneRoomHealth.Hardware.Abstractions;
 using OneRoomHealth.Hardware.Modules.Firefly;
 using Windows.Media.Capture;
+using Windows.Media.Core;
 using Windows.Media.MediaProperties;
+using Windows.Media.Playback;
 
 namespace KioskApp;
 
@@ -20,10 +22,10 @@ public sealed partial class MainWindow
     private bool _fireflyPanelVisible = false;
 
     // Keyed by logical device ID (e.g. "firefly-0").
-    // Stores the open MediaCapture and the CaptureElement it is rendering to
+    // Stores the open MediaCapture and the MediaPlayerElement it is rendering to
     // so StopAllFireflyPreviewsAsync can cleanly stop the preview and
     // clear the element before disposing the capture.
-    private readonly Dictionary<string, (MediaCapture Capture, CaptureElement Preview)> _previewCaptures = new();
+    private readonly Dictionary<string, (MediaCapture Capture, MediaPlayerElement Preview)> _previewCaptures = new();
 
     // Named handler delegates stored here so they can be explicitly unsubscribed
     // before FireflyDeviceListPanel.Children.Clear() discards the card elements.
@@ -271,17 +273,16 @@ public sealed partial class MainWindow
             };
 
             // Live preview element (hidden until Preview is started).
-            // CaptureElement renders the camera feed directly via the native MF
-            // rendering pipeline — no MediaFrameReader, no FrameArrived event.
-            // Must be in the visual tree before StartPreviewAsync is called so that
-            // the driver can locate the swap chain to render into.
-            var previewElement = new CaptureElement
+            // WinUI 3 does not have CaptureElement; use MediaPlayerElement +
+            // MediaPlayer backed by MediaSource.CreateFromMediaFrameSource instead.
+            var previewElement = new MediaPlayerElement
             {
                 Visibility = Visibility.Collapsed,
                 Width = 320,
                 Height = 240,
                 Margin = new Thickness(0, 6, 0, 0),
-                Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform
+                Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform,
+                AreTransportControlsEnabled = false
             };
 
             // Last-captured image (hidden until a capture completes)
@@ -380,7 +381,7 @@ public sealed partial class MainWindow
         string deviceInterfaceId,
         Button previewButton,
         Button captureButton,
-        CaptureElement previewElement,
+        MediaPlayerElement previewElement,
         TextBlock actionStatus)
     {
         if (_previewCaptures.ContainsKey(deviceId))
@@ -399,7 +400,7 @@ public sealed partial class MainWindow
         string deviceInterfaceId,
         Button previewButton,
         Button captureButton,
-        CaptureElement previewElement,
+        MediaPlayerElement previewElement,
         TextBlock actionStatus)
     {
         previewButton.IsEnabled = false;
@@ -433,20 +434,26 @@ public sealed partial class MainWindow
                            $"@{fs.CurrentFormat?.FrameRate?.Numerator}/{fs.CurrentFormat?.FrameRate?.Denominator}fps");
             }
 
-            // Bind CaptureElement to the MediaCapture object, then start the preview
-            // stream.  CaptureElement renders the camera feed directly via the native
-            // MF rendering pipeline — no MediaFrameReader, no FrameArrived event,
-            // no manual format negotiation required.  This is the standard WinUI camera
-            // preview pattern and works reliably across UVC cameras (including those that
-            // do not play well with the MediaFrameReader graph).
-            //
-            // The CaptureElement must already be in the visual tree at this point
-            // (added by BuildFireflyDeviceCard above) so the driver can locate the
-            // swap chain to render into.
-            LogFirefly($"DEBUG: {deviceId}: binding CaptureElement (320x240), calling StartPreviewAsync");
-            previewElement.Source = capture;
-            previewElement.Visibility = Visibility.Visible;
+            // Start the internal MF preview pipeline (required for CapturePhotoToStreamAsync)
+            // then bind a MediaPlayer to a frame source for visual rendering via
+            // MediaPlayerElement — WinUI 3 does not have CaptureElement.
+            LogFirefly($"DEBUG: {deviceId}: calling StartPreviewAsync");
             await capture.StartPreviewAsync();
+
+            var frameSource = capture.FrameSources.Values.FirstOrDefault();
+            if (frameSource != null)
+            {
+                LogFirefly($"DEBUG: {deviceId}: binding MediaPlayerElement via FrameSource");
+                var mediaSource = MediaSource.CreateFromMediaFrameSource(frameSource);
+                var player = new MediaPlayer { Source = mediaSource };
+                previewElement.SetMediaPlayer(player);
+                player.Play();
+            }
+            else
+            {
+                LogFirefly($"DEBUG: {deviceId}: no FrameSources — preview running but no visual render");
+            }
+            previewElement.Visibility = Visibility.Visible;
 
             LogFirefly($"{deviceId}: preview started");
 
@@ -462,7 +469,9 @@ public sealed partial class MainWindow
         catch (Exception ex)
         {
             var detail = FormatFireflyException(ex);
-            previewElement.Source = null;
+            var failedPlayer = previewElement.MediaPlayer;
+            previewElement.SetMediaPlayer(null);
+            failedPlayer?.Dispose();
             previewElement.Visibility = Visibility.Collapsed;
             previewButton.IsEnabled = true;
             captureButton.IsEnabled = true;
@@ -506,10 +515,10 @@ public sealed partial class MainWindow
         LogFirefly($"{deviceId}: stopping preview");
         _previewCaptures.Remove(deviceId);
 
-        // Stop the stream before detaching the source so the MF pipeline shuts down
-        // cleanly before the CaptureElement loses its reference to the MediaCapture.
+        var player = session.Preview.MediaPlayer;
+        session.Preview.SetMediaPlayer(null);
+        player?.Dispose();
         try { await session.Capture.StopPreviewAsync(); } catch { /* already stopped */ }
-        session.Preview.Source = null;
         session.Preview.Visibility = Visibility.Collapsed;
         session.Capture.Dispose();
 
@@ -533,8 +542,10 @@ public sealed partial class MainWindow
             {
                 _previewCaptures.Remove(id);
 
+                var player = session.Preview.MediaPlayer;
+                session.Preview.SetMediaPlayer(null);
+                player?.Dispose();
                 try { await session.Capture.StopPreviewAsync(); } catch { }
-                session.Preview.Source = null;
                 session.Preview.Visibility = Visibility.Collapsed;
                 session.Capture.Dispose();
 
