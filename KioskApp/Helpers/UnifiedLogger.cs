@@ -95,7 +95,8 @@ public class UnifiedLogger : ILogEventSink
         "Hardware",
         "HardwareAPI",
         "HealthMonitor",
-        "WebView"
+        "WebView",
+        "Firefly"
     };
 
     private UnifiedLogger(int maxBufferSize = 5000)
@@ -145,6 +146,30 @@ public class UnifiedLogger : ILogEventSink
             if (closeBracket > 0 && closeBracket < message.Length - 1)
             {
                 cleanMessage = message[(closeBracket + 1)..].TrimStart();
+            }
+        }
+
+        // Detect module from a structured prefix in the message body, e.g. "[FIREFLY] ...".
+        // This runs after timestamp stripping so we match against the actual content.
+        if (cleanMessage.StartsWith("[FIREFLY]", StringComparison.OrdinalIgnoreCase))
+        {
+            module = "Firefly";
+            cleanMessage = cleanMessage["[FIREFLY]".Length..].TrimStart();
+
+            // Apply Firefly-specific level detection when the general check left the
+            // level at Info (i.e. no ERROR/WARN/DEBUG keyword was found in the full line).
+            if (level == LogLevel.Info)
+            {
+                if (cleanMessage.Contains("failed", StringComparison.OrdinalIgnoreCase) ||
+                    cleanMessage.Contains("aborted", StringComparison.OrdinalIgnoreCase) ||
+                    cleanMessage.Contains("HRESULT", StringComparison.OrdinalIgnoreCase))
+                {
+                    level = LogLevel.Error;
+                }
+                else if (cleanMessage.Contains("fallback", StringComparison.OrdinalIgnoreCase))
+                {
+                    level = LogLevel.Warning;
+                }
             }
         }
 
