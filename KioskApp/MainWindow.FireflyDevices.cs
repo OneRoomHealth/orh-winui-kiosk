@@ -425,8 +425,50 @@ public sealed partial class MainWindow
                 return; // finally disposes capture
             }
 
+            // Log native format subtype and all supported formats for diagnostics.
+            var currentSubtype = frameSource.CurrentFormat?.Subtype ?? "unknown";
             Logger.Log($"[MEDICAL DEVICES] Frame source for {deviceId}: type={frameSource.Info.MediaStreamType}, " +
-                       $"format={frameSource.CurrentFormat?.VideoFormat?.Width}x{frameSource.CurrentFormat?.VideoFormat?.Height}");
+                       $"format={frameSource.CurrentFormat?.VideoFormat?.Width}x{frameSource.CurrentFormat?.VideoFormat?.Height}, " +
+                       $"subtype={currentSubtype}");
+            var supportedFormats = frameSource.SupportedFormats.ToList();
+            Logger.Log($"[MEDICAL DEVICES] {deviceId}: {supportedFormats.Count} supported format(s)");
+            foreach (var fmt in supportedFormats.Take(8))
+                Logger.Log($"[MEDICAL DEVICES]   subtype={fmt.Subtype} " +
+                           $"{fmt.VideoFormat?.Width}x{fmt.VideoFormat?.Height} " +
+                           $"@{fmt.FrameRate?.Numerator}/{fmt.FrameRate?.Denominator}fps");
+
+            // Switch to YUY2 or NV12 before creating the reader so that MediaFrameReader
+            // delivers non-null SoftwareBitmap frames.
+            //
+            // Passing Bgra8 to CreateFrameReaderAsync requests MF to transcode on the fly,
+            // but on these cameras the transcoding pipeline fails silently: StartAsync
+            // returns Success yet FrameArrived never fires.  Explicitly selecting an
+            // uncompressed FOURCC via SetFormatAsync is the reliable alternative.
+            var uncompressedFormat =
+                supportedFormats.FirstOrDefault(f => string.Equals(f.Subtype, MediaEncodingSubtypes.Yuy2, StringComparison.OrdinalIgnoreCase)) ??
+                supportedFormats.FirstOrDefault(f => string.Equals(f.Subtype, MediaEncodingSubtypes.Nv12, StringComparison.OrdinalIgnoreCase));
+
+            if (uncompressedFormat != null &&
+                !string.Equals(currentSubtype, uncompressedFormat.Subtype, StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    await frameSource.SetFormatAsync(uncompressedFormat);
+                    Logger.Log($"[MEDICAL DEVICES] {deviceId}: requested {uncompressedFormat.Subtype} — " +
+                               $"actual format now: {frameSource.CurrentFormat?.Subtype} " +
+                               $"{frameSource.CurrentFormat?.VideoFormat?.Width}x{frameSource.CurrentFormat?.VideoFormat?.Height}");
+                }
+                catch (Exception ex)
+                {
+                    Logger.Log($"[MEDICAL DEVICES] {deviceId}: format switch failed ({ex.Message}) — " +
+                               $"keeping native {currentSubtype}");
+                }
+            }
+            else if (uncompressedFormat == null)
+            {
+                Logger.Log($"[MEDICAL DEVICES] {deviceId}: no YUY2/NV12 format available — " +
+                           $"using native {currentSubtype}");
+            }
 
             // Use MediaFrameReader for continuous live preview.
             // MediaSource.CreateFromMediaFrameSource only surfaces a single static frame;
@@ -435,11 +477,12 @@ public sealed partial class MainWindow
             previewImage.Source = softwareBitmapSource;
             previewImage.Visibility = Visibility.Visible;
 
-            // Request Bgra8 output so the system decodes compressed camera formats
-            // (e.g. MJPEG) before delivering frames. Without this, SoftwareBitmap is
-            // null for compressed frames and the preview displays nothing.
-            frameReader = await capture.CreateFrameReaderAsync(frameSource, MediaEncodingSubtypes.Bgra8);
-            Logger.Log($"[MEDICAL DEVICES] MediaFrameReader created for {deviceId} (output: Bgra8)");
+            // Create the reader in the camera's current (native) format.
+            // No subtype override is passed: requesting transcoding via the overload that
+            // takes a subtype causes StartAsync to return Success but deliver zero frames
+            // on these cameras when MF cannot negotiate the conversion graph at runtime.
+            frameReader = await capture.CreateFrameReaderAsync(frameSource);
+            Logger.Log($"[MEDICAL DEVICES] MediaFrameReader created for {deviceId}");
 
             // Frame-drop flag: 0 = idle, 1 = a frame is currently queued for rendering.
             // int + Interlocked required because FrameArrived runs on the MediaFrameReader
@@ -447,35 +490,84 @@ public sealed partial class MainWindow
             // no visibility or ordering guarantees across threads in the C# memory model.
             int frameUpdatePending = 0;
             int frameArrivalCount  = 0; // diagnostic: log first arrival and any null bitmaps
-            frameReader.FrameArrived += (sender, _) =>
+            // async void is required here to support the Direct3DSurface path, which needs
+            // to await SoftwareBitmap.CreateCopyFromSurfaceAsync for GPU-backed frames.
+            // The outer try/catch ensures no unhandled exception escapes to the app's
+            // unhandled-exception handler.  The Interlocked drop flag at the top prevents
+            // concurrent invocations from piling up.
+            frameReader.FrameArrived += async (sender, _) =>
             {
                 // Atomically claim the slot; if it was already taken, drop this frame.
                 if (Interlocked.CompareExchange(ref frameUpdatePending, 1, 0) != 0) return;
 
-                using var frame = sender.TryAcquireLatestFrame();
-                var bitmap = frame?.VideoMediaFrame?.SoftwareBitmap;
+                SoftwareBitmap? displayBitmap = null;
+                int arrival = 0;
+                try
+                {
+                    using var frame = sender.TryAcquireLatestFrame();
+                    if (frame == null)
+                    {
+                        Interlocked.Exchange(ref frameUpdatePending, 0);
+                        return;
+                    }
 
-                var arrival = Interlocked.Increment(ref frameArrivalCount);
-                if (arrival == 1)
-                    Logger.Log($"[MEDICAL DEVICES] First frame for {deviceId}: bitmap={bitmap != null}, " +
-                               $"format={bitmap?.BitmapPixelFormat}, alpha={bitmap?.BitmapAlphaMode}");
+                    var videoFrame = frame.VideoMediaFrame;
+                    var bitmap     = videoFrame?.SoftwareBitmap;
+                    var surface    = videoFrame?.Direct3DSurface;
 
-                if (bitmap == null)
+                    arrival = Interlocked.Increment(ref frameArrivalCount);
+                    if (arrival == 1)
+                        Logger.Log($"[MEDICAL DEVICES] First frame for {deviceId}: " +
+                                   $"bitmap={bitmap != null}, format={bitmap?.BitmapPixelFormat}, " +
+                                   $"alpha={bitmap?.BitmapAlphaMode}, surface={surface != null}, " +
+                                   $"bufferFrame={frame.BufferMediaFrame != null}");
+
+                    if (bitmap != null)
+                    {
+                        // CPU-backed frame (YUY2, NV12, Bgra8, etc.) — convert to Bgra8/Premultiplied.
+                        displayBitmap = (bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8 &&
+                                         bitmap.BitmapAlphaMode  == BitmapAlphaMode.Premultiplied)
+                            ? SoftwareBitmap.Copy(bitmap)
+                            : SoftwareBitmap.Convert(bitmap, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                    }
+                    else if (surface != null)
+                    {
+                        // GPU-backed frame (Direct3D surface) — copy to CPU memory so
+                        // SoftwareBitmapSource can render it.  This path is why the handler
+                        // is async void: CreateCopyFromSurfaceAsync must be awaited.
+                        displayBitmap = await SoftwareBitmap.CreateCopyFromSurfaceAsync(
+                            surface, BitmapAlphaMode.Premultiplied);
+                        // Explicit null guard before format check: if CreateCopyFromSurfaceAsync
+                        // returns null, displayBitmap?.BitmapPixelFormat evaluates to null,
+                        // which compares unequal to Bgra8 — causing the block to enter and
+                        // dereference a null with !, throwing NullReferenceException.
+                        if (displayBitmap != null && displayBitmap.BitmapPixelFormat != BitmapPixelFormat.Bgra8)
+                        {
+                            var converted = SoftwareBitmap.Convert(
+                                displayBitmap, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                            displayBitmap.Dispose();
+                            displayBitmap = converted;
+                        }
+                    }
+                    else if (arrival <= 3)
+                    {
+                        Logger.Log($"[MEDICAL DEVICES] No bitmap or surface in frame #{arrival} for {deviceId} " +
+                                   $"(bufferFrame={frame.BufferMediaFrame != null})");
+                    }
+                }
+                catch (Exception ex)
                 {
                     if (arrival <= 3)
-                        Logger.Log($"[MEDICAL DEVICES] Null SoftwareBitmap for {deviceId} (frame #{arrival}) — " +
-                                   "camera may not support Bgra8 decode");
+                        Logger.Log($"[MEDICAL DEVICES] Frame processing failed for {deviceId}: {ex.Message}");
+                    displayBitmap?.Dispose();
+                    displayBitmap = null;
+                }
+
+                if (displayBitmap == null)
+                {
                     Interlocked.Exchange(ref frameUpdatePending, 0);
                     return;
                 }
-
-                // SoftwareBitmapSource requires Bgra8 / Premultiplied.
-                // CreateFrameReaderAsync already requested Bgra8, so conversion is
-                // typically a no-op here, but we guard for unexpected alpha modes.
-                var displayBitmap = (bitmap.BitmapPixelFormat == BitmapPixelFormat.Bgra8 &&
-                                     bitmap.BitmapAlphaMode  == BitmapAlphaMode.Premultiplied)
-                    ? SoftwareBitmap.Copy(bitmap)
-                    : SoftwareBitmap.Convert(bitmap, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
 
                 // If TryEnqueue fails (dispatcher shut down) the callback never runs,
                 // so we must release resources and reset the flag here instead.
@@ -636,8 +728,24 @@ public sealed partial class MainWindow
                 SoftwareBitmap? frameBitmap;
                 using (var latestFrame = session.Reader.TryAcquireLatestFrame())
                 {
-                    var raw = latestFrame?.VideoMediaFrame?.SoftwareBitmap;
-                    frameBitmap = raw != null ? SoftwareBitmap.Copy(raw) : null;
+                    var videoFrame = latestFrame?.VideoMediaFrame;
+                    var raw        = videoFrame?.SoftwareBitmap;
+                    if (raw != null)
+                    {
+                        frameBitmap = SoftwareBitmap.Copy(raw);
+                    }
+                    else if (videoFrame?.Direct3DSurface is { } surface)
+                    {
+                        // GPU-backed frame — copy to CPU memory while the frame is still
+                        // locked (latestFrame in scope) so MF cannot reclaim the D3D texture.
+                        frameBitmap = await SoftwareBitmap.CreateCopyFromSurfaceAsync(
+                            surface, BitmapAlphaMode.Premultiplied);
+                        Logger.Log($"[MEDICAL DEVICES] Capture snapshot from Direct3D surface for {deviceId}");
+                    }
+                    else
+                    {
+                        frameBitmap = null;
+                    }
                 }
 
                 if (frameBitmap == null)
@@ -649,21 +757,45 @@ public sealed partial class MainWindow
                     return;
                 }
 
-                Logger.Log($"[MEDICAL DEVICES] Encoding frame for {deviceId}: " +
-                           $"{frameBitmap.PixelWidth}x{frameBitmap.PixelHeight} {frameBitmap.BitmapPixelFormat}");
+                // try/finally makes frameBitmap's lifetime explicit: the finally block
+                // is the sole disposal point from here on, covering every exit path —
+                // normal completion, SoftwareBitmap.Convert throwing, FlushAsync throwing,
+                // or any other exception reaching the outer catch.
+                try
+                {
+                    Logger.Log($"[MEDICAL DEVICES] Encoding frame for {deviceId}: " +
+                               $"{frameBitmap.PixelWidth}x{frameBitmap.PixelHeight} {frameBitmap.BitmapPixelFormat}");
 
-                using var encodeStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, encodeStream);
-                encoder.SetSoftwareBitmap(frameBitmap);
-                await encoder.FlushAsync();
-                frameBitmap.Dispose();
+                    // BitmapEncoder (JPEG) requires a standard pixel format.
+                    // Convert from YUY2, NV12, or any other camera-native format to Bgra8 first.
+                    // If Convert throws, frameBitmap still points to the original and the
+                    // finally block below will dispose it — no leak on the exception path.
+                    if (frameBitmap.BitmapPixelFormat != BitmapPixelFormat.Bgra8)
+                    {
+                        var converted = SoftwareBitmap.Convert(
+                            frameBitmap, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                        frameBitmap.Dispose(); // original disposed; reassign before any throw
+                        frameBitmap = converted;
+                        Logger.Log($"[MEDICAL DEVICES] Converted frame to Bgra8 for encoding ({deviceId})");
+                    }
 
-                encodeStream.Seek(0);
-                var bytes = new byte[encodeStream.Size];
-                using var dataReader = new Windows.Storage.Streams.DataReader(encodeStream);
-                await dataReader.LoadAsync((uint)encodeStream.Size);
-                dataReader.ReadBytes(bytes);
-                imageBytes = bytes;
+                    using var encodeStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                    var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, encodeStream);
+                    encoder.SetSoftwareBitmap(frameBitmap);
+                    await encoder.FlushAsync();
+                    // No explicit Dispose here — finally owns it.
+
+                    encodeStream.Seek(0);
+                    var bytes = new byte[encodeStream.Size];
+                    using var dataReader = new Windows.Storage.Streams.DataReader(encodeStream);
+                    await dataReader.LoadAsync((uint)encodeStream.Size);
+                    dataReader.ReadBytes(bytes);
+                    imageBytes = bytes;
+                }
+                finally
+                {
+                    frameBitmap?.Dispose();
+                }
             }
             else
             {
