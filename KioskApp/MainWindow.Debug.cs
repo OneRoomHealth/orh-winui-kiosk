@@ -1717,29 +1717,34 @@ public sealed partial class MainWindow
             {
                 try
                 {
-                    // First, try to hang up any active ACS call
+                    // Hang up any active ACS call and await true completion via postMessage.
+                    // ExecuteScriptAsync does not await Promises — the IIFE returns a Promise
+                    // immediately while hangUp() continues asynchronously.  Using
+                    // SendWebMessageRequestAsync lets us wait for the JS to post a result
+                    // message, with a 3-second timeout so exit is never blocked indefinitely.
                     Logger.Log("Attempting to hang up ACS call...");
-                    await KioskWebView.CoreWebView2.ExecuteScriptAsync(@"
-                        (async () => {
-                            try {
-                                if (window.call && typeof window.call.hangUp === 'function') {
-                                    console.log('[ORH EXIT] Hanging up ACS call...');
-                                    await window.call.hangUp();
-                                    console.log('[ORH EXIT] ACS call hung up successfully');
-                                } else if (window.currentCall && typeof window.currentCall.hangUp === 'function') {
-                                    console.log('[ORH EXIT] Hanging up currentCall...');
-                                    await window.currentCall.hangUp();
-                                    console.log('[ORH EXIT] currentCall hung up successfully');
-                                } else {
-                                    console.log('[ORH EXIT] No ACS call object found to hang up');
-                                }
-                            } catch (e) {
-                                console.log('[ORH EXIT] Error hanging up ACS call: ' + e);
-                            }
-                        })();
-                    ");
-                    Logger.Log("ACS hangup attempted");
-                    await Task.Delay(300);
+                    var hangupRequestId = Guid.NewGuid().ToString("N");
+                    var hangupJs = $@"(async () => {{
+                        try {{
+                            if (window.call && typeof window.call.hangUp === 'function') {{
+                                console.log('[ORH EXIT] Hanging up ACS call...');
+                                await window.call.hangUp();
+                                console.log('[ORH EXIT] ACS call hung up successfully');
+                            }} else if (window.currentCall && typeof window.currentCall.hangUp === 'function') {{
+                                console.log('[ORH EXIT] Hanging up currentCall...');
+                                await window.currentCall.hangUp();
+                                console.log('[ORH EXIT] currentCall hung up successfully');
+                            }} else {{
+                                console.log('[ORH EXIT] No ACS call object found to hang up');
+                            }}
+                            chrome.webview.postMessage(JSON.stringify({{ type: 'orh.acs.hangup.result', requestId: '{hangupRequestId}', error: null }}));
+                        }} catch (e) {{
+                            console.log('[ORH EXIT] Error hanging up ACS call: ' + e);
+                            chrome.webview.postMessage(JSON.stringify({{ type: 'orh.acs.hangup.result', requestId: '{hangupRequestId}', error: e.message }}));
+                        }}
+                    }})();";
+                    var hangupResult = await SendWebMessageRequestAsync(hangupJs, hangupRequestId, TimeSpan.FromSeconds(3));
+                    Logger.Log(hangupResult != null ? "ACS hangup completed" : "ACS hangup timed out (no active call or slow network)");
 
                     // Stop local media tracks
                     Logger.Log("Stopping local media tracks...");
@@ -1779,13 +1784,9 @@ public sealed partial class MainWindow
                         })();
                     ");
                     Logger.Log("Local media tracks stopped");
-
-                    // Navigate to screensaver URL to destroy the ACS page context
-                    var screensaverUrl = _config.Kiosk.DefaultUrl;
-                    Logger.Log($"Navigating to screensaver to destroy ACS context: {screensaverUrl}");
-                    KioskWebView.Source = new Uri(screensaverUrl);
-                    await Task.Delay(500);
-                    Logger.Log("ACS context destroyed, media resources released");
+                    // No need to navigate away — Environment.Exit(0) terminates the process
+                    // immediately after service shutdown, so a screensaver navigation would
+                    // never finish and would only add ~500 ms of pointless wait.
                 }
                 catch (Exception ex)
                 {
@@ -1825,17 +1826,8 @@ public sealed partial class MainWindow
             }
 
             Logger.Log("Closing application window...");
-
-            // Use dispatcher to ensure we're on the UI thread
-            await Task.Run(() =>
-            {
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    this.Close();
-                    Logger.Log("Exiting application process...");
-                    Environment.Exit(0);
-                });
-            });
+            this.Close();
+            Environment.Exit(0);
         }
         catch (Exception ex)
         {

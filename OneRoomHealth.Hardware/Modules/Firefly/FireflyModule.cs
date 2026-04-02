@@ -154,9 +154,14 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
         // The SSE consumer has exited so no new capture tasks can be added.
         // Wait for any already-running fire-and-forget captures to finish before
         // returning — callers may dispose _stateLock immediately after this.
+        // A 3-second timeout prevents a hung capture from blocking application shutdown.
         Task[] pending;
         lock (_pendingCapturesLock) { pending = _pendingCaptures.ToArray(); }
-        try { await Task.WhenAll(pending); } catch { }
+        if (pending.Length > 0)
+        {
+            using var drainCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+            try { await Task.WhenAll(pending).WaitAsync(drainCts.Token); } catch { }
+        }
 
         await base.StopMonitoringAsync();
     }
@@ -166,7 +171,7 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
     {
         Logger.LogInformation("{ModuleName}: Shutting down", ModuleName);
         await StopMonitoringAsync();
-        StopBridgeProcess();
+        await StopBridgeProcessAsync();
         await base.ShutdownAsync();
 
         await _stateLock.WaitAsync();
@@ -562,7 +567,7 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
         return false;
     }
 
-    private void StopBridgeProcess()
+    private async Task StopBridgeProcessAsync()
     {
         if (_bridgeProcess == null) return;
 
@@ -571,7 +576,22 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
             if (!_bridgeProcess.HasExited)
             {
                 _bridgeProcess.Kill(entireProcessTree: true);
-                _bridgeProcess.WaitForExit(3000);
+
+                // After Kill the process should exit within milliseconds.
+                // Cap the async wait at 500 ms — if it has not exited by then
+                // the OS will reap it when our process exits.
+                using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+                try
+                {
+                    await _bridgeProcess.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    Logger.LogWarning(
+                        "{ModuleName}: Bridge process did not exit within 500 ms after Kill — continuing shutdown",
+                        ModuleName);
+                }
+
                 Logger.LogInformation("{ModuleName}: Bridge process stopped", ModuleName);
             }
         }
@@ -667,38 +687,11 @@ public sealed class FireflyModule : HardwareModuleBase, IAsyncDisposable
 
                         if (firstDeviceId != null)
                             SnapButtonPressed?.Invoke(this, firstDeviceId);
-
-                        // Trigger capture on the first available connected device
-                        var captureTask = Task.Run(async () =>
-                        {
-                            FireflyDeviceState? target = null;
-                            await _stateLock.WaitAsync(cancellationToken);
-                            try
-                            {
-                                target = _deviceStates.Values
-                                    .FirstOrDefault(s => s.IsConnected);
-                            }
-                            finally
-                            {
-                                _stateLock.Release();
-                            }
-
-                            if (target != null)
-                            {
-                                try { await TriggerCaptureAsync(target.Id); }
-                                catch (Exception ex)
-                                {
-                                    Logger.LogError(ex,
-                                        "{ModuleName}: Capture triggered by hardware button failed",
-                                        ModuleName);
-                                }
-                            }
-                        }, cancellationToken);
-                        lock (_pendingCapturesLock)
-                        {
-                            _pendingCaptures.RemoveAll(t => t.IsCompleted);
-                            _pendingCaptures.Add(captureTask);
-                        }
+                        // Capture is now handled by the SnapButtonPressed subscriber
+                        // (MainWindow) via the JS-side WebView path.  The browser owns
+                        // the Firefly device exclusively while WebRTC is active, so the
+                        // old native MediaCapture path that used to run here would always
+                        // conflict and fail.
                     }
                 }
             }

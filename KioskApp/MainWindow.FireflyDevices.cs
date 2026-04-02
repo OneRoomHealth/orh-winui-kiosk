@@ -26,6 +26,11 @@ public sealed partial class MainWindow
     private readonly List<(Button Preview, RoutedEventHandler PreviewHandler,
                             Button Capture, RoutedEventHandler CaptureHandler)> _cardButtonHandlers = new();
 
+    // Hardware snap-button subscription — kept so we can unsubscribe if the module
+    // instance changes (e.g. after a hardware API mode restart).
+    private FireflyModule? _subscribedFireflyModule;
+    private EventHandler<string>? _fireflySnapHandler;
+
     #endregion
 
     #region Helpers
@@ -74,6 +79,10 @@ public sealed partial class MainWindow
                 RenderFireflyUnavailable("Firefly module is disabled. Set hardware.firefly.enabled = true in config.json.");
                 return;
             }
+
+            // Wire the hardware snap button to the JS-side capture path.
+            // Idempotent — skips re-subscription if the module instance hasn't changed.
+            SubscribeFireflySnapButton(fireflyModule);
 
             await fireflyModule.RefreshDevicesAsync();
             var devices = await fireflyModule.GetDevicesAsync();
@@ -371,9 +380,54 @@ public sealed partial class MainWindow
     #region Capture
 
     /// <summary>
-    /// Asks the WebView JS side to grab a snapshot from the Firefly camera and returns
-    /// it as a base64 JPEG via postMessage.  The browser owns the camera device
-    /// exclusively; native MediaCapture would conflict with the WebRTC track.
+    /// Subscribes to <see cref="FireflyModule.SnapButtonPressed"/> so that pressing
+    /// the physical camera button triggers the same JS-side capture flow used by the
+    /// debug-panel Capture button.  Idempotent — safe to call on every panel refresh.
+    /// </summary>
+    private void SubscribeFireflySnapButton(FireflyModule module)
+    {
+        // Skip if we are already wired to this exact module instance.
+        if (ReferenceEquals(_subscribedFireflyModule, module)) return;
+
+        // Unsubscribe from the previous module instance (e.g. after a hardware API restart).
+        if (_subscribedFireflyModule != null && _fireflySnapHandler != null)
+        {
+            _subscribedFireflyModule.SnapButtonPressed -= _fireflySnapHandler;
+            _fireflySnapHandler = null;
+        }
+
+        _subscribedFireflyModule = module;
+
+        // SnapButtonPressed fires on the SSE consumer's background thread.
+        // Marshal all work to the UI thread via EnqueueAsync so WebView calls are safe.
+        _fireflySnapHandler = (_, deviceId) =>
+        {
+            _ = DispatcherQueue.EnqueueAsync(async () =>
+            {
+                try
+                {
+                    var statusObj = await module.GetDeviceStatusAsync(deviceId);
+                    var label = (statusObj as FireflyDeviceStatus)?.FriendlyName ?? deviceId;
+
+                    LogFirefly($"{deviceId}: physical button press — triggering JS-side capture (label: \"{label}\")");
+                    var imageBytes = await CaptureFireflyJpegViaWebAsync(deviceId, label);
+                    if (imageBytes != null)
+                        LogFirefly($"{deviceId}: physical button capture OK — {imageBytes.Length / 1024} KB");
+                }
+                catch (Exception ex)
+                {
+                    LogFirefly($"{deviceId}: physical button capture error — {ex.Message}");
+                }
+            });
+        };
+
+        module.SnapButtonPressed += _fireflySnapHandler;
+        LogFirefly($"Subscribed to SnapButtonPressed on FireflyModule");
+    }
+
+    /// <summary>
+    /// Debug-panel Capture button handler.  Runs the JS-side capture and displays the
+    /// resulting thumbnail in the device card.
     /// </summary>
     private async Task CaptureFireflyViaWebAsync(
         string deviceId,
@@ -389,52 +443,18 @@ public sealed partial class MainWindow
         }
 
         SetFireflyActionStatus(actionStatus, "Capturing\u2026", isError: false);
-        LogFirefly($"{deviceId}: requesting JS-side capture (label: \"{deviceLabel}\")");
 
-        var requestId = Guid.NewGuid().ToString("N");
-        var js = GetFireflyCaptureScript(requestId, deviceId, deviceLabel);
+        var imageBytes = await CaptureFireflyJpegViaWebAsync(deviceId, deviceLabel);
 
-        // SendWebMessageRequestAsync is defined in MainWindow.MediaDevices.cs and is
-        // accessible here because both files are the same partial class.
-        var json = await SendWebMessageRequestAsync(js, requestId, TimeSpan.FromSeconds(15));
-
-        if (string.IsNullOrWhiteSpace(json))
+        if (imageBytes == null)
         {
-            SetFireflyActionStatus(actionStatus, "Capture timed out or failed.", isError: true);
-            LogFirefly($"{deviceId}: capture failed — no response from JS");
+            // CaptureFireflyJpegViaWebAsync already logged the reason.
+            SetFireflyActionStatus(actionStatus, "Capture failed — see log for details.", isError: true);
             return;
         }
 
-        LogFirefly($"{deviceId}: JS capture returned {json.Length} bytes");
-
         try
         {
-            using var doc = JsonDocument.Parse(json);
-            var root = doc.RootElement;
-
-            if (root.TryGetProperty("error", out var errEl) &&
-                errEl.ValueKind != JsonValueKind.Null &&
-                errEl.ValueKind != JsonValueKind.Undefined)
-            {
-                var errMsg = errEl.GetString() ?? "Unknown error";
-                SetFireflyActionStatus(actionStatus, $"Capture failed: {errMsg}", isError: true);
-                LogFirefly($"{deviceId}: JS capture error — {errMsg}");
-                return;
-            }
-
-            if (!root.TryGetProperty("jpeg", out var jpegEl) ||
-                jpegEl.ValueKind == JsonValueKind.Null ||
-                string.IsNullOrEmpty(jpegEl.GetString()))
-            {
-                SetFireflyActionStatus(actionStatus, "Capture returned no image.", isError: true);
-                LogFirefly($"{deviceId}: JS capture returned null jpeg");
-                return;
-            }
-
-            var base64 = jpegEl.GetString()!;
-            var imageBytes = Convert.FromBase64String(base64);
-
-            // Decode JPEG and display thumbnail.
             var bitmap = new BitmapImage();
             using (var ms = new MemoryStream(imageBytes))
             using (var ras = ms.AsRandomAccessStream())
@@ -452,7 +472,68 @@ public sealed partial class MainWindow
         {
             var detail = FormatFireflyException(ex);
             SetFireflyActionStatus(actionStatus, $"Capture failed: {ex.Message}", isError: true);
-            LogFirefly($"{deviceId}: capture error — {detail}");
+            LogFirefly($"{deviceId}: capture decode error — {detail}");
+        }
+    }
+
+    /// <summary>
+    /// Core JS-side capture: sends the capture script to the WebView, waits for the
+    /// <c>orh.fireflyCapture.result</c> postMessage, and returns the raw JPEG bytes.
+    /// Returns <c>null</c> on any failure (timeout, JS error, empty result) after logging.
+    /// Called by both the debug-panel Capture button and the physical snap-button handler.
+    /// </summary>
+    private async Task<byte[]?> CaptureFireflyJpegViaWebAsync(string deviceId, string deviceLabel)
+    {
+        if (KioskWebView?.CoreWebView2 == null)
+        {
+            LogFirefly($"{deviceId}: capture aborted — WebView is null");
+            return null;
+        }
+
+        LogFirefly($"{deviceId}: requesting JS-side capture (label: \"{deviceLabel}\")");
+
+        var requestId = Guid.NewGuid().ToString("N");
+        var js = GetFireflyCaptureScript(requestId, deviceId, deviceLabel);
+
+        // SendWebMessageRequestAsync is in MainWindow.MediaDevices.cs — accessible
+        // because both files are the same partial class.
+        var json = await SendWebMessageRequestAsync(js, requestId, TimeSpan.FromSeconds(15));
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            LogFirefly($"{deviceId}: capture failed — no response from JS (timeout)");
+            return null;
+        }
+
+        LogFirefly($"{deviceId}: JS capture returned {json.Length} bytes");
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("error", out var errEl) &&
+                errEl.ValueKind != JsonValueKind.Null &&
+                errEl.ValueKind != JsonValueKind.Undefined)
+            {
+                LogFirefly($"{deviceId}: JS capture error — {errEl.GetString() ?? "unknown"}");
+                return null;
+            }
+
+            if (!root.TryGetProperty("jpeg", out var jpegEl) ||
+                jpegEl.ValueKind == JsonValueKind.Null ||
+                string.IsNullOrEmpty(jpegEl.GetString()))
+            {
+                LogFirefly($"{deviceId}: JS capture returned null jpeg");
+                return null;
+            }
+
+            return Convert.FromBase64String(jpegEl.GetString()!);
+        }
+        catch (Exception ex)
+        {
+            LogFirefly($"{deviceId}: capture parse error — {FormatFireflyException(ex)}");
+            return null;
         }
     }
 

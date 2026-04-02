@@ -319,59 +319,74 @@ public partial class App : Application
 
 		try
 		{
-			// Dispose health visualization service
+			// ── Synchronous fast cleanup ──────────────────────────────────────────
+			// These complete in microseconds; do them before kicking off async work.
 			if (_healthVisualizationService != null)
 			{
 				_healthVisualizationService.Dispose();
 				HealthVisualization = null;
 				_healthVisualizationService = null;
-				Logger.Log("Health visualization service disposed");
 			}
 
-			// Stop health monitoring
-			if (_healthMonitorService != null && _servicesCts != null)
-			{
-				_servicesCts.Cancel();
-				await _healthMonitorService.StopAsync(CancellationToken.None);
-				_servicesCts.Dispose();
-				_servicesCts = null;
-				Logger.Log("Health monitoring stopped");
-			}
+			LocalCommandServer.Stop();
 
-			// Stop WebPubSub fallback service
+			// Cancel _servicesCts to signal the health monitor's internal background
+			// loop to stop.  This is separate from the shutdown-deadline token passed
+			// to StopAsync — that token means "abandon graceful cleanup after this
+			// fires", so it must NOT be the already-cancelled _servicesCts.Token.
+			_servicesCts?.Cancel();
+
+			// Capture hardware-manager reference before the service provider is disposed.
+			var hardwareManager = _serviceProvider?.GetService<HardwareManager>();
+
+			// ── Parallel async shutdown ───────────────────────────────────────────
+			// Health monitor, WebPubSub, API server, and hardware modules are all
+			// independent.  Run them concurrently so total shutdown time ≈ slowest
+			// component rather than the sum of all components.
+			var shutdownTasks = new List<Task>(4);
+
+			if (_healthMonitorService != null)
+				shutdownTasks.Add(_healthMonitorService.StopAsync(CancellationToken.None));
+
 			if (_webPubSubService != null)
 			{
-				await _webPubSubService.StopAsync();
-				await _webPubSubService.DisposeAsync();
-				_webPubSubService = null;
-				Logger.Log("WebPubSub fallback service stopped");
-			}
-
-			// Stop API servers
-			LocalCommandServer.Stop();
-			if (_hardwareApiServer != null)
-			{
-				await _hardwareApiServer.StopAsync();
-				Logger.Log("Hardware API server stopped");
-			}
-
-			// Full dispose of hardware manager (disposes the semaphore)
-			if (_serviceProvider != null)
-			{
-				var hardwareManager = _serviceProvider.GetService<HardwareManager>();
-				if (hardwareManager != null)
+				var svc = _webPubSubService;
+				shutdownTasks.Add(Task.Run(async () =>
 				{
-					await hardwareManager.DisposeAsync();
-					Logger.Log("Hardware manager disposed");
-				}
+					await svc.StopAsync();
+					await svc.DisposeAsync();
+				}));
 			}
 
+			if (_hardwareApiServer != null)
+				shutdownTasks.Add(_hardwareApiServer.StopAsync());
+
+			if (hardwareManager != null)
+				shutdownTasks.Add(hardwareManager.DisposeAsync());
+
+			try
+			{
+				await Task.WhenAll(shutdownTasks);
+			}
+			catch (Exception ex)
+			{
+				Logger.Log($"Error during parallel shutdown: {ex.Message}");
+			}
+
+			// ── Post-shutdown field cleanup ───────────────────────────────────────
+			_servicesCts?.Dispose();
+			_servicesCts = null;
+			_webPubSubService = null;
 			_isHardwareApiMode = false;
 
-			// Dispose service provider — must use DisposeAsync so the container
-			// correctly calls DisposeAsync() on IAsyncDisposable-only singletons
-			// (e.g. FireflyModule). Calling Dispose() synchronously throws
-			// InvalidOperationException for async-only disposables in .NET 8.
+			Logger.Log("Hardware services stopped");
+
+			// Dispose the service container to release any IAsyncDisposable singletons
+			// registered within it. HardwareManager.DisposeAsync() returns Task (not
+			// ValueTask), so it does NOT implement IAsyncDisposable — the container will
+			// not call it a second time. The explicit call above is the only disposal.
+			// Use DisposeAsync so the container correctly calls DisposeAsync() on
+			// IAsyncDisposable-only singletons (.NET 8 throws if Dispose() is used).
 			if (_serviceProvider != null)
 			{
 				await _serviceProvider.DisposeAsync();
@@ -379,9 +394,7 @@ public partial class App : Application
 			}
 			Services = null;
 
-			// Flush and close Serilog
 			Log.CloseAndFlush();
-
 			Logger.Log("All services shut down successfully");
 		}
 		catch (Exception ex)
