@@ -469,6 +469,11 @@ public sealed partial class MainWindow
                 Logger.Log($"[MEDICAL DEVICES] {deviceId}: no YUY2/NV12 format available — " +
                            $"using native {currentSubtype}");
             }
+            else
+            {
+                // uncompressedFormat != null but camera is already in that format — no switch needed.
+                Logger.Log($"[MEDICAL DEVICES] {deviceId}: already in {currentSubtype} — skipping SetFormatAsync");
+            }
 
             // Use MediaFrameReader for continuous live preview.
             // MediaSource.CreateFromMediaFrameSource only surfaces a single static frame;
@@ -484,12 +489,22 @@ public sealed partial class MainWindow
             frameReader = await capture.CreateFrameReaderAsync(frameSource);
             Logger.Log($"[MEDICAL DEVICES] MediaFrameReader created for {deviceId}");
 
+            // Switch from the default Realtime to Buffered acquisition mode.
+            // In Realtime mode the reader silently drops frames when the consumer
+            // lags; on these cameras (native YUY2) that causes TryAcquireLatestFrame()
+            // to return null on every FrameArrived call even when the pipeline is
+            // running correctly.  Buffered mode queues frames so they are available
+            // when TryAcquireLatestFrame() is called.  The Interlocked rate-limiting
+            // flag below already caps display throughput, so buffer growth is bounded.
+            frameReader.AcquisitionMode = MediaFrameReaderAcquisitionMode.Buffered;
+
             // Frame-drop flag: 0 = idle, 1 = a frame is currently queued for rendering.
             // int + Interlocked required because FrameArrived runs on the MediaFrameReader
             // background thread while the reset runs on the UI thread; a plain bool has
             // no visibility or ordering guarantees across threads in the C# memory model.
-            int frameUpdatePending = 0;
-            int frameArrivalCount  = 0; // diagnostic: log first arrival and any null bitmaps
+            int frameUpdatePending  = 0;
+            int frameArrivalCount   = 0; // diagnostic: log first arrival and any null bitmaps
+            int frameHandlerCalled  = 0; // diagnostic: incremented at handler entry, before any null check
             // async void is required here to support the Direct3DSurface path, which needs
             // to await SoftwareBitmap.CreateCopyFromSurfaceAsync for GPU-backed frames.
             // The outer try/catch ensures no unhandled exception escapes to the app's
@@ -497,6 +512,12 @@ public sealed partial class MainWindow
             // concurrent invocations from piling up.
             frameReader.FrameArrived += async (sender, _) =>
             {
+                // Log the first few calls unconditionally so we can confirm the event is
+                // firing even if TryAcquireLatestFrame() consistently returns null.
+                var callCount = Interlocked.Increment(ref frameHandlerCalled);
+                if (callCount <= 3)
+                    Logger.Log($"[MEDICAL DEVICES] FrameArrived #{callCount} for {deviceId}");
+
                 // Atomically claim the slot; if it was already taken, drop this frame.
                 if (Interlocked.CompareExchange(ref frameUpdatePending, 1, 0) != 0) return;
 
