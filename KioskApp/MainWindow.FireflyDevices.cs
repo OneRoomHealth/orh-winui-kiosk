@@ -71,7 +71,22 @@ public sealed partial class MainWindow
         // Register the JS-side capture delegate so GET /api/v1/firefly/capture
         // (the VITE_WINUI_CAPTURE_URL endpoint) also routes through the WebView path
         // and works correctly during active ACS sessions.
-        fireflyModule.WebCaptureDelegate = CaptureFireflyJpegViaWebAsync;
+        // The delegate is called from an ASP.NET Core thread-pool thread, but
+        // CaptureFireflyJpegViaWebAsync accesses KioskWebView.CoreWebView2 which is a
+        // COM object that must be used on the UI thread.  A TCS bridges the result back.
+        fireflyModule.WebCaptureDelegate = (deviceId, deviceLabel) =>
+        {
+            var tcs = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!DispatcherQueue.TryEnqueue(async () =>
+            {
+                try { tcs.SetResult(await CaptureFireflyJpegViaWebAsync(deviceId, deviceLabel)); }
+                catch (Exception ex) { tcs.SetException(ex); }
+            }))
+            {
+                tcs.SetException(new InvalidOperationException("UI dispatcher is unavailable (shutting down)."));
+            }
+            return tcs.Task;
+        };
 
         SubscribeFireflySnapButton(fireflyModule);
     }
@@ -105,7 +120,21 @@ public sealed partial class MainWindow
             // WebCaptureDelegate must be refreshed on the new instance at the same time so that
             // GET /api/v1/firefly/capture continues to route through the WebView rather than
             // falling back to native MediaCapture (which conflicts with browser-owned UVC during ACS).
-            fireflyModule.WebCaptureDelegate = CaptureFireflyJpegViaWebAsync;
+            // Marshalled to the UI thread via TCS — the delegate is invoked from ASP.NET Core's
+            // thread pool and CoreWebView2 is a COM object that requires the UI thread.
+            fireflyModule.WebCaptureDelegate = (deviceId, deviceLabel) =>
+            {
+                var tcs = new TaskCompletionSource<byte[]?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                if (!DispatcherQueue.TryEnqueue(async () =>
+                {
+                    try { tcs.SetResult(await CaptureFireflyJpegViaWebAsync(deviceId, deviceLabel)); }
+                    catch (Exception ex) { tcs.SetException(ex); }
+                }))
+                {
+                    tcs.SetException(new InvalidOperationException("UI dispatcher is unavailable (shutting down)."));
+                }
+                return tcs.Task;
+            };
             SubscribeFireflySnapButton(fireflyModule);
 
             await fireflyModule.RefreshDevicesAsync();
