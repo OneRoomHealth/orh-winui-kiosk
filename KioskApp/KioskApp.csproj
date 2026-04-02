@@ -93,7 +93,7 @@
                    $(MSBuildThisFileDirectory)..\FireflyCapture.Bridge\bin\x86\$(Configuration)\net8.0-windows\win-x86\publish\SnapDll.dll">
     <MSBuild Projects="..\FireflyCapture.Bridge\FireflyCapture.Bridge.csproj"
              Properties="Configuration=$(Configuration);Platform=x86;RuntimeIdentifier=win-x86;SelfContained=true;PublishSingleFile=true"
-             Targets="Publish" />
+             Targets="Restore;Publish" />
 
     <!-- Register publish output as Content items after files exist. -->
     <ItemGroup>
